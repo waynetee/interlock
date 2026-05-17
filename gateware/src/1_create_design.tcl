@@ -2,6 +2,7 @@
 
 file copy -force "./src/src_softconsole/iog_cdr.hex" "./$Prjname/iog_cdr.hex"
 import_files -hdl_source {./src/src_hdl/SSDetect.v}
+import_files -hdl_source {./src/src_hdl/pkt_counter.sv}
 
 
 build_design_hierarchy 

@@ -61,6 +61,13 @@ set_io -port_name RD_BC_ERROR  \
     -DIRECTION OUTPUT
 
 
+# Packet counter heartbeat — LED_5 on the MPF300-EVAL-KIT
+set_io -port_name PKT_LED  \
+    -pin_name B26          \
+    -fixed true            \
+    -DIRECTION OUTPUT
+
+
 set_io -port_name REFCLK_N  \
     -pin_name U5            \
     -fixed true             \
