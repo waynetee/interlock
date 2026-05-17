@@ -23,6 +23,7 @@ sd_create_scalar_port -sd_name ${sd_name} -port_name {LINK_OK} -port_direction {
 sd_create_scalar_port -sd_name ${sd_name} -port_name {PHY_MDC} -port_direction {OUT}
 sd_create_scalar_port -sd_name ${sd_name} -port_name {PHY_RST} -port_direction {OUT}
 sd_create_scalar_port -sd_name ${sd_name} -port_name {RD_BC_ERROR} -port_direction {OUT}
+sd_create_scalar_port -sd_name ${sd_name} -port_name {PKT_LED} -port_direction {OUT}
 sd_create_scalar_port -sd_name ${sd_name} -port_name {REF_CLK_SEL} -port_direction {OUT}
 sd_create_scalar_port -sd_name ${sd_name} -port_name {SPISCLKO} -port_direction {OUT}
 sd_create_scalar_port -sd_name ${sd_name} -port_name {SPISDO} -port_direction {OUT}
@@ -181,13 +182,14 @@ sd_show_bif_pins -sd_name ${sd_name} -bif_pin_name {PF_IOD_CDR_CCC_C0_0:CDR_CLOC
 
 # Add SSDetect_0 instance
 sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {SSDetect} -hdl_file {hdl\SSDetect.v} -instance_name {SSDetect_0}
+sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {pkt_counter} -hdl_file {hdl\pkt_counter.sv} -instance_name {pkt_counter_0}
 
 
 
 # Add scalar net connections
 sd_connect_pins -sd_name ${sd_name} -pin_names {"AND2_2:A" "CORESPI_0_0:PRESETN" "CoreUARTapb_0:PRESETN" "Core_reset_pf_0:FABRIC_RESET_N" "MIV_RV32_C0_0:RESETN" "PF_IOD_CDR_CCC_C0_0:ARST_N" "PHY_RST" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"AND2_2:B" "PF_IOD_CDR_CCC_C0_0:PLL_LOCK" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"AND2_2:Y" "CORETSE_0:PRESETN" "PF_IOD_CDR_C0_0:RST_N" "SSDetect_0:rst_b" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"AND2_2:Y" "CORETSE_0:PRESETN" "PF_IOD_CDR_C0_0:RST_N" "SSDetect_0:rst_b" "pkt_counter_0:rst_n" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:D" "CORETSE_0:MDO" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:E" "CORETSE_0:MDOEN" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:PAD" "PHY_MDIO" }
@@ -202,7 +204,7 @@ sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TGT_TMS_0" "
 sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TGT_TRSTN_0" "MIV_RV32_C0_0:JTAG_TRSTN" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TMS" "TMS" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TRSTB" "TRSTB" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORESPI_0_0:PCLK" "CORETSE_0:MRXCLK" "CORETSE_0:MTXCLK" "CORETSE_0:PCLK" "CoreUARTapb_0:PCLK" "Core_reset_pf_0:CLK" "MIV_RV32_C0_0:CLK" "PF_CCC_0_0:OUT0_FABCLK_0" "SSDetect_0:rck" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORESPI_0_0:PCLK" "CORETSE_0:MRXCLK" "CORETSE_0:MTXCLK" "CORETSE_0:PCLK" "CoreUARTapb_0:PCLK" "Core_reset_pf_0:CLK" "MIV_RV32_C0_0:CLK" "PF_CCC_0_0:OUT0_FABCLK_0" "SSDetect_0:rck" "pkt_counter_0:clk" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORESPI_0_0:SPISCLKO" "SPISCLKO" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORESPI_0_0:SPISDI" "SPISDI" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORESPI_0_0:SPISDO" "SPISDO" }
@@ -212,7 +214,8 @@ sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MDC" "PHY_MDC" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXACPT" "CORETSE_0:MTXACPT" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXEOF" "CORETSE_0:MTXEOF" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXRDY" "CORETSE_0:MTXRDY" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXSOF" "CORETSE_0:MTXSOF" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXSOF" "CORETSE_0:MTXSOF" "pkt_counter_0:frame_sof" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"pkt_counter_0:led" "PKT_LED" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:RCG_ERROR" "RD_BC_ERROR" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:RXCLK" "CORETSE_0:TBI_RX_CLK" "PF_IOD_CDR_C0_0:RX_CLK_R" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:TBI_TX_CLK" "CORETSE_0:TXCLK" "PF_IOD_CDR_CCC_C0_0:TX_CLK_G" }
