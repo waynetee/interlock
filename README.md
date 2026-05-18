@@ -67,6 +67,14 @@ per `NOTES.md`):
 
 Wall time: ~22 minutes (SYNTH 2.5 min, P&R 10 min, VERIFY/GEN/EXPORT 5 min).
 
+### First-time setup on a fresh cloud VM
+
+See [`docs/SETUP.md`](docs/SETUP.md) — step-by-step walkthrough from
+"blank Ubuntu 24.04 cloud VM" to "can build this repo" (Libero download
++ install, license setup, lmgrd, libstdc++ workarounds, wrapper scripts,
+swap, simulation toolchain). ~60–90 minutes of active work plus license
+wait.
+
 The resulting `.job` lands in `gateware/Libero_Project/designer/top/export/top.job`
 (this directory is `.gitignored`; it's regenerated on every build).
 
