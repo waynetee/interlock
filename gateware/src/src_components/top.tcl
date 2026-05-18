@@ -269,10 +269,11 @@ sd_connect_pins -sd_name ${sd_name} -pin_names {"CORESPI_0_0:SPISDO" "SPISDO" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORESPI_0_0:SPISS[0:0]" "SPISS" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:ANX_STATE[8:8]" "LINK_OK" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MDC" "PHY_MDC" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXACPT" "CORETSE_0:MTXACPT" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXEOF" "CORETSE_0:MTXEOF" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXRDY" "CORETSE_0:MTXRDY" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXSOF" "CORETSE_0:MTXSOF" "pkt_counter_0:frame_sof" }
+# A→B bridge: CORETSE_0 MAC RX → CORETSE_1 MAC TX (Mac → FPGA → Spark)
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXACPT" "CORETSE_1:MTXACPT" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXEOF" "CORETSE_1:MTXEOF" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXRDY" "CORETSE_1:MTXRDY" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXSOF" "CORETSE_1:MTXSOF" "pkt_counter_0:frame_sof" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"pkt_counter_0:led" "PKT_LED" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:RCG_ERROR" "RD_BC_ERROR" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:RXCLK" "CORETSE_0:TBI_RX_CLK" "PF_IOD_CDR_C0_0:RX_CLK_R" }
@@ -296,8 +297,9 @@ sd_connect_pins -sd_name ${sd_name} -pin_names {"PF_IOD_CDR_C0_0:TX_N" "TX_N" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"PF_IOD_CDR_C0_0:TX_P" "TX_P" }
 
 # Add bus net connections
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXBYTEVALID" "CORETSE_0:MTXBYTEVALID" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXDAT" "CORETSE_0:MTXDAT" }
+# A→B bridge bus signals (continuation of the A→B MAC bridge above)
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXBYTEVALID" "CORETSE_1:MTXBYTEVALID" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXDAT" "CORETSE_1:MTXDAT" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:RCG" "PF_IOD_CDR_C0_0:RX_DATA" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:TCG" "PF_IOD_CDR_C0_0:TX_DATA" "SSDetect_0:rx_data" }
 
@@ -328,14 +330,20 @@ sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:RXCLK" "CORETSE_1:TBI
 # Note: extend the existing CORETSE_0:TBI_TX_CLK line above to include
 # CORETSE_1:TBI_TX_CLK and CORETSE_1:TXCLK instead of creating a new net.
 
-# Port 1 internal loopback — MAC RX side wires back into MAC TX side, same as
-# CORETSE_0.  mac_bridge will replace these connections in a later PR.
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXACPT" "CORETSE_1:MTXACPT" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXEOF" "CORETSE_1:MTXEOF" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXRDY" "CORETSE_1:MTXRDY" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXSOF" "CORETSE_1:MTXSOF" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXBYTEVALID" "CORETSE_1:MTXBYTEVALID" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXDAT" "CORETSE_1:MTXDAT" }
+# B→A bridge: CORETSE_1 MAC RX → CORETSE_0 MAC TX (Spark → FPGA → Mac).
+# Combined with the A→B bridge above, this forms a transparent
+# bidirectional ethernet bridge — frames in either port emerge on the
+# other. Direct wiring works because both CoreTSE MAC interfaces run on
+# the same fabric clock (PF_CCC_0_0:OUT0_FABCLK_0); no FIFO / CDC needed
+# for a pass-through. When the interlock Core (drop rules, hash chain,
+# attestation) is added in a later PR, mac_bridge will be inserted into
+# each direction between the two CoreTSEs at that point.
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXACPT" "CORETSE_0:MTXACPT" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXEOF" "CORETSE_0:MTXEOF" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXRDY" "CORETSE_0:MTXRDY" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXSOF" "CORETSE_0:MTXSOF" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXBYTEVALID" "CORETSE_0:MTXBYTEVALID" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXDAT" "CORETSE_0:MTXDAT" }
 
 # Port 1 TBI data — IOD CDR <-> CoreTSE, with SSDetect_1 listening on the TCG net
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:RCG" "PF_IOD_CDR_C1_0:RX_DATA" }
