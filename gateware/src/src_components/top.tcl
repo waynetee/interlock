@@ -34,6 +34,13 @@ sd_create_scalar_port -sd_name ${sd_name} -port_name {TX_P} -port_direction {OUT
 sd_create_scalar_port -sd_name ${sd_name} -port_name {TX} -port_direction {OUT}
 sd_create_scalar_port -sd_name ${sd_name} -port_name {coma_mode} -port_direction {OUT}
 
+# Port 1 SGMII pins — second VSC8575 RJ45 (J20)
+sd_create_scalar_port -sd_name ${sd_name} -port_name {RX_N_1} -port_direction {IN} -port_is_pad {1}
+sd_create_scalar_port -sd_name ${sd_name} -port_name {RX_P_1} -port_direction {IN} -port_is_pad {1}
+sd_create_scalar_port -sd_name ${sd_name} -port_name {TX_N_1} -port_direction {OUT} -port_is_pad {1}
+sd_create_scalar_port -sd_name ${sd_name} -port_name {TX_P_1} -port_direction {OUT} -port_is_pad {1}
+sd_create_scalar_port -sd_name ${sd_name} -port_name {LINK_OK_1} -port_direction {OUT}
+
 sd_create_scalar_port -sd_name ${sd_name} -port_name {PHY_MDIO} -port_direction {INOUT} -port_is_pad {1}
 
 
@@ -184,12 +191,63 @@ sd_show_bif_pins -sd_name ${sd_name} -bif_pin_name {PF_IOD_CDR_CCC_C0_0:CDR_CLOC
 sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {SSDetect} -hdl_file {hdl\SSDetect.v} -instance_name {SSDetect_0}
 sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {pkt_counter} -hdl_file {hdl\pkt_counter.sv} -instance_name {pkt_counter_0}
 
+# -------------------------------------------------------------------------
+# Port 1 instances (second VSC8575 PHY port; internal loopback for now)
+# -------------------------------------------------------------------------
+
+# Second CoreTSE — second instance of the CORETSE_0 component (sharing the
+# same component avoids ACT_UNIQUE_* module-name collisions in CoreTSE's
+# evaluation RTL). MDIO_PHYID baked into the config is unused on this
+# instance because CORETSE_1's MDIO outputs aren't connected to the bus.
+sd_instantiate_component -sd_name ${sd_name} -component_name {CORETSE_0} -instance_name {CORETSE_1}
+sd_create_pin_slices -sd_name ${sd_name} -pin_name {CORETSE_1:ANX_STATE} -pin_slices {[0:0]}
+sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:ANX_STATE[0:0]}
+sd_create_pin_slices -sd_name ${sd_name} -pin_name {CORETSE_1:ANX_STATE} -pin_slices {[1:1]}
+sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:ANX_STATE[1:1]}
+sd_create_pin_slices -sd_name ${sd_name} -pin_name {CORETSE_1:ANX_STATE} -pin_slices {[2:2]}
+sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:ANX_STATE[2:2]}
+sd_create_pin_slices -sd_name ${sd_name} -pin_name {CORETSE_1:ANX_STATE} -pin_slices {[3:3]}
+sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:ANX_STATE[3:3]}
+sd_create_pin_slices -sd_name ${sd_name} -pin_name {CORETSE_1:ANX_STATE} -pin_slices {[4:4]}
+sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:ANX_STATE[4:4]}
+sd_create_pin_slices -sd_name ${sd_name} -pin_name {CORETSE_1:ANX_STATE} -pin_slices {[5:5]}
+sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:ANX_STATE[5:5]}
+sd_create_pin_slices -sd_name ${sd_name} -pin_name {CORETSE_1:ANX_STATE} -pin_slices {[6:6]}
+sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:ANX_STATE[6:6]}
+sd_create_pin_slices -sd_name ${sd_name} -pin_name {CORETSE_1:ANX_STATE} -pin_slices {[7:7]}
+sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:ANX_STATE[7:7]}
+sd_create_pin_slices -sd_name ${sd_name} -pin_name {CORETSE_1:ANX_STATE} -pin_slices {[8:8]}
+sd_create_pin_slices -sd_name ${sd_name} -pin_name {CORETSE_1:ANX_STATE} -pin_slices {[9:9]}
+sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:ANX_STATE[9:9]}
+sd_connect_pins_to_constant -sd_name ${sd_name} -pin_names {CORETSE_1:STBP} -value {GND}
+sd_connect_pins_to_constant -sd_name ${sd_name} -pin_names {CORETSE_1:MTXCFRM} -value {GND}
+sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:MTXHWM}
+sd_connect_pins_to_constant -sd_name ${sd_name} -pin_names {CORETSE_1:SIGNAL_DETECT} -value {VCC}
+sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:SYNC}
+sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:TSM_INTR}
+sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:TSM_CONTROL}
+# CORETSE_1's MDIO master pins are unused — both PHYs share the on-board MDIO
+# bus, driven only from CORETSE_0.  Tie inputs to safe values; mark outputs unused.
+sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:MDC}
+sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:MDO}
+sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:MDOEN}
+sd_connect_pins_to_constant -sd_name ${sd_name} -pin_names {CORETSE_1:MDI} -value {GND}
+
+sd_instantiate_component -sd_name ${sd_name} -component_name {PF_IOD_CDR_C1} -instance_name {PF_IOD_CDR_C1_0}
+sd_mark_pins_unused -sd_name ${sd_name} -pin_names {PF_IOD_CDR_C1_0:RX_VAL}
+
+# Note: PF_IOD_CDR_CCC is SHARED with Port 0 (only one instance globally).
+# Two PF_IOD_CDR_CCCs on the same device edge fight for the same HS_IO_CLK
+# globals; sharing avoids that conflict at the cost of per-port PLL isolation.
+
+sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {SSDetect} -hdl_file {hdl\SSDetect.v} -instance_name {SSDetect_1}
+
 
 
 # Add scalar net connections
 sd_connect_pins -sd_name ${sd_name} -pin_names {"AND2_2:A" "CORESPI_0_0:PRESETN" "CoreUARTapb_0:PRESETN" "Core_reset_pf_0:FABRIC_RESET_N" "MIV_RV32_C0_0:RESETN" "PF_IOD_CDR_CCC_C0_0:ARST_N" "PHY_RST" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"AND2_2:B" "PF_IOD_CDR_CCC_C0_0:PLL_LOCK" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"AND2_2:Y" "CORETSE_0:PRESETN" "PF_IOD_CDR_C0_0:RST_N" "SSDetect_0:rst_b" "pkt_counter_0:rst_n" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"AND2_2:Y" "CORETSE_0:PRESETN" "CORETSE_1:PRESETN" "PF_IOD_CDR_C0_0:RST_N" "PF_IOD_CDR_C1_0:RST_N" "SSDetect_0:rst_b" "SSDetect_1:rst_b" "pkt_counter_0:rst_n" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:D" "CORETSE_0:MDO" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:E" "CORETSE_0:MDOEN" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:PAD" "PHY_MDIO" }
@@ -204,7 +262,7 @@ sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TGT_TMS_0" "
 sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TGT_TRSTN_0" "MIV_RV32_C0_0:JTAG_TRSTN" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TMS" "TMS" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TRSTB" "TRSTB" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORESPI_0_0:PCLK" "CORETSE_0:MRXCLK" "CORETSE_0:MTXCLK" "CORETSE_0:PCLK" "CoreUARTapb_0:PCLK" "Core_reset_pf_0:CLK" "MIV_RV32_C0_0:CLK" "PF_CCC_0_0:OUT0_FABCLK_0" "SSDetect_0:rck" "pkt_counter_0:clk" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORESPI_0_0:PCLK" "CORETSE_0:MRXCLK" "CORETSE_0:MTXCLK" "CORETSE_0:PCLK" "CORETSE_1:MRXCLK" "CORETSE_1:MTXCLK" "CORETSE_1:PCLK" "CoreUARTapb_0:PCLK" "Core_reset_pf_0:CLK" "MIV_RV32_C0_0:CLK" "PF_CCC_0_0:OUT0_FABCLK_0" "SSDetect_0:rck" "SSDetect_1:rck" "pkt_counter_0:clk" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORESPI_0_0:SPISCLKO" "SPISCLKO" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORESPI_0_0:SPISDI" "SPISDI" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORESPI_0_0:SPISDO" "SPISDO" }
@@ -218,7 +276,7 @@ sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXSOF" "CORETSE_0:MT
 sd_connect_pins -sd_name ${sd_name} -pin_names {"pkt_counter_0:led" "PKT_LED" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:RCG_ERROR" "RD_BC_ERROR" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:RXCLK" "CORETSE_0:TBI_RX_CLK" "PF_IOD_CDR_C0_0:RX_CLK_R" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:TBI_TX_CLK" "CORETSE_0:TXCLK" "PF_IOD_CDR_CCC_C0_0:TX_CLK_G" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:TBI_TX_CLK" "CORETSE_0:TXCLK" "CORETSE_1:TBI_TX_CLK" "CORETSE_1:TXCLK" "PF_IOD_CDR_CCC_C0_0:TX_CLK_G" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CoreUARTapb_0:RX" "RX" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CoreUARTapb_0:TX" "TX" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"Core_reset_pf_0:BANK_x_VDDI_STATUS" "Core_reset_pf_0:BANK_y_VDDI_STATUS" "pf_init_monitor_0_0:BANK_6_VDDI_STATUS" }
@@ -246,9 +304,45 @@ sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:TCG" "PF_IOD_CDR_C0_0
 # Add bus interface net connections
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORESPI_0_0:APB_bif" "CoreAPB3_0_0:APBmslave2" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:APBS" "CoreAPB3_0_0:APBmslave0" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:APBS" "CoreAPB3_0_0:APBmslave3" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CoreAPB3_0_0:APB3mmaster" "MIV_RV32_C0_0:APB_MSTR" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CoreAPB3_0_0:APBmslave1" "CoreUARTapb_0:APB_bif" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"PF_IOD_CDR_C0_0:CDR_CLOCKS" "PF_IOD_CDR_CCC_C0_0:CDR_CLOCKS" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"PF_IOD_CDR_C0_0:CDR_CLOCKS" "PF_IOD_CDR_C1_0:CDR_CLOCKS" "PF_IOD_CDR_CCC_C0_0:CDR_CLOCKS" }
+
+# -------------------------------------------------------------------------
+# Port 1 wiring — mirrors Port 0's pattern with internal loopback inside
+# CORETSE_1 (mac_bridge integration is a later PR). Both IOD CDRs share
+# PF_IOD_CDR_CCC_C0_0; the reset / PLL_LOCK chain is shared via AND2_2.
+# -------------------------------------------------------------------------
+
+# Port 1 SGMII pin connections
+sd_connect_pins -sd_name ${sd_name} -pin_names {"PF_IOD_CDR_C1_0:RX_N" "RX_N_1" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"PF_IOD_CDR_C1_0:RX_P" "RX_P_1" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"PF_IOD_CDR_C1_0:TX_N" "TX_N_1" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"PF_IOD_CDR_C1_0:TX_P" "TX_P_1" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"PF_IOD_CDR_C1_0:STREAM_START" "SSDetect_1:stream_start" }
+
+# Port 1 TBI clocks — independent recovered RX clock; TX clock shared from
+# PF_IOD_CDR_CCC_C0_0 (single CCC drives both ports' TX side).
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:RXCLK" "CORETSE_1:TBI_RX_CLK" "PF_IOD_CDR_C1_0:RX_CLK_R" }
+# Note: extend the existing CORETSE_0:TBI_TX_CLK line above to include
+# CORETSE_1:TBI_TX_CLK and CORETSE_1:TXCLK instead of creating a new net.
+
+# Port 1 internal loopback — MAC RX side wires back into MAC TX side, same as
+# CORETSE_0.  mac_bridge will replace these connections in a later PR.
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXACPT" "CORETSE_1:MTXACPT" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXEOF" "CORETSE_1:MTXEOF" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXRDY" "CORETSE_1:MTXRDY" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXSOF" "CORETSE_1:MTXSOF" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXBYTEVALID" "CORETSE_1:MTXBYTEVALID" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXDAT" "CORETSE_1:MTXDAT" }
+
+# Port 1 TBI data — IOD CDR <-> CoreTSE, with SSDetect_1 listening on the TCG net
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:RCG" "PF_IOD_CDR_C1_0:RX_DATA" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:TCG" "PF_IOD_CDR_C1_0:TX_DATA" "SSDetect_1:rx_data" }
+
+# Port 1 link-up indicator -> LED_6 (C26)
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:ANX_STATE[8:8]" "LINK_OK_1" }
 
 # Re-enable auto promotion of pins of type 'pad'
 auto_promote_pad_pins -promote_all 1

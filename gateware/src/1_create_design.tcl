@@ -19,6 +19,17 @@ source ./src/src_components/PF_CCC_0.tcl
 source ./src/src_components/pf_init_monitor_0.tcl
 source ./src/src_components/PF_IOD_CDR_C0.tcl
 source ./src/src_components/PF_IOD_CDR_CCC_C0.tcl
+# Port 1 IOD CDR — second instance only (loopback for now; bridge in a later
+# PR). Note: PF_IOD_CDR_CCC is SHARED between the two IOD CDRs because two
+# PF_IOD_CDR_CCC instances on the same device edge conflict on the limited
+# pool of HS_IO_CLK globals (each instance claims hs_io_clk_3/7/11/15 and
+# Libero's Globals Assigner can't find a non-overlapping placement).  Sharing
+# loses the per-port PLL-fault isolation but is unavoidable on this board.
+# The second CoreTSE re-uses CORETSE_0 as a second instance (CoreTSE's
+# evaluation RTL hardcodes module names that collide if you create two
+# distinct CoreTSE components, but instantiating the same component twice
+# is fine).
+source ./src/src_components/PF_IOD_CDR_C1.tcl
 
 file copy -force "./src/src_hdl/miv_rv32_opsrv_cfg_pkg.v" "./$Prjname/component/Microsemi/MiV/MIV_RV32/$MIV_RV32ver/miv_rv32_opsrv_cfg_pkg.v"
 

@@ -68,6 +68,48 @@ set_io -port_name PKT_LED  \
     -DIRECTION OUTPUT
 
 
+# Port 1 SGMII pair — second VSC8575 RJ45 (J20).  Same Bank 4 as Port 0.
+# RX side uses canonical P→PB / N→NB polarity (P pin = GPIO190PB4 = AA3).
+# AN4623 Port 0 uses the inverted convention (U1=NB4 as RX_P), which is
+# accepted by Libero for that pair but rejects PDCPF-13 for this pair —
+# probably an IOD CDR config artifact specific to GPIO212 vs GPIO190.
+# SGMII is polarity-tolerant at the protocol level (8b/10b), so swapping at
+# the FPGA pin level is transparent end-to-end.
+set_io -port_name RX_P_1  \
+    -pin_name AA3         \
+    -fixed true           \
+    -io_std LVDS25        \
+    -DIRECTION INPUT
+
+
+set_io -port_name RX_N_1  \
+    -pin_name AA2         \
+    -fixed true           \
+    -io_std LVDS25        \
+    -DIRECTION INPUT
+
+
+set_io -port_name TX_N_1  \
+    -pin_name Y1          \
+    -fixed true           \
+    -io_std LVDS25        \
+    -DIRECTION OUTPUT
+
+
+set_io -port_name TX_P_1  \
+    -pin_name W1          \
+    -fixed true           \
+    -io_std LVDS25        \
+    -DIRECTION OUTPUT
+
+
+# Port 1 link-up indicator — LED_6 (C26)
+set_io -port_name LINK_OK_1  \
+    -pin_name C26            \
+    -fixed true              \
+    -DIRECTION OUTPUT
+
+
 set_io -port_name REFCLK_N  \
     -pin_name U5            \
     -fixed true             \
