@@ -1,94 +1,124 @@
-# Mi-V firmware source (iteration 1)
+# Mi-V firmware source (iteration 2)
 
-The Mi-V soft RISC-V CPU on the FPGA runs `iog_cdr.hex` at boot to
-initialize CoreTSE_0 and the VSC8575 PHY. This directory holds our
-modifications to the AN4623 reference firmware.
+The Mi-V soft RISC-V CPU on the FPGA runs this firmware to bring up both
+CoreTSE MACs and both ports of the VSC8575 PHY. The firmware is baked
+into eNVM at FPGA configuration time and copied to TCM at boot.
 
-## What's here
+A single Mi-V core handles both PHYs — there's only one CPU instance in
+the SmartDesign. The firmware does all the register writes sequentially
+for both ports.
 
-- `main.c` — modified application entry point. Adapted from
-  Microsemi/Microchip's AN4623 `iog_cdr/main.c`. Adds UART early, an
-  MDIO bus scan, progress prints, and a status-poll idle loop.
-- `iog_cdr.hex` — current pre-built firmware (the AN4623 reference,
-  baked into sNVM by the Libero build flow). To be replaced when we
-  rebuild our `main.c` into a new hex.
+## Iteration 2 changes from iteration 1
 
-## Workflow (using SoftConsole on UTM Ubuntu VM)
+- **Port-1 bring-up added.** New functions `tse1_init`, `phy1_init`,
+  `Phy1_advertise`, `phy1_autonegotiation` — verbatim copies of the
+  port-0 functions with three constants swapped:
+  - PHY 28 (copper) → 29 (encoded `0x1C..` → `0x1D..`)
+  - PHY 18 (SGMII)  → 19 (encoded `0x12..` → `0x13..`)
+  - TSE_BASEADDR (0x60000000) → TSE1_BASEADDR (0x60003000) for MAC CSR writes
+  - **All MDIO transactions** still go through CoreTSE_0's MDIO master
+    (TSE_BASEADDR for the MII command/status registers); only the encoded
+    PHY-address target changes. CoreTSE_1's MDIO pins aren't wired —
+    see `top.tcl`.
+- **Bounded polling loops in port-1 code only.** AN4623's port-0 polling
+  loops are unbounded `while(1)`s; if the PHY is absent they hang. The
+  port-1 mirrors use a bounded loop counter so a missing/unresponsive
+  PHY 29 logs a warning instead of locking up the CPU. Port-0 code is
+  left untouched to avoid introducing any regression.
+- **Status dump for both ports** at end of init: reads PHY status
+  register (reg 1) from copper + SGMII sides of both ports and prints
+  link / autoneg-complete bits.
+- **Idle poll loop covers both ports** — prints status of all four PHY
+  blocks once per ~1s.
+- **Pre-init MDIO scan** retained from iter-1 — it runs after port-0
+  init (CoreTSE_0's MDIO clock is configured then) but before port-1
+  init starts. Output identifies the actual PHY addresses on the bus.
 
-See `../../../docs/firmware-iteration.md` for the full setup. Short
-version once SoftConsole is up:
+## Port-1 PHY address guesses
 
-1. Download the AN4623 SoftConsole project from the Hetzner box:
-   ```
-   scp -r <hetzner>:/root/fpga/an4623/mpf_an4623_v2022p3_df ~/
-   ```
-2. Copy this directory's `main.c` over the AN4623 source's `main.c`:
-   ```
-   cp <local-interlock-clone>/gateware/src/src_softconsole/main.c \
-       ~/mpf_an4623_v2022p3_df/SoftConsole_Project/iog_cdr/main.c
-   ```
-3. In SoftConsole: `File → Import → Existing Projects` →
-   `~/mpf_an4623_v2022p3_df/SoftConsole_Project/iog_cdr/`.
-4. `Project → Build Configurations → Set Active → Debug`.
-5. `Project → Build All` (Ctrl-B).
-6. `Run → Debug Configurations` → create a "GDB OpenOCD Debugging" entry
-   pointing at `Debug/iog_cdr.elf`. Tick "Reset target before download"
-   and "Load image".
-7. Click `Debug`. Firmware JTAG-loads into TCM at `0x80000000` and runs.
-8. On macOS (or the host running screen): `screen /dev/tty.usbserial-XXX 115200`
-   to see UART output.
+Iteration 2 assumes:
 
-The bitstream on the FPGA doesn't change — only the firmware in TCM.
+| Port | Copper PHY | SGMII PHY |
+|---|---|---|
+| 0 (verified, AN4623) | 28 (`0x1C`) | 18 (`0x12`) |
+| 1 (guessed) | 29 (`0x1D`) | 19 (`0x13`) |
 
-## What iteration 1 prints
+The `[scan]` output at boot will print every responding PHY's ID
+register. If port 1's addresses are not 29/19, edit the `PHY1_*` defines
+near the top of `main.c` and re-flash.
 
-On boot:
-- `[boot] interlock firmware iter-1 starting`
-- `[boot] configure_zl30364` (and `done`)
-- `[boot] tse_init (MAC 0, ...)` (and `done`)
-- `[scan] sweeping MDIO 0..31 ...` followed by one line per PHY that
-  responds (`[scan]   addr=N  ID1=0x....  ID2=0x....`)
-- `[boot] Phy_advertise` / `phy_autonegotiation` (with `done`)
-- `[state] PHY28 (copper) status=0x.... link=N aneg_done=N`
-- `[state] PHY18 (SGMII)  status=0x.... link=N aneg_done=N`
-- `[probe] CoreTSE_1 at 6000...:  MAC_CONFIG_1 reads 0x....`
-- `[boot] init complete — polling port 0 status`
-- Once per second: `[poll t=N] PHY28 status=0x.... link=N`
+## Expected boot output
 
-## What iteration 1 tells us
+```
+[boot] interlock firmware iter-2 starting
+[boot] configure_zl30364 (clock generator)
+[boot] configure_zl30364 done
+[boot] tse_init (MAC 0 @ 0x60000000, PHY 28 copper / 18 SGMII)
+[boot] tse_init done
+[scan] sweeping MDIO 0..31 via TSE @ 0x60000000
+[scan]   addr=18  ID1=0x0007  ID2=0x0429
+[scan]   addr=19  ID1=0x0007  ID2=0x0429    ← if port 1 SGMII visible
+[scan]   addr=28  ID1=0x0007  ID2=0x0429
+[scan]   addr=29  ID1=0x0007  ID2=0x0429    ← if port 1 copper visible
+[scan] done
+[boot] tse1_init (MAC 1 @ 0x60003000, PHY 29 copper / 19 SGMII)
+[boot] tse1_init done
+[boot] Phy_advertise (port 0, PHY 28)
+[boot] Phy_advertise done
+[boot] Phy1_advertise (port 1, PHY 29)
+[boot] Phy1_advertise done
+[boot] phy_autonegotiation (port 0)
+[boot] phy_autonegotiation done
+[boot] phy1_autonegotiation (port 1)
+[boot] phy1_autonegotiation done
+[state] port0 copper PHY 28 status=0x.... link=1 aneg_done=1
+[state] port0 SGMII  PHY 18 status=0x.... link=1 aneg_done=1
+[state] port1 copper PHY 29 status=0x.... link=? aneg_done=?
+[state] port1 SGMII  PHY 19 status=0x.... link=? aneg_done=?
+[probe] CoreTSE_1 MAC_CONFIG_1 reads 0x00000005
+[boot] init complete — polling both ports
+[poll t=0] p0c=0x.... p0s=0x.... p1c=0x.... p1s=0x.... (link bits: 1100)
+[poll t=1] p0c=0x.... p0s=0x.... p1c=0x.... p1s=0x.... (link bits: 1111)
+...
+```
 
-- **The MDIO scan output identifies port 1's PHY addresses.** Expected
-  to be 29 (copper) and 19 (SGMII) by analogy with port 0 (28 / 18),
-  but we should verify against actual hardware before writing init for
-  iteration 2.
-- **The CoreTSE_1 probe** confirms whether `TSE1_BASEADDR = 0x60003000`
-  is the right slot-3 address. If `MAC_CONFIG_1` reads back `0x00000000`
-  (post-reset state) the slot mapping is correct. If it reads
-  `0xFFFFFFFF` or causes a bus hang, the APB decode is wrong.
-- **The poll loop** confirms link state on port 0 stays up after init
-  (sanity check that we didn't break the existing port).
+The link bits in the poll loop are `p0c p0s p1c p1s` — all-1s
+means full bidirectional bridge is up.
 
-## Iteration 2 (planned, not in this commit)
+## Diagnostic decoding
 
-Once iteration 1 confirms port 1 PHY addresses and CoreTSE_1 base:
+| Boot output pattern | Implies |
+|---|---|
+| `[scan]` shows no addr=29 / addr=19 | Port-1 PHY addresses are NOT 29/19. Try other +N offsets or read the VSC8575 strap pins from schematics. |
+| `[phy1] WARNING: PHY 29 ID register reads as 0xFFFF` | Same — port 1 copper PHY not at address 29. Update `PHY1_COPPER_ADDR`. |
+| `[scan]` shows addr=29 + addr=19 but `[state] port1 ... link=0 aneg_done=0` | Init code is touching the right PHY but autoneg isn't completing — likely SGMII-side config issue, possibly VSC8575 page semantics needing a different sequence. |
+| All four `[state] ... link=1 aneg_done=1` | Both ports up. Bridge should pass traffic on physical RJ45s. |
+| `[probe] CoreTSE_1 MAC_CONFIG_1 reads 0xFFFFFFFF` | TSE1_BASEADDR is wrong — APB decode not hitting CoreTSE_1. Verify CoreAPB3 slot mapping in `top.tcl`. |
 
-- Add `tse1_init()` — same register sequence as `tse_init()` but at
-  `TSE1_BASEADDR`. Skips the `phy_init()` call because CoreTSE_1's MDIO
-  master pins aren't wired (see `top.tcl`).
-- Add `phy1_init(phy_copper, phy_sgmii)` — issues the same MDIO writes
-  as `Phy_advertise()` + `phy_autonegotiation()` but parameterised on
-  PHY address. Targets the port 1 PHY addresses through CoreTSE_0's
-  MDIO master.
-- Wire both into `main()` after the port 0 init.
+## Workflow
+
+See `../../../docs/firmware-iteration.md` for SoftConsole setup.
+Short version:
+
+1. Build `main.c` in SoftConsole's `Debug` configuration → produces
+   `Debug/iog_cdr.hex`.
+2. Get the new hex onto Hetzner: `scp ~/softconsole-workspace/iog_cdr/Debug/iog_cdr.hex <hetzner>:/tmp/iter2.hex`.
+3. On Hetzner, replace `gateware/src/src_softconsole/iog_cdr.hex` with the
+   new hex.
+4. Rebuild the Libero bitstream (~25 min).
+5. Flash the new `.job` via FlashPro Express (~10 min).
+6. Open `screen /dev/ttyUSB0 115200` to watch the boot output.
+
+JTAG-load fast iteration (~10 sec/iter) is documented but not currently
+working with this OpenOCD/Mi-V combo — see `docs/firmware-iteration.md`.
 
 ## Files NOT in this directory
 
-The rest of the AN4623 SoftConsole project (drivers, HAL, linker
-scripts) lives in Microchip's distribution at:
+The rest of the AN4623 SoftConsole project (drivers, HAL, linker scripts)
+lives in Microchip's distribution at:
 
 ```
 /root/fpga/an4623/mpf_an4623_v2022p3_df/SoftConsole_Project/iog_cdr/
 ```
 
-We only override `main.c`. Don't copy the rest into this repo —
-Microsemi licence applies.
+Only `main.c` is overridden here.

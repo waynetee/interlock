@@ -1,21 +1,29 @@
 /*******************************************************************************
- * Interlock firmware — iteration 1: observation pass.
+ * Interlock firmware — iteration 2: port-1 bring-up, mirrored from port-0.
  *
  * Adapted from Microsemi/Microchip AN4623 (DG0799) iog_cdr/main.c.
  *
- * Changes from AN4623 baseline:
- *   - UART_init moved to the very top of main() so we see boot output.
- *   - MDIO bus scan: read PHY ID at every MDIO address 0..31 and print
- *     anything that responds. Tells us where port 0 and port 1 PHYs live
- *     without guessing.
- *   - Print progress around each major init step.
- *   - Read and print final port 0 link state after autoneg.
- *   - Idle loop polls port 0 status once per ~1s, prints link bit.
- *   - Tiny hex/dec uart helpers (no snprintf to keep TCM usage low).
- *   - "Hello World" loop removed (replaced by status-polling loop).
+ * Strategy for risk reduction: the port-0 init functions are LEFT UNCHANGED
+ * (verbatim from AN4623 — we know they work). Port-1 init functions are
+ * near-verbatim copies of the port-0 functions, with two constants changed:
+ *   - All `0x1C..` MDIO encoded addresses (PHY 28 = copper-side of port 0)
+ *     become `0x1D..` (PHY 29 = copper-side of port 1).
+ *   - All `0x12..` MDIO encoded addresses (PHY 18 = SGMII-side of port 0)
+ *     become `0x13..` (PHY 19 = SGMII-side of port 1).
+ *   - MAC register writes for CoreTSE_1 go to TSE1_BASEADDR (0x60003000)
+ *     instead of TSE_BASEADDR (0x60000000).
+ * MDIO transactions still go through CoreTSE_0's MDIO master (TSE_BASEADDR
+ * for the MDIO command/status registers) because that's the only MDIO master
+ * physically wired to the VSC8575. The encoded PHY address routes within the
+ * chip.
  *
- * No port-1 MAC or PHY init in this iteration — the bus scan results
- * determine port-1 PHY addresses for iteration 2.
+ * Port-1 PHY addresses (29 and 19) are best-guess by +1 analogy with port 0.
+ * The MDIO scan at boot will confirm. If addresses differ, edit the four
+ * `PHY1_*` defines below and reflash.
+ *
+ * Defensive change in port-1 functions only: the AN4623 polling loops are
+ * unbounded `while(1)`; in port-1 versions they have a bounded timeout so
+ * a missing/unresponsive PHY logs an error instead of hanging the CPU.
  *
  * Original copyright header retained per Microsemi licence.
  */
@@ -32,23 +40,21 @@
 extern void configure_zl30364(void);
 
 /*
- * CoreTSE_1 lives at APB slot 3. The slot layout from hw_platform.h
- * (TSE at 0x60000000, UART at 0x60001000, SPI at 0x60002000) shows
- * 4 KB-per-slot striding, so slot 3 sits at 0x60003000. The interlock
- * SmartDesign wires CoreTSE_1's APBS to CoreAPB3 slave 3, confirming.
+ * Port-1 mapping. CoreTSE_1 sits at CoreAPB3 slot 3.
+ * Slot stride is 0x1000 starting at 0x60000000 (slot 0 = CoreTSE_0,
+ * slot 1 = UART, slot 2 = SPI, slot 3 = CoreTSE_1).
  */
-#define TSE1_BASEADDR 0x60003000UL
+#define TSE1_BASEADDR       0x60003000UL
 
-/*
- * CoreTSE register offsets used here (subset of the IP's CSR map).
- *   0x000 / 0x004     MAC_CONFIG_1 / 2
- *   0x020             MII Management Configuration (MDC prescaler)
- *   0x024             MII MGMT Command  (1 = start read, 0 = idle/write)
- *   0x028             MII MGMT Address  {phy_addr[4:0], 3'b0, reg_addr[4:0]}
- *   0x02C             MII MGMT TX data  (16-bit write payload)
- *   0x030             MII MGMT RX data  (16-bit read result)
- *   0x034             MII MGMT Indicators — bit 0 = busy
- */
+/* MDIO addresses for the two halves of each port's PHY block on the VSC8575.
+ * Port 0 values verified in the AN4623 firmware. Port 1 values are +1
+ * by analogy; MDIO scan will confirm. */
+#define PHY0_COPPER_ADDR    28      /* encodes as 0x1C in MDIO command */
+#define PHY0_SGMII_ADDR     18      /* encodes as 0x12 */
+#define PHY1_COPPER_ADDR    29      /* encodes as 0x1D — GUESSED */
+#define PHY1_SGMII_ADDR     19      /* encodes as 0x13 — GUESSED */
+
+#define MDIO_POLL_TIMEOUT_LOOPS   2000000u   /* ~few seconds at 80 MHz */
 
 UART_instance_t g_uart;
 extern void delay(uint32_t div);
@@ -72,6 +78,12 @@ static void uart_print_hex16(uint16_t v)
     buf[5] = hex[(v >>  0) & 0xF];
     buf[6] = '\0';
     uart_print(buf);
+}
+
+static void uart_print_hex32(uint32_t v)
+{
+    uart_print_hex16((uint16_t)(v >> 16));
+    uart_print_hex16((uint16_t)v);
 }
 
 static void uart_print_dec(uint32_t v)
@@ -113,21 +125,14 @@ static void mdio_write(uint32_t tse_base, uint8_t phy, uint8_t reg, uint16_t val
 
 /*--------------------------- MDIO bus scan ----------------------------------*/
 
-/*
- * Sweep MDIO addresses 0..31 on CoreTSE_0 (the only MDIO master wired to
- * the VSC8575). Print every address whose PHY ID register isn't all-ones
- * or all-zeros. VSC8575 reports ID1 = 0x0007, ID2 = 0x0429 in the upper
- * nibbles (vendor OUI 00:01:C1 with revision tail) — adjust expectations
- * once the actual values land on the UART.
- */
 static void mdio_scan(uint32_t tse_base)
 {
-    uart_print("[scan] sweeping MDIO 0..31 on TSE @ ");
-    uart_print_hex16((uint16_t)(tse_base >> 16));
-    uart_print("....\r\n");
+    uart_print("[scan] sweeping MDIO 0..31 via TSE @ ");
+    uart_print_hex32(tse_base);
+    uart_print("\r\n");
     for (uint8_t addr = 0; addr < 32; addr++) {
-        uint16_t id1 = mdio_read(tse_base, addr, 2);  /* PHY ID register 1 */
-        uint16_t id2 = mdio_read(tse_base, addr, 3);  /* PHY ID register 2 */
+        uint16_t id1 = mdio_read(tse_base, addr, 2);
+        uint16_t id2 = mdio_read(tse_base, addr, 3);
         if (id1 != 0xFFFF && (id1 != 0x0000 || id2 != 0x0000)) {
             uart_print("[scan]   addr=");
             uart_print_dec(addr);
@@ -141,14 +146,29 @@ static void mdio_scan(uint32_t tse_base)
     uart_print("[scan] done\r\n");
 }
 
-/*--------------------------- AN4623 originals ------------------------------*/
-/*
- * The four functions below (Phy_advertise, phy_autonegotiation, phy_init,
- * tse_init) are unchanged from AN4623's iog_cdr/main.c. They configure
- * port 0 only and reference PHY addresses 28 (copper) and 18 (SGMII) on
- * the VSC8575. Once the MDIO scan confirms port 1 addresses, iteration 2
- * will add analogous functions parameterised on PHY addr + base.
- */
+/*--------------------------- Status dump helper -----------------------------*/
+
+static void dump_phy_status(uint32_t tse_base, uint8_t phy_addr, const char *label)
+{
+    uint16_t st = mdio_read(tse_base, phy_addr, 1);
+    uart_print("[state] ");
+    uart_print(label);
+    uart_print(" PHY ");
+    uart_print_dec(phy_addr);
+    uart_print(" status=");
+    uart_print_hex16(st);
+    uart_print(" link=");
+    uart_print_dec((st >> 2) & 1);
+    uart_print(" aneg_done=");
+    uart_print_dec((st >> 5) & 1);
+    uart_print("\r\n");
+}
+
+/*======================================================================*/
+/* PORT 0 INIT — unchanged from AN4623 / iteration 1.                   */
+/* These functions are KNOWN to work. They drive PHY 28 (copper) and    */
+/* PHY 18 (SGMII), with MAC at TSE_BASEADDR.                            */
+/*======================================================================*/
 
 void Phy_advertise(void)
 {
@@ -291,7 +311,6 @@ void phy_init (void)
   id2 = *(volatile unsigned int *) (TSE_BASEADDR + 0x030);
   *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x0;
 
-  /* 16E3 bit 7 setting to 1 for SERDES MAC AN EN */
   *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1C1F;
   *(volatile unsigned int *) (TSE_BASEADDR + 0x02C) = 0x0003;
   while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
@@ -309,7 +328,6 @@ void phy_init (void)
   *(volatile unsigned int *) (TSE_BASEADDR + 0x02C) = phy_mac_reg;
   while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
 
-  /* Set Register 31 to 0 */
   *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1C1F;
   *(volatile unsigned int *) (TSE_BASEADDR + 0x02C) = 0x0010;
   while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
@@ -374,7 +392,6 @@ void phy_init (void)
   (void)id1; (void)id2; (void)temp;
 }
 
-/* CoreTSE_0 MAC register init */
 void tse_init (void)
 {
   uint32_t tse_reg = 0xFFFF;
@@ -398,82 +415,370 @@ void tse_init (void)
   phy_init();
 }
 
+/*======================================================================*/
+/* PORT 1 INIT — mirror of port 0 with PHY/base address constants       */
+/* changed. ALL MDIO transactions still issued via TSE_BASEADDR because */
+/* CoreTSE_0 owns the (only) MDIO master. PHY targets are 29 (copper)   */
+/* and 19 (SGMII). MAC writes go to TSE1_BASEADDR.                      */
+/*======================================================================*/
+
+void Phy1_advertise(void)
+{
+  uint32_t phy_reg = 0xFFFF;
+
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1D04;
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x1;
+  while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+  phy_reg = *(volatile unsigned int *) (TSE_BASEADDR + 0x030);
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x0;
+
+  phy_reg &= ~(0x1E);
+
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1D04;
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x02C) = phy_reg;
+  while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1D09;
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x1;
+  while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+  phy_reg = *(volatile unsigned int *) (TSE_BASEADDR + 0x030);
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x0;
+
+  phy_reg |= 0x200;
+
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1D09;
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x02C) = phy_reg;
+  while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+}
+
+void phy1_autonegotiation(void)
+{
+  uint32_t phy_reg = 0xFFFF;
+  uint16_t autoneg_complete;
+  volatile uint32_t copper_aneg_timeout = 1000000u;
+  volatile uint32_t sgmii_aneg_timeout = 100000u;
+  uint8_t copper_link_up;
+
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1D1F;
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x02C) = 0x0;
+  while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1D00;
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x1;
+  while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+  phy_reg = *(volatile unsigned int *) (TSE_BASEADDR + 0x030);
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x0;
+
+  phy_reg |= 0x1200;
+
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1D00;
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x02C) = phy_reg;
+  while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+  do {
+    *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1D01;
+    *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x1;
+    while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+    phy_reg = *(volatile unsigned int *) (TSE_BASEADDR + 0x030);
+    *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x0;
+
+    autoneg_complete = phy_reg & 0x0020u;
+    --copper_aneg_timeout;
+  } while(!autoneg_complete && (copper_aneg_timeout != 0u));
+
+  for (volatile uint32_t i = 0; i < 100000; i++);
+
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1D01;
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x1;
+  while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+  phy_reg = *(volatile unsigned int *) (TSE_BASEADDR + 0x030);
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x0;
+
+  copper_link_up = phy_reg & 0x0004;
+
+  if(copper_link_up != 0u)
+  {
+    *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1300;
+    *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x1;
+    while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+    phy_reg = *(volatile unsigned int *) (TSE_BASEADDR + 0x030);
+    *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x0;
+
+    phy_reg |= 0x1000;
+
+    *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1300;
+    *(volatile unsigned int *) (TSE_BASEADDR + 0x02C) = phy_reg;
+    while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+    *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1300;
+    *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x1;
+    while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+    phy_reg = *(volatile unsigned int *) (TSE_BASEADDR + 0x030);
+    *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x0;
+
+    phy_reg |= 0x0200;
+
+    *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1300;
+    *(volatile unsigned int *) (TSE_BASEADDR + 0x02C) = phy_reg;
+    while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+    do {
+      *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1301;
+      *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x1;
+      while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+      phy_reg = *(volatile unsigned int *) (TSE_BASEADDR + 0x030);
+      *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x0;
+
+      autoneg_complete = phy_reg & 0x0020;
+      --sgmii_aneg_timeout;
+    } while((!autoneg_complete) && (sgmii_aneg_timeout != 0u));
+  }
+}
+
+void phy1_init (void)
+{
+  volatile uint16_t phy_reg_0;
+  volatile uint16_t temp;
+  volatile uint16_t id1=0, id2=0, phy_mac_reg = 0;
+  uint32_t timeout;
+
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1D02;
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x1;
+  while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+  id1 = *(volatile unsigned int *) (TSE_BASEADDR + 0x030);
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x0;
+
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1D03;
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x1;
+  while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+  id2 = *(volatile unsigned int *) (TSE_BASEADDR + 0x030);
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x0;
+
+  /* Quick sanity check: if PHY 29 doesn't respond (ID register all-ones
+   * or all-zeros), skip the rest of this function — we'd just hang in
+   * the polling loops below. */
+  if (id1 == 0xFFFF || (id1 == 0x0000 && id2 == 0x0000)) {
+    uart_print("[phy1] WARNING: PHY 29 ID register reads as ");
+    uart_print_hex16(id1);
+    uart_print(" / ");
+    uart_print_hex16(id2);
+    uart_print(" — PHY likely absent, skipping phy1_init\r\n");
+    return;
+  }
+
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1D1F;
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x02C) = 0x0003;
+  while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1D10;
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x1;
+  while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+  phy_mac_reg = *(volatile unsigned int *) (TSE_BASEADDR + 0x030);
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x0;
+
+  phy_mac_reg |= 0x80;
+
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1D10;
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x02C) = phy_mac_reg;
+  while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1D1F;
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x02C) = 0x0010;
+  while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+  phy_mac_reg = 0x80F0;
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1D12;
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x02C) = phy_mac_reg;
+  while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+  /* Poll for command-complete with bounded timeout. AN4623's port-0
+   * version uses while(1); we add a counter so an unresponsive PHY
+   * doesn't hang the CPU. */
+  timeout = MDIO_POLL_TIMEOUT_LOOPS;
+  while(timeout-- > 0)
+  {
+    *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1D12;
+    *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x1;
+    while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+    temp = *(volatile unsigned int *) (TSE_BASEADDR + 0x030);
+    *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x0;
+
+    if((temp & 0x8000) == 0)
+    {
+      break;
+    }
+  }
+  if (timeout == 0) {
+    uart_print("[phy1] WARNING: timeout waiting for PHY 29 reg 0x12 bit 15 clear\r\n");
+  }
+
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1D1F;
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x02C) = 0x0;
+  while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1D00;
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x1;
+  while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+  phy_reg_0 = *(volatile unsigned int *) (TSE_BASEADDR + 0x030);
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x0;
+
+  phy_reg_0 = phy_reg_0 | 0x8000;
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1D00;
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x02C) = phy_reg_0;
+  while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+  /* Bounded version of the PHY-reset wait. */
+  timeout = MDIO_POLL_TIMEOUT_LOOPS;
+  while(timeout-- > 0)
+  {
+    *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1D00;
+    *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x1;
+    while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+    temp = *(volatile unsigned int *) (TSE_BASEADDR + 0x030);
+    *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x0;
+    if((temp & 0x8000) == 0)
+    {
+      break;
+    }
+  }
+  if (timeout == 0) {
+    uart_print("[phy1] WARNING: timeout waiting for PHY 29 reset complete\r\n");
+  }
+
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1D00;
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x1;
+  while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+
+  temp = *(volatile unsigned int *) (TSE_BASEADDR + 0x030);
+  *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x0;
+
+  (void)id1; (void)id2; (void)temp;
+}
+
+void tse1_init (void)
+{
+  uint32_t tse_reg = 0xFFFF;
+
+  /* Same MAC register sequence as tse_init(), targeting TSE1_BASEADDR.
+   * Values copied verbatim — same operating mode, same address filter
+   * defaults, same MDIO clock prescaler. The MDIO clock register write
+   * here configures CoreTSE_1's MDIO master, but its MDIO pins are not
+   * wired in the SmartDesign (marked unused in top.tcl), so the master
+   * is harmless dead weight. */
+  *(volatile unsigned int *) (TSE1_BASEADDR + 0x000) = 0x00000005;
+  *(volatile unsigned int *) (TSE1_BASEADDR + 0x004) = 0x00007201;
+  *(volatile unsigned int *) (TSE1_BASEADDR + 0x040) = 0x6060603C;
+  *(volatile unsigned int *) (TSE1_BASEADDR + 0x044) = 0xB1C00000;
+  *(volatile unsigned int *) (TSE1_BASEADDR + 0x048) = 0x0000FF00;
+  *(volatile unsigned int *) (TSE1_BASEADDR + 0x04C) = 0x0FFF0000;
+  *(volatile unsigned int *) (TSE1_BASEADDR + 0x050) = 0x04000180;
+  *(volatile unsigned int *) (TSE1_BASEADDR + 0x054) = 0x0680FFFF;
+  *(volatile unsigned int *) (TSE1_BASEADDR + 0x058) = 0x00000000;
+  *(volatile unsigned int *) (TSE1_BASEADDR + 0x05C) = 0x0007FFFF;
+  *(volatile unsigned int *) (TSE1_BASEADDR + 0x1C0) = 0x0000000F;
+  *(volatile unsigned int *) (TSE1_BASEADDR + 0x020) = 0x0007;
+
+  tse_reg = *(volatile unsigned int *) (TSE1_BASEADDR + 0x20);
+  (void)tse_reg;
+
+  phy1_init();
+}
+
 /*-------------------------- main ------------------------------------------*/
 
 int main(void)
 {
-    /* Bring UART up first so all subsequent steps are visible. */
     UART_init(&g_uart, COREUARTAPB0_BASE_ADDR,
               BAUD_VALUE_115200, (DATA_8_BITS | NO_PARITY));
-    uart_print("\r\n\r\n[boot] interlock firmware iter-1 starting\r\n");
-
-    /* MDIO bus scan via CoreTSE_0 (the only MDIO master wired to VSC8575).
-       Catch: CoreTSE_0's MDIO controller is unconfigured at this point —
-       the MDC prescaler in MAC reg 0x020 hasn't been set yet. So this scan
-       won't work until after tse_init() runs. Calling it after for now. */
+    uart_print("\r\n\r\n[boot] interlock firmware iter-2 starting\r\n");
 
     uart_print("[boot] configure_zl30364 (clock generator)\r\n");
     configure_zl30364();
     uart_print("[boot] configure_zl30364 done\r\n");
 
-    uart_print("[boot] tse_init (MAC 0, PHY at 28, includes phy_init)\r\n");
+    uart_print("[boot] tse_init (MAC 0 @ ");
+    uart_print_hex32(TSE_BASEADDR);
+    uart_print(", PHY 28 copper / 18 SGMII)\r\n");
     tse_init();
     uart_print("[boot] tse_init done\r\n");
 
-    /* MDIO is alive now — scan the bus and dump every PHY that responds. */
+    /* Scan now that CoreTSE_0's MDIO master is configured but port-1's PHYs
+     * haven't been touched yet — gives us a clean picture of what's on the bus. */
     mdio_scan(TSE_BASEADDR);
 
-    uart_print("[boot] Phy_advertise (PHY 28 reg 4, 9)\r\n");
+    uart_print("[boot] tse1_init (MAC 1 @ ");
+    uart_print_hex32(TSE1_BASEADDR);
+    uart_print(", PHY 29 copper / 19 SGMII)\r\n");
+    tse1_init();
+    uart_print("[boot] tse1_init done\r\n");
+
+    uart_print("[boot] Phy_advertise (port 0, PHY 28)\r\n");
     Phy_advertise();
     uart_print("[boot] Phy_advertise done\r\n");
 
-    uart_print("[boot] phy_autonegotiation (PHY 28 reg 0/1, then PHY 18)\r\n");
+    uart_print("[boot] Phy1_advertise (port 1, PHY 29)\r\n");
+    Phy1_advertise();
+    uart_print("[boot] Phy1_advertise done\r\n");
+
+    uart_print("[boot] phy_autonegotiation (port 0)\r\n");
     phy_autonegotiation();
     uart_print("[boot] phy_autonegotiation done\r\n");
 
-    /* Read and print final state of the port-0 PHYs. */
-    uint16_t st_copper = mdio_read(TSE_BASEADDR, 28, 1);
-    uint16_t st_sgmii  = mdio_read(TSE_BASEADDR, 18, 1);
-    uart_print("[state] PHY28 (copper) status=");
-    uart_print_hex16(st_copper);
-    uart_print(" link=");
-    uart_print_dec((st_copper >> 2) & 1);
-    uart_print(" aneg_done=");
-    uart_print_dec((st_copper >> 5) & 1);
-    uart_print("\r\n");
-    uart_print("[state] PHY18 (SGMII)  status=");
-    uart_print_hex16(st_sgmii);
-    uart_print(" link=");
-    uart_print_dec((st_sgmii >> 2) & 1);
-    uart_print(" aneg_done=");
-    uart_print_dec((st_sgmii >> 5) & 1);
-    uart_print("\r\n");
+    uart_print("[boot] phy1_autonegotiation (port 1)\r\n");
+    phy1_autonegotiation();
+    uart_print("[boot] phy1_autonegotiation done\r\n");
 
-    /* Probe CoreTSE_1: does the MAC at slot 3 respond to a register read?
-       If MAC_CONFIG_1 reads back something plausible (not 0xFFFFFFFF, not
-       a bus-error hang), the slot mapping is correct. We don't initialize
-       CoreTSE_1 yet — iteration 2 once we have the scan data. */
-    uart_print("[probe] CoreTSE_1 at ");
-    uart_print_hex16((uint16_t)(TSE1_BASEADDR >> 16));
-    uart_print("0000: MAC_CONFIG_1 reads ");
+    /* Final state dump. */
+    dump_phy_status(TSE_BASEADDR, PHY0_COPPER_ADDR, "port0 copper");
+    dump_phy_status(TSE_BASEADDR, PHY0_SGMII_ADDR,  "port0 SGMII");
+    dump_phy_status(TSE_BASEADDR, PHY1_COPPER_ADDR, "port1 copper");
+    dump_phy_status(TSE_BASEADDR, PHY1_SGMII_ADDR,  "port1 SGMII");
+
+    /* CoreTSE_1 sanity probe (already initialized, this just confirms the
+     * address is readable and what MAC_CONFIG_1 reads back as). */
+    uart_print("[probe] CoreTSE_1 MAC_CONFIG_1 reads ");
     uint32_t tse1_mc1 = *(volatile unsigned int *)(TSE1_BASEADDR + 0x000);
-    uart_print_hex16((uint16_t)(tse1_mc1 >> 16));
-    uart_print_hex16((uint16_t)tse1_mc1);
+    uart_print_hex32(tse1_mc1);
     uart_print("\r\n");
 
-    uart_print("[boot] init complete — polling port 0 status\r\n");
+    uart_print("[boot] init complete — polling both ports\r\n");
 
-    /* Idle loop: poll once per ~1 second and print link bit. */
     uint32_t tick = 0;
     while (1) {
-        for (volatile uint32_t i = 0; i < 8000000; i++) { }  /* ~1s at 80 MHz */
-        uint16_t st = mdio_read(TSE_BASEADDR, 28, 1);
+        for (volatile uint32_t i = 0; i < 8000000; i++) { }
+        uint16_t s0c = mdio_read(TSE_BASEADDR, PHY0_COPPER_ADDR, 1);
+        uint16_t s0s = mdio_read(TSE_BASEADDR, PHY0_SGMII_ADDR,  1);
+        uint16_t s1c = mdio_read(TSE_BASEADDR, PHY1_COPPER_ADDR, 1);
+        uint16_t s1s = mdio_read(TSE_BASEADDR, PHY1_SGMII_ADDR,  1);
         uart_print("[poll t=");
         uart_print_dec(tick++);
-        uart_print("] PHY28 status=");
-        uart_print_hex16(st);
-        uart_print(" link=");
-        uart_print_dec((st >> 2) & 1);
-        uart_print("\r\n");
+        uart_print("] p0c=");
+        uart_print_hex16(s0c);
+        uart_print(" p0s=");
+        uart_print_hex16(s0s);
+        uart_print(" p1c=");
+        uart_print_hex16(s1c);
+        uart_print(" p1s=");
+        uart_print_hex16(s1s);
+        uart_print(" (link bits: ");
+        uart_print_dec((s0c >> 2) & 1);
+        uart_print_dec((s0s >> 2) & 1);
+        uart_print_dec((s1c >> 2) & 1);
+        uart_print_dec((s1s >> 2) & 1);
+        uart_print(")\r\n");
     }
 }
