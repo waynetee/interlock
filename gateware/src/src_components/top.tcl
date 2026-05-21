@@ -229,8 +229,8 @@ sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {sticky_bit}  -hd
 # module our wrapper references.  Multiple INSTANTIATIONS of the inner
 # module are fine in Verilog; the duplicate-module synthesis error only
 # occurs with multiple DEFINITIONS (two separate SmartDesign components).
-sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {CoreTSE_with_param} -hdl_file {hdl\CoreTSE_with_param.sv} -instance_name {CORETSE_1}
-sd_modify_hdl_instance -sd_name ${sd_name} -instance_name {CORETSE_1} -parameter_value_list {MDIO_PHYID:19}
+sd_instantiate_hdl_core -sd_name ${sd_name} -hdl_core_name {CoreTSE_with_param} -instance_name {CORETSE_1}
+sd_configure_core_instance -sd_name ${sd_name} -instance_name {CORETSE_1} -params {MDIO_PHYID:19}
 sd_create_pin_slices -sd_name ${sd_name} -pin_name {CORETSE_1:ANX_STATE} -pin_slices {[0:0]}
 sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:ANX_STATE[0:0]}
 sd_create_pin_slices -sd_name ${sd_name} -pin_name {CORETSE_1:ANX_STATE} -pin_slices {[1:1]}

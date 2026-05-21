@@ -37,8 +37,12 @@ file copy -force "./src/src_hdl/miv_rv32_opsrv_cfg_pkg.v" "./$Prjname/component/
 # Import the CoreTSE wrapper AFTER the CORETSE_0 component is generated,
 # so the inner module CORETSE_0_CORETSE_0_0_CORETSE that the wrapper
 # references exists in the project hierarchy when Libero's HDL analyzer
-# parses the wrapper.
+# parses the wrapper.  Then register it as an HDL+ core so we can use
+# sd_instantiate_hdl_core + sd_configure_core_instance (which support
+# per-instance parameter overrides, unlike sd_instantiate_hdl_module).
 import_files -hdl_source {./src/src_hdl/CoreTSE_with_param.sv}
+build_design_hierarchy
+create_hdl_core -file {./src/src_hdl/CoreTSE_with_param.sv} -module {CoreTSE_with_param}
 build_design_hierarchy
 
 
