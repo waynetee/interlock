@@ -217,11 +217,20 @@ sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {sticky_bit}  -hd
 # Port 1 instances (second VSC8575 PHY port; internal loopback for now)
 # -------------------------------------------------------------------------
 
-# Second CoreTSE — second instance of the CORETSE_0 component (sharing the
-# same component avoids ACT_UNIQUE_* module-name collisions in CoreTSE's
-# evaluation RTL). MDIO_PHYID baked into the config is unused on this
-# instance because CORETSE_1's MDIO outputs aren't connected to the bus.
-sd_instantiate_component -sd_name ${sd_name} -component_name {CORETSE_0} -instance_name {CORETSE_1}
+# Second CoreTSE — instantiated through CoreTSE_with_param.sv, a thin
+# wrapper that exposes the underlying CORETSE inner module's MDIO_PHYID
+# as a parameter we can override per instance.  Sets MDIO_PHYID=19 so
+# CORETSE_1's internal PCS slave responds at MDIO address 19 (vs
+# CORETSE_0's slave at 18) — both can coexist on the shared MDIO bus.
+# See gateware/src/src_hdl/CoreTSE_with_param.sv for details.
+#
+# We still depend on the CORETSE_0 SmartDesign component being instantiated
+# earlier in this file — that's what generates the inner CORETSE_0_CORETSE_0_0_CORETSE
+# module our wrapper references.  Multiple INSTANTIATIONS of the inner
+# module are fine in Verilog; the duplicate-module synthesis error only
+# occurs with multiple DEFINITIONS (two separate SmartDesign components).
+sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {CoreTSE_with_param} -hdl_file {hdl\CoreTSE_with_param.sv} -instance_name {CORETSE_1}
+sd_modify_hdl_instance -sd_name ${sd_name} -instance_name {CORETSE_1} -parameter_value_list {MDIO_PHYID:19}
 sd_create_pin_slices -sd_name ${sd_name} -pin_name {CORETSE_1:ANX_STATE} -pin_slices {[0:0]}
 sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:ANX_STATE[0:0]}
 sd_create_pin_slices -sd_name ${sd_name} -pin_name {CORETSE_1:ANX_STATE} -pin_slices {[1:1]}
@@ -248,12 +257,16 @@ sd_connect_pins_to_constant -sd_name ${sd_name} -pin_names {CORETSE_1:SIGNAL_DET
 sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:SYNC}
 sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:TSM_INTR}
 sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:TSM_CONTROL}
-# CORETSE_1's MDIO master pins are unused — both PHYs share the on-board MDIO
-# bus, driven only from CORETSE_0.  Tie inputs to safe values; mark outputs unused.
+# CORETSE_1's MDIO master pins are unused — only CORETSE_0 drives the shared
+# on-board MDIO bus.  But CORETSE_1's MDI input now CONNECTS to the bus (via
+# BIBUF_0:Y, the bus's incoming data line) so CORETSE_1's internal MDIO slave
+# can see transactions addressed to its MDIO_PHYID (=19, set via the wrapper
+# parameter override above).  This is what lets firmware reach CORETSE_1's
+# internal PCS for SGMII autoneg-restart at "PHY 19".
 sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:MDC}
 sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:MDO}
 sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:MDOEN}
-sd_connect_pins_to_constant -sd_name ${sd_name} -pin_names {CORETSE_1:MDI} -value {GND}
+# CORETSE_1:MDI wired to BIBUF_0:Y below (added to the existing CORETSE_0:MDI net).
 
 sd_instantiate_component -sd_name ${sd_name} -component_name {PF_IOD_CDR_C1} -instance_name {PF_IOD_CDR_C1_0}
 sd_mark_pins_unused -sd_name ${sd_name} -pin_names {PF_IOD_CDR_C1_0:RX_VAL}
@@ -273,7 +286,7 @@ sd_connect_pins -sd_name ${sd_name} -pin_names {"AND2_2:Y" "CORETSE_0:PRESETN" "
 sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:D" "CORETSE_0:MDO" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:E" "CORETSE_0:MDOEN" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:PAD" "PHY_MDIO" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:Y" "CORETSE_0:MDI" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:Y" "CORETSE_0:MDI" "CORETSE_1:MDI" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TCK" "TCK" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TDI" "TDI" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TDO" "TDO" }
