@@ -14,7 +14,7 @@ configure_tool -name {SYNTHESIZE} \
     -params {RETIMING:false} \
     -params {ROM_TO_LOGIC:true} \
     -params {SEQSHIFT_TO_URAM:1} \
-    -params {SYNPLIFY_OPTIONS:} \
+    -params {SYNPLIFY_OPTIONS:set_option -allow_duplicate_modules 1} \
     -params {SYNPLIFY_TCL_FILE:} 
 
 ## run_tool -name SYNTHESIZE
