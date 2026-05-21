@@ -217,20 +217,17 @@ sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {sticky_bit}  -hd
 # Port 1 instances (second VSC8575 PHY port; internal loopback for now)
 # -------------------------------------------------------------------------
 
-# Second CoreTSE — instantiated through CoreTSE_with_param.sv, a thin
-# wrapper that exposes the underlying CORETSE inner module's MDIO_PHYID
-# as a parameter we can override per instance.  Sets MDIO_PHYID=19 so
-# CORETSE_1's internal PCS slave responds at MDIO address 19 (vs
-# CORETSE_0's slave at 18) — both can coexist on the shared MDIO bus.
-# See gateware/src/src_hdl/CoreTSE_with_param.sv for details.
+# Second CoreTSE — uses a SEPARATE SmartDesign component (CORETSE_1, see
+# src_components/CORETSE_1.tcl) with MDIO_PHYID=19 baked in, distinct
+# from CORETSE_0's MDIO_PHYID=18.  Each component generates RTL with
+# auto-namespaced module names (CORETSE_X_CORETSE_X_0_CORETSE), so the
+# two definitions live alongside each other without conflict.
 #
-# We still depend on the CORETSE_0 SmartDesign component being instantiated
-# earlier in this file — that's what generates the inner CORETSE_0_CORETSE_0_0_CORETSE
-# module our wrapper references.  Multiple INSTANTIATIONS of the inner
-# module are fine in Verilog; the duplicate-module synthesis error only
-# occurs with multiple DEFINITIONS (two separate SmartDesign components).
-sd_instantiate_hdl_core -sd_name ${sd_name} -hdl_core_name {CoreTSE_with_param} -instance_name {CORETSE_1}
-sd_configure_core_instance -sd_name ${sd_name} -instance_name {CORETSE_1} -params {MDIO_PHYID:19}
+# This replaces the failed CoreTSE_with_param wrapper approach from
+# earlier — Libero's HDL+ core path didn't accept wrappers referencing
+# externally-generated modules.  The two-component approach side-steps
+# that tooling limitation.
+sd_instantiate_component -sd_name ${sd_name} -component_name {CORETSE_1} -instance_name {CORETSE_1}
 sd_create_pin_slices -sd_name ${sd_name} -pin_name {CORETSE_1:ANX_STATE} -pin_slices {[0:0]}
 sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:ANX_STATE[0:0]}
 sd_create_pin_slices -sd_name ${sd_name} -pin_name {CORETSE_1:ANX_STATE} -pin_slices {[1:1]}
