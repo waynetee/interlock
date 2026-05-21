@@ -34,6 +34,13 @@ source ./src/src_components/PF_IOD_CDR_C1.tcl
 
 file copy -force "./src/src_hdl/miv_rv32_opsrv_cfg_pkg.v" "./$Prjname/component/Microsemi/MiV/MIV_RV32/$MIV_RV32ver/miv_rv32_opsrv_cfg_pkg.v"
 
+# Import the CoreTSE wrapper AFTER the CORETSE_0 component is generated,
+# so the inner module CORETSE_0_CORETSE_0_0_CORETSE that the wrapper
+# references exists in the project hierarchy when Libero's HDL analyzer
+# parses the wrapper.
+import_files -hdl_source {./src/src_hdl/CoreTSE_with_param.sv}
+build_design_hierarchy
+
 
 # Generate SmartDesign Components
 
