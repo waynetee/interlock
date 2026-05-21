@@ -42,7 +42,7 @@ file copy -force "./src/src_hdl/miv_rv32_opsrv_cfg_pkg.v" "./$Prjname/component/
 # per-instance parameter overrides, unlike sd_instantiate_hdl_module).
 import_files -hdl_source {./src/src_hdl/CoreTSE_with_param.sv}
 build_design_hierarchy
-create_hdl_core -file {./src/src_hdl/CoreTSE_with_param.sv} -module {CoreTSE_with_param}
+create_hdl_core -file [file normalize ./src/src_hdl/CoreTSE_with_param.sv] -module {CoreTSE_with_param}
 build_design_hierarchy
 
 
