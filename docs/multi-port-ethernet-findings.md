@@ -167,9 +167,23 @@ cross-check the page mapping definitively.
   non-browser fetches.** Worth getting via a logged-in browser session.
   Doc portal: <https://www.microsemi.com/document-portal/doc_details/134017-ac423-smartfusion2-soc-fpga-and-igloo2-fpga-ethernet-solutions-application-note>
 
-- **AN4623** — single-port Ethernet bring-up reference design our firmware
-  is derived from. Provides working port-0 init code.
+- **AN4623** — 1G Ethernet for PolarFire reference application note. Our
+  firmware is derived from its single-port reference design.
   Product page (with download link): <https://www.microchip.com/en-us/application-notes/an4623>
+  - **Appendix 3 "Multi-Lane 1G IOD CDR Design"** (DS00004623A page 29-30)
+    documents multi-lane PolarFire designs using IOD CDR. Shows an 8-lane
+    design with 8 PF_IOD_CDR instances sharing 1 PF_IOD_CDR_CCC. **Confirms
+    that our two-CDR + shared-CCC gateware topology is the documented
+    pattern** — the gateware-internal multi-lane substrate is not exotic.
+    However, this appendix is silent on multi-MAC/MDIO/VSC8575 config.
+  - **Appendix 4 "1G Ethernet BASE-T and BASE-X Using Transceiver"**
+    (DS00004623A page 31+) describes an alternative architecture using
+    PolarFire's hard transceiver instead of IOD CDR. Not what we use, but
+    references HB0549 (CoreTSE v3.1 Handbook) and HB0627 (CoreSGMII v3.2
+    Handbook) for auto-negotiation register details. Notes that the MDIO
+    slave (PHY 18 / PHY 19 in our addressing) holds the Clause 37
+    auto-negotiation state machine for the MAC↔PHY SGMII link — so when
+    PHY 19 is silent, port 1's Clause 37 negotiation can't run.
 
 - **DG0799 PolarFire 1G Ethernet IOD CDR Demo** — PolarFire-specific
   single-SGMII ethernet demo. Useful reference for PF_IOD_CDR usage.
