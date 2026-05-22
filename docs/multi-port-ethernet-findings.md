@@ -162,10 +162,27 @@ cross-check the page mapping definitively.
   PDF: <https://ww1.microchip.com/downloads/aemDocuments/documents/FPGA/ApplicationNotes/ApplicationNotes/microsemi_smartfusion2_coretse_ahb_1000_baset_loopback_demo_guide_dg0637.pdf>
 
 - **AC423 SmartFusion2/IGLOO2 Ethernet Solutions Application Note** — the
-  document Microchip explicitly cites for multi-instance details. **Could
-  not retrieve automatically — Microchip CDN returns HTTP 403 to
-  non-browser fetches.** Worth getting via a logged-in browser session.
-  Doc portal: <https://www.microsemi.com/document-portal/doc_details/134017-ac423-smartfusion2-soc-fpga-and-igloo2-fpga-ethernet-solutions-application-note>
+  document Microchip explicitly cites for multi-MAC details. **Retrieved
+  via archive.org** (Microchip CDN returns HTTP 403 to non-browser fetches):
+  <https://web.archive.org/web/2024/https://www.microsemi.com/document-portal/doc_download/134017-ac423-smartfusion2-soc-fpga-and-igloo2-fpga-ethernet-solutions-application-note>
+
+  **VERDICT: AC423 does NOT document a multi-CoreTSE pattern.** It
+  contains only one multi-MAC note (§2.3 line 297):
+
+  > "Note: If the application requires two MACs, Core10100 MAC can be
+  >  used in conjunction with the SmartFusion2 embedded MSS MAC to
+  >  provide the required functionality."
+
+  So Microchip's documented multi-MAC pattern is **one HARD MAC + one
+  SOFT MAC of a different type** (MSS MAC + Core10100), not two of the
+  same soft MAC. AC423's figures show "MSS MAC OR CoreTSE" — singular,
+  never both. The DG0633 claim that "Multiple CoreTSE MAC IPs can be
+  used in IGLOO2" is **aspirational and unsupported by any concrete
+  example or AC423 itself**. Our dual-CoreTSE-on-shared-MDIO approach
+  is not in Microchip's documented design space.
+
+  AC423 also says nothing about PolarFire (it's SmartFusion2/IGLOO2
+  only) or VSC8575 register-level init.
 
 - **AN4623** — 1G Ethernet for PolarFire reference application note. Our
   firmware is derived from its single-port reference design.
