@@ -41,6 +41,24 @@ sd_create_scalar_port -sd_name ${sd_name} -port_name {TX_N_1} -port_direction {O
 sd_create_scalar_port -sd_name ${sd_name} -port_name {TX_P_1} -port_direction {OUT} -port_is_pad {1}
 sd_create_scalar_port -sd_name ${sd_name} -port_name {LINK_OK_1} -port_direction {OUT}
 
+# Sub-PR #5 debug LEDs — instrumentation for diagnosing the bidirectional
+# bridge. Each LED exposes one internal signal so a single flash cycle
+# yields four extra diagnostic bits.
+#   LED_DBG_MTXACPT_1 (LED_8 / C27) : CORETSE_1:MTXACPT — is CORETSE_1's
+#       TX side asserting "ready to accept" on the A→B bridge?
+#   LED_DBG_MTXACPT_0 (LED_9 / F23) : CORETSE_0:MTXACPT — same for the
+#       reverse direction (B→A bridge).
+#   LED_DBG_RCG_ERR_1 (LED_10 / H22): Sticky CORETSE_1:RCG_ERROR — latches
+#       high on the first 8b/10b decode error on Port 1's TBI RX (clears
+#       only on reset). LED off = clean SGMII reception on Port 1.
+#   LED_DBG_RX1_CNT   (LED_11 / H21): bit-0 of a frame counter on
+#       CORETSE_1:MRXSOF — toggles per frame that CORETSE_1 receives
+#       from the Spark side.
+sd_create_scalar_port -sd_name ${sd_name} -port_name {LED_DBG_MTXACPT_1} -port_direction {OUT}
+sd_create_scalar_port -sd_name ${sd_name} -port_name {LED_DBG_MTXACPT_0} -port_direction {OUT}
+sd_create_scalar_port -sd_name ${sd_name} -port_name {LED_DBG_RCG_ERR_1} -port_direction {OUT}
+sd_create_scalar_port -sd_name ${sd_name} -port_name {LED_DBG_RX1_CNT}   -port_direction {OUT}
+
 sd_create_scalar_port -sd_name ${sd_name} -port_name {PHY_MDIO} -port_direction {INOUT} -port_is_pad {1}
 
 
@@ -191,15 +209,25 @@ sd_show_bif_pins -sd_name ${sd_name} -bif_pin_name {PF_IOD_CDR_CCC_C0_0:CDR_CLOC
 sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {SSDetect} -hdl_file {hdl\SSDetect.v} -instance_name {SSDetect_0}
 sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {pkt_counter} -hdl_file {hdl\pkt_counter.sv} -instance_name {pkt_counter_0}
 
+# Sub-PR #5 debug-LED HDL instances.
+sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {pkt_counter} -hdl_file {hdl\pkt_counter.sv} -instance_name {pkt_counter_1}
+sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {sticky_bit}  -hdl_file {hdl\sticky_bit.sv}  -instance_name {sticky_bit_0}
+
 # -------------------------------------------------------------------------
 # Port 1 instances (second VSC8575 PHY port; internal loopback for now)
 # -------------------------------------------------------------------------
 
-# Second CoreTSE — second instance of the CORETSE_0 component (sharing the
-# same component avoids ACT_UNIQUE_* module-name collisions in CoreTSE's
-# evaluation RTL). MDIO_PHYID baked into the config is unused on this
-# instance because CORETSE_1's MDIO outputs aren't connected to the bus.
-sd_instantiate_component -sd_name ${sd_name} -component_name {CORETSE_0} -instance_name {CORETSE_1}
+# Second CoreTSE — uses a SEPARATE SmartDesign component (CORETSE_1, see
+# src_components/CORETSE_1.tcl) with MDIO_PHYID=19 baked in, distinct
+# from CORETSE_0's MDIO_PHYID=18.  Each component generates RTL with
+# auto-namespaced module names (CORETSE_X_CORETSE_X_0_CORETSE), so the
+# two definitions live alongside each other without conflict.
+#
+# This replaces the failed CoreTSE_with_param wrapper approach from
+# earlier — Libero's HDL+ core path didn't accept wrappers referencing
+# externally-generated modules.  The two-component approach side-steps
+# that tooling limitation.
+sd_instantiate_component -sd_name ${sd_name} -component_name {CORETSE_1} -instance_name {CORETSE_1}
 sd_create_pin_slices -sd_name ${sd_name} -pin_name {CORETSE_1:ANX_STATE} -pin_slices {[0:0]}
 sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:ANX_STATE[0:0]}
 sd_create_pin_slices -sd_name ${sd_name} -pin_name {CORETSE_1:ANX_STATE} -pin_slices {[1:1]}
@@ -226,12 +254,18 @@ sd_connect_pins_to_constant -sd_name ${sd_name} -pin_names {CORETSE_1:SIGNAL_DET
 sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:SYNC}
 sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:TSM_INTR}
 sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:TSM_CONTROL}
-# CORETSE_1's MDIO master pins are unused — both PHYs share the on-board MDIO
-# bus, driven only from CORETSE_0.  Tie inputs to safe values; mark outputs unused.
+# CORETSE_1's MDIO master:
+#   - MDC: unused — only CORETSE_0's master generates MDC on the shared bus.
+#     Firmware never initiates MDIO transactions from CORETSE_1's APB, so its
+#     master stays idle and its MDC output isn't needed.
+#   - MDO, MDOEN: NOT marked unused.  These outputs carry CORETSE_1's
+#     internal MDIO slave's response (slave at MDIO_PHYID=19).  Sub-PR #9
+#     wires them through the mdio_combiner module (below) so the slave's
+#     response reaches the bus.  Sub-PR #8 mistakenly marked these unused,
+#     which left the slave electrically silent (PHY 19 returned 0xFFFF).
 sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:MDC}
-sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:MDO}
-sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:MDOEN}
-sd_connect_pins_to_constant -sd_name ${sd_name} -pin_names {CORETSE_1:MDI} -value {GND}
+# CORETSE_1:MDI wired to BIBUF_0:Y below (added to the existing CORETSE_0:MDI net).
+# CORETSE_1:MDO and CORETSE_1:MDOEN wired through mdio_combiner_0 below.
 
 sd_instantiate_component -sd_name ${sd_name} -component_name {PF_IOD_CDR_C1} -instance_name {PF_IOD_CDR_C1_0}
 sd_mark_pins_unused -sd_name ${sd_name} -pin_names {PF_IOD_CDR_C1_0:RX_VAL}
@@ -242,15 +276,44 @@ sd_mark_pins_unused -sd_name ${sd_name} -pin_names {PF_IOD_CDR_C1_0:RX_VAL}
 
 sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {SSDetect} -hdl_file {hdl\SSDetect.v} -instance_name {SSDetect_1}
 
+# iter-4 — tse1_loopback: CORETSE_1's MDIO bus is now wholly INTERNAL to
+# the FPGA fabric.  CORETSE_1's master + slave communicate only with each
+# other through this loopback; the external MDIO bus (to the VSC8575)
+# carries only CORETSE_0's transactions.
+#
+# Reason: iter-3 verbose diagnostics confirmed CORETSE_1's slave at PHY 19
+# was electrically indistinguishable from "nothing there" (matched the
+# PHY 17 unused-address negative control exactly).  Hypothesis: CoreTSE's
+# slave logic requires its own master to be generating MDC; with the
+# master idle (firmware accessing PHY 19 via CORETSE_0's master), the
+# slave never engages.  iter-4 tests this by giving CORETSE_1 its own
+# private MDIO bus.
+#
+# The sub-PR #9 mdio_combiner is no longer needed and is not
+# instantiated in this iteration.  src_hdl/mdio_combiner.sv stays in the
+# project but unused.
+sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {tse1_loopback} -hdl_file {hdl\tse1_loopback.sv} -instance_name {tse1_loopback_0}
+
 
 
 # Add scalar net connections
 sd_connect_pins -sd_name ${sd_name} -pin_names {"AND2_2:A" "CORESPI_0_0:PRESETN" "CoreUARTapb_0:PRESETN" "Core_reset_pf_0:FABRIC_RESET_N" "MIV_RV32_C0_0:RESETN" "PF_IOD_CDR_CCC_C0_0:ARST_N" "PHY_RST" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"AND2_2:B" "PF_IOD_CDR_CCC_C0_0:PLL_LOCK" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"AND2_2:Y" "CORETSE_0:PRESETN" "CORETSE_1:PRESETN" "PF_IOD_CDR_C0_0:RST_N" "PF_IOD_CDR_C1_0:RST_N" "SSDetect_0:rst_b" "SSDetect_1:rst_b" "pkt_counter_0:rst_n" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"AND2_2:Y" "CORETSE_0:PRESETN" "CORETSE_1:PRESETN" "PF_IOD_CDR_C0_0:RST_N" "PF_IOD_CDR_C1_0:RST_N" "SSDetect_0:rst_b" "SSDetect_1:rst_b" "pkt_counter_0:rst_n" "pkt_counter_1:rst_n" "sticky_bit_0:rst_n" }
+# iter-4: two-bus MDIO architecture.
+# External bus (CORETSE_0 ↔ VSC8575 PHY chip + CORETSE_0's internal slave):
+#   CORETSE_0:MDO/MDOEN drive BIBUF_0 directly (no combiner).
+# Internal bus (CORETSE_1 master ↔ CORETSE_1 slave only):
+#   CORETSE_1:MDO/MDOEN → tse1_loopback_0 → CORETSE_1:MDI.
 sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:D" "CORETSE_0:MDO" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:E" "CORETSE_0:MDOEN" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MDO"   "tse1_loopback_0:mdo" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MDOEN" "tse1_loopback_0:mdoen" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MDI"   "tse1_loopback_0:mdi" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:PAD" "PHY_MDIO" }
+# iter-4: CORETSE_1:MDI is NO LONGER on this external-bus net.  It comes
+# from tse1_loopback_0:mdi instead (wired below).  Only CORETSE_0:MDI
+# sees the external bus.
 sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:Y" "CORETSE_0:MDI" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TCK" "TCK" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TDI" "TDI" }
@@ -262,17 +325,18 @@ sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TGT_TMS_0" "
 sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TGT_TRSTN_0" "MIV_RV32_C0_0:JTAG_TRSTN" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TMS" "TMS" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TRSTB" "TRSTB" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORESPI_0_0:PCLK" "CORETSE_0:MRXCLK" "CORETSE_0:MTXCLK" "CORETSE_0:PCLK" "CORETSE_1:MRXCLK" "CORETSE_1:MTXCLK" "CORETSE_1:PCLK" "CoreUARTapb_0:PCLK" "Core_reset_pf_0:CLK" "MIV_RV32_C0_0:CLK" "PF_CCC_0_0:OUT0_FABCLK_0" "SSDetect_0:rck" "SSDetect_1:rck" "pkt_counter_0:clk" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORESPI_0_0:PCLK" "CORETSE_0:MRXCLK" "CORETSE_0:MTXCLK" "CORETSE_0:PCLK" "CORETSE_1:MRXCLK" "CORETSE_1:MTXCLK" "CORETSE_1:PCLK" "CoreUARTapb_0:PCLK" "Core_reset_pf_0:CLK" "MIV_RV32_C0_0:CLK" "PF_CCC_0_0:OUT0_FABCLK_0" "SSDetect_0:rck" "SSDetect_1:rck" "pkt_counter_0:clk" "pkt_counter_1:clk" "sticky_bit_0:clk" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORESPI_0_0:SPISCLKO" "SPISCLKO" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORESPI_0_0:SPISDI" "SPISDI" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORESPI_0_0:SPISDO" "SPISDO" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORESPI_0_0:SPISS[0:0]" "SPISS" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:ANX_STATE[8:8]" "LINK_OK" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MDC" "PHY_MDC" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXACPT" "CORETSE_0:MTXACPT" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXEOF" "CORETSE_0:MTXEOF" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXRDY" "CORETSE_0:MTXRDY" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXSOF" "CORETSE_0:MTXSOF" "pkt_counter_0:frame_sof" }
+# A→B bridge: CORETSE_0 MAC RX → CORETSE_1 MAC TX (Mac → FPGA → Spark)
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXACPT" "CORETSE_1:MTXACPT" "LED_DBG_MTXACPT_1" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXEOF" "CORETSE_1:MTXEOF" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXRDY" "CORETSE_1:MTXRDY" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXSOF" "CORETSE_1:MTXSOF" "pkt_counter_0:frame_sof" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"pkt_counter_0:led" "PKT_LED" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:RCG_ERROR" "RD_BC_ERROR" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:RXCLK" "CORETSE_0:TBI_RX_CLK" "PF_IOD_CDR_C0_0:RX_CLK_R" }
@@ -296,8 +360,9 @@ sd_connect_pins -sd_name ${sd_name} -pin_names {"PF_IOD_CDR_C0_0:TX_N" "TX_N" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"PF_IOD_CDR_C0_0:TX_P" "TX_P" }
 
 # Add bus net connections
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXBYTEVALID" "CORETSE_0:MTXBYTEVALID" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXDAT" "CORETSE_0:MTXDAT" }
+# A→B bridge bus signals (continuation of the A→B MAC bridge above)
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXBYTEVALID" "CORETSE_1:MTXBYTEVALID" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXDAT" "CORETSE_1:MTXDAT" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:RCG" "PF_IOD_CDR_C0_0:RX_DATA" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:TCG" "PF_IOD_CDR_C0_0:TX_DATA" "SSDetect_0:rx_data" }
 
@@ -328,14 +393,29 @@ sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:RXCLK" "CORETSE_1:TBI
 # Note: extend the existing CORETSE_0:TBI_TX_CLK line above to include
 # CORETSE_1:TBI_TX_CLK and CORETSE_1:TXCLK instead of creating a new net.
 
-# Port 1 internal loopback — MAC RX side wires back into MAC TX side, same as
-# CORETSE_0.  mac_bridge will replace these connections in a later PR.
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXACPT" "CORETSE_1:MTXACPT" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXEOF" "CORETSE_1:MTXEOF" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXRDY" "CORETSE_1:MTXRDY" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXSOF" "CORETSE_1:MTXSOF" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXBYTEVALID" "CORETSE_1:MTXBYTEVALID" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXDAT" "CORETSE_1:MTXDAT" }
+# B→A bridge: CORETSE_1 MAC RX → CORETSE_0 MAC TX (Spark → FPGA → Mac).
+# Combined with the A→B bridge above, this forms a transparent
+# bidirectional ethernet bridge — frames in either port emerge on the
+# other. Direct wiring works because both CoreTSE MAC interfaces run on
+# the same fabric clock (PF_CCC_0_0:OUT0_FABCLK_0); no FIFO / CDC needed
+# for a pass-through. When the interlock Core (drop rules, hash chain,
+# attestation) is added in a later PR, mac_bridge will be inserted into
+# each direction between the two CoreTSEs at that point.
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXACPT" "CORETSE_0:MTXACPT" "LED_DBG_MTXACPT_0" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXEOF" "CORETSE_0:MTXEOF" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXRDY" "CORETSE_0:MTXRDY" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXSOF" "CORETSE_0:MTXSOF" "pkt_counter_1:frame_sof" }
+
+# Sub-PR #5 debug-LED wiring:
+#   - CORETSE_1:RCG_ERROR -> sticky_bit_0:d -> LED_DBG_RCG_ERR_1
+#   - pkt_counter_1:led   -> LED_DBG_RX1_CNT
+# CORETSE_0:RCG_ERROR remains on RD_BC_ERROR (LED_4); MTXACPT signals are
+# wired into the existing bridge nets above (multi-fanout to LED ports).
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:RCG_ERROR" "sticky_bit_0:d" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"sticky_bit_0:q"      "LED_DBG_RCG_ERR_1" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"pkt_counter_1:led"   "LED_DBG_RX1_CNT" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXBYTEVALID" "CORETSE_0:MTXBYTEVALID" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXDAT" "CORETSE_0:MTXDAT" }
 
 # Port 1 TBI data — IOD CDR <-> CoreTSE, with SSDetect_1 listening on the TCG net
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:RCG" "PF_IOD_CDR_C1_0:RX_DATA" }

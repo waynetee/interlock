@@ -3,6 +3,9 @@
 file copy -force "./src/src_softconsole/iog_cdr.hex" "./$Prjname/iog_cdr.hex"
 import_files -hdl_source {./src/src_hdl/SSDetect.v}
 import_files -hdl_source {./src/src_hdl/pkt_counter.sv}
+import_files -hdl_source {./src/src_hdl/sticky_bit.sv}
+import_files -hdl_source {./src/src_hdl/mdio_combiner.sv}
+import_files -hdl_source {./src/src_hdl/tse1_loopback.sv}
 
 
 build_design_hierarchy 
@@ -30,6 +33,13 @@ source ./src/src_components/PF_IOD_CDR_CCC_C0.tcl
 # distinct CoreTSE components, but instantiating the same component twice
 # is fine).
 source ./src/src_components/PF_IOD_CDR_C1.tcl
+# Second CoreTSE component instance with MDIO_PHYID=19, so its internal
+# PCS slave responds at a different MDIO address than CORETSE_0's slave
+# at 18.  Each component generates an auto-namespaced inner module
+# (CORETSE_X_CORETSE_X_0_CORETSE), so two definitions shouldn't collide.
+# Sub-PR #3 iteration 1's duplicate-module error may have been from an
+# older IP version or different config.
+source ./src/src_components/CORETSE_1.tcl
 
 file copy -force "./src/src_hdl/miv_rv32_opsrv_cfg_pkg.v" "./$Prjname/component/Microsemi/MiV/MIV_RV32/$MIV_RV32ver/miv_rv32_opsrv_cfg_pkg.v"
 
