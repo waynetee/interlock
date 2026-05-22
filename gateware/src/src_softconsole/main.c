@@ -123,6 +123,152 @@ static void mdio_write(uint32_t tse_base, uint8_t phy, uint8_t reg, uint16_t val
     while ((*(volatile unsigned int *)(tse_base + 0x034)) != 0) { }
 }
 
+/* Verbose MDIO read: bounded timeout + indicator-bit capture.
+ * Existing mdio_read() blocks forever if indicator never clears.  This
+ * version exits after ~100k poll cycles and snapshots the BUSY/SCANNING/
+ * NOT_VALID bits of CSR 0x034 at exit so we can distinguish "clean read
+ * that returned 0xFFFF" (bus pull-up, no slave responding) from "master
+ * timed out internally" (NOT_VALID set).  See CoreTSE doc §3.1 reg 0x034. */
+static uint16_t mdio_read_v(uint32_t tse_base, uint8_t phy, uint8_t reg,
+                             uint32_t *ind_out, uint32_t *cycles_out)
+{
+    *(volatile unsigned int *)(tse_base + 0x028) = mdio_addr(phy, reg);
+    *(volatile unsigned int *)(tse_base + 0x024) = 0x1;
+
+    uint32_t cycles = 0;
+    uint32_t ind;
+    do {
+        ind = *(volatile unsigned int *)(tse_base + 0x034) & 0x7;
+        if (ind == 0) break;
+        cycles++;
+    } while (cycles < 100000);
+
+    *ind_out = ind;
+    *cycles_out = cycles;
+
+    uint16_t v = (uint16_t) *(volatile unsigned int *)(tse_base + 0x030);
+    *(volatile unsigned int *)(tse_base + 0x024) = 0x0;
+    return v;
+}
+
+/* Full PCS register dump for a single MDIO address.  Reads the four most
+ * diagnostic SGMII/TBI registers per CoreTSE doc §3.5 and prints each with
+ * its indicator bits and cycle count. */
+static void dump_pcs(const char *label, uint8_t phy)
+{
+    uint32_t ind, cyc;
+    uint16_t r;
+
+    uart_print("[pcs] ");
+    uart_print(label);
+    uart_print(" addr=");
+    uart_print_dec(phy);
+
+    r = mdio_read_v(TSE_BASEADDR, phy, 0x00, &ind, &cyc);
+    uart_print(" Ctl=");   uart_print_hex16(r);
+    uart_print("/i=");     uart_print_hex16((uint16_t)ind);
+    uart_print("/c=");     uart_print_hex16((uint16_t)cyc);
+
+    r = mdio_read_v(TSE_BASEADDR, phy, 0x01, &ind, &cyc);
+    uart_print(" Sts=");   uart_print_hex16(r);
+    uart_print("/i=");     uart_print_hex16((uint16_t)ind);
+
+    r = mdio_read_v(TSE_BASEADDR, phy, 0x0F, &ind, &cyc);
+    uart_print(" ExtSts="); uart_print_hex16(r);
+    uart_print("/i=");      uart_print_hex16((uint16_t)ind);
+
+    r = mdio_read_v(TSE_BASEADDR, phy, 0x11, &ind, &cyc);
+    uart_print(" TBICtl="); uart_print_hex16(r);
+    uart_print("/i=");      uart_print_hex16((uint16_t)ind);
+
+    uart_print("\r\n");
+}
+
+/* VSC8575 package-level SGMII MAC interface configuration.
+ *
+ * Per VMDS-10457 §3.1.1.1 / §3.2 / §4.7.7, the four-port SGMII MAC
+ * interface needs explicit configuration via:
+ *   - Register 19G (bits 15:14) = 00  → SGMII MAC mode (global)
+ *   - Register 18G = 0x80F0           → microprocessor command to enable
+ *                                       four-port SGMII (chip's internal
+ *                                       8051 executes; up to 25 ms)
+ *   - Per-port register 23 bit 12 = 0 → SGMII MAC type (super-sticky)
+ *   - Per-port register 0  bit 15 = 1 → software reset to commit
+ *
+ * The "G" suffix maps to the GPIO register page selected by writing
+ * 0x0010 to register 31 (VMDS-10457 §4.2.28 Table 68).
+ *
+ * Without this sequence, ports 1-3 may be in a default state where their
+ * SGMII outputs aren't fully active, even though the copper PHYs link
+ * up.  The single-port AN4623 reference design skips this because it
+ * doesn't use ports 1-3 — we have to do it ourselves for multi-port.
+ *
+ * After the 18G write, we poll bit 15 (self-clearing on completion) and
+ * check bit 14: 1 = error (squelch patch not loaded — would indicate we
+ * need to load the chip's firmware patch, which we don't currently do). */
+static void vsc8575_init(void)
+{
+    uart_print("[vsc] VSC8575 4-port SGMII config starting\r\n");
+
+    /* Switch to GPIO page (= "G" suffix) — Table 68 says write 0x0010. */
+    mdio_write(TSE_BASEADDR, 28, 31, 0x0010);
+
+    /* 19G bits 15:14 = 00 (SGMII MAC mode).  19G = MAC Mode and Fast Link
+     * Configuration register, Table 119.  Default should already be 00 but
+     * explicit write is good hygiene. */
+    uint16_t reg19g = mdio_read(TSE_BASEADDR, 28, 19);
+    uart_print("[vsc] 19G before=0x");
+    uart_print_hex16(reg19g);
+    reg19g &= ~0xC000u;
+    mdio_write(TSE_BASEADDR, 28, 19, reg19g);
+    uart_print(" after=0x");
+    uart_print_hex16(mdio_read(TSE_BASEADDR, 28, 19));
+    uart_print("\r\n");
+
+    /* 18G = 0x80F0 (Enable four MAC SGMII ports).  This is a command
+     * processed by the chip's internal 8051.  Per §4.7.7 we should poll
+     * bit 15 (self-clears) and check bit 14 (error flag). */
+    mdio_write(TSE_BASEADDR, 28, 18, 0x80F0);
+
+    /* Spec says up to 25 ms.  PCLK is 50 MHz → 25 ms ≈ 1.25M cycles.
+     * Use 5M as safety margin. */
+    uint32_t cycles = 0;
+    uint16_t reg18g;
+    do {
+        reg18g = mdio_read(TSE_BASEADDR, 28, 18);
+        cycles++;
+    } while ((reg18g & 0x8000u) && cycles < 5000000);
+
+    uart_print("[vsc] 18G post-cmd=0x");
+    uart_print_hex16(reg18g);
+    uart_print(" cycles=0x");
+    uart_print_hex32(cycles);
+    if (reg18g & 0x8000u) uart_print(" TIMEOUT");
+    if (reg18g & 0x4000u) uart_print(" ERROR(squelch-patch-missing)");
+    uart_print("\r\n");
+
+    /* Back to standard page. */
+    mdio_write(TSE_BASEADDR, 28, 31, 0x0000);
+
+    /* Per-port: register 23 bit 12 = 0 → SGMII MAC type (vs 1000BASE-X).
+     * Per §4.2.21 Table 61, this is a super-sticky bit that needs a SW
+     * reset to commit.  Then software reset (reg 0 bit 15) per port. */
+    for (uint8_t phy = 28; phy <= 31; phy++) {
+        uint16_t reg23 = mdio_read(TSE_BASEADDR, phy, 23);
+        reg23 &= ~(1u << 12);
+        mdio_write(TSE_BASEADDR, phy, 23, reg23);
+
+        uint16_t reg0 = mdio_read(TSE_BASEADDR, phy, 0);
+        mdio_write(TSE_BASEADDR, phy, 0, reg0 | 0x8000u);
+
+        /* §4.2.1: wait at least 1 µs after software reset before next
+         * SMI access.  PCLK = 50 MHz → 1 µs = 50 cycles.  Pad to 1000. */
+        for (volatile uint32_t i = 0; i < 1000; i++) { }
+    }
+
+    uart_print("[vsc] VSC8575 init done\r\n");
+}
+
 /*--------------------------- MDIO bus scan ----------------------------------*/
 
 static void mdio_scan(uint32_t tse_base)
@@ -704,7 +850,7 @@ int main(void)
 {
     UART_init(&g_uart, COREUARTAPB0_BASE_ADDR,
               BAUD_VALUE_115200, (DATA_8_BITS | NO_PARITY));
-    uart_print("\r\n\r\n[boot] interlock firmware iter-2 starting\r\n");
+    uart_print("\r\n\r\n[boot] interlock firmware iter-3 starting\r\n");
 
     uart_print("[boot] configure_zl30364 (clock generator)\r\n");
     configure_zl30364();
@@ -725,6 +871,12 @@ int main(void)
     uart_print(", PHY 29 copper / 19 SGMII)\r\n");
     tse1_init();
     uart_print("[boot] tse1_init done\r\n");
+
+    /* iter-3: VSC8575 package-level SGMII MAC config per VMDS-10457 §3.2.
+     * Configures all four chip ports for SGMII MAC mode via 18G/19G
+     * (GPIO page).  Must come before per-port advertise/autoneg so that
+     * VSC8575 ports 1-3 are properly in SGMII mode. */
+    vsc8575_init();
 
     uart_print("[boot] Phy_advertise (port 0, PHY 28)\r\n");
     Phy_advertise();
@@ -754,6 +906,16 @@ int main(void)
     uint32_t tse1_mc1 = *(volatile unsigned int *)(TSE1_BASEADDR + 0x000);
     uart_print_hex32(tse1_mc1);
     uart_print("\r\n");
+
+    /* iter-3 verbose PCS register dump.  Compares known-good PHY 18
+     * (CORETSE_0 slave) against under-test PHY 19 (CORETSE_1 slave) and
+     * a baseline unused address (PHY 17 negative control).  Distinguishes
+     * "slave never drove the bus" (data=0xFFFF, i=00) from "master timed
+     * out" (data=0xFFFF, i=04 NOT_VALID). */
+    uart_print("[diag] PCS register dump (iter-3 verbose probes)\r\n");
+    dump_pcs("PHY18 (CORETSE_0 known good)", 18);
+    dump_pcs("PHY19 (CORETSE_1 under test)", 19);
+    dump_pcs("PHY17 (unused; negative ctl)", 17);
 
     uart_print("[boot] init complete — polling both ports\r\n");
 
