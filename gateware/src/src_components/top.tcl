@@ -254,16 +254,18 @@ sd_connect_pins_to_constant -sd_name ${sd_name} -pin_names {CORETSE_1:SIGNAL_DET
 sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:SYNC}
 sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:TSM_INTR}
 sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:TSM_CONTROL}
-# CORETSE_1's MDIO master pins are unused — only CORETSE_0 drives the shared
-# on-board MDIO bus.  But CORETSE_1's MDI input now CONNECTS to the bus (via
-# BIBUF_0:Y, the bus's incoming data line) so CORETSE_1's internal MDIO slave
-# can see transactions addressed to its MDIO_PHYID (=19, set via the wrapper
-# parameter override above).  This is what lets firmware reach CORETSE_1's
-# internal PCS for SGMII autoneg-restart at "PHY 19".
+# CORETSE_1's MDIO master:
+#   - MDC: unused — only CORETSE_0's master generates MDC on the shared bus.
+#     Firmware never initiates MDIO transactions from CORETSE_1's APB, so its
+#     master stays idle and its MDC output isn't needed.
+#   - MDO, MDOEN: NOT marked unused.  These outputs carry CORETSE_1's
+#     internal MDIO slave's response (slave at MDIO_PHYID=19).  Sub-PR #9
+#     wires them through the mdio_combiner module (below) so the slave's
+#     response reaches the bus.  Sub-PR #8 mistakenly marked these unused,
+#     which left the slave electrically silent (PHY 19 returned 0xFFFF).
 sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:MDC}
-sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:MDO}
-sd_mark_pins_unused -sd_name ${sd_name} -pin_names {CORETSE_1:MDOEN}
 # CORETSE_1:MDI wired to BIBUF_0:Y below (added to the existing CORETSE_0:MDI net).
+# CORETSE_1:MDO and CORETSE_1:MDOEN wired through mdio_combiner_0 below.
 
 sd_instantiate_component -sd_name ${sd_name} -component_name {PF_IOD_CDR_C1} -instance_name {PF_IOD_CDR_C1_0}
 sd_mark_pins_unused -sd_name ${sd_name} -pin_names {PF_IOD_CDR_C1_0:RX_VAL}
@@ -274,14 +276,26 @@ sd_mark_pins_unused -sd_name ${sd_name} -pin_names {PF_IOD_CDR_C1_0:RX_VAL}
 
 sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {SSDetect} -hdl_file {hdl\SSDetect.v} -instance_name {SSDetect_1}
 
+# Sub-PR #9 — mdio_combiner: wire-ORs CORETSE_0 and CORETSE_1 MDO/MDOEN
+# outputs onto a single BIBUF_0 driver so both internal MDIO slaves can
+# respond on the shared bus.  See src_hdl/mdio_combiner.sv for details.
+sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {mdio_combiner} -hdl_file {hdl\mdio_combiner.sv} -instance_name {mdio_combiner_0}
+
 
 
 # Add scalar net connections
 sd_connect_pins -sd_name ${sd_name} -pin_names {"AND2_2:A" "CORESPI_0_0:PRESETN" "CoreUARTapb_0:PRESETN" "Core_reset_pf_0:FABRIC_RESET_N" "MIV_RV32_C0_0:RESETN" "PF_IOD_CDR_CCC_C0_0:ARST_N" "PHY_RST" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"AND2_2:B" "PF_IOD_CDR_CCC_C0_0:PLL_LOCK" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"AND2_2:Y" "CORETSE_0:PRESETN" "CORETSE_1:PRESETN" "PF_IOD_CDR_C0_0:RST_N" "PF_IOD_CDR_C1_0:RST_N" "SSDetect_0:rst_b" "SSDetect_1:rst_b" "pkt_counter_0:rst_n" "pkt_counter_1:rst_n" "sticky_bit_0:rst_n" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:D" "CORETSE_0:MDO" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:E" "CORETSE_0:MDOEN" }
+# MDIO bus drivers go through mdio_combiner_0 (sub-PR #9) so both CoreTSEs'
+# slave responses can reach BIBUF_0.  CORETSE_0:MDO/MDOEN → combiner inputs;
+# combiner outputs → BIBUF_0:D/E.
+sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:D" "mdio_combiner_0:mdo" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:E" "mdio_combiner_0:mdoen" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MDO"   "mdio_combiner_0:mdo_0" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MDOEN" "mdio_combiner_0:mdoen_0" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MDO"   "mdio_combiner_0:mdo_1" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MDOEN" "mdio_combiner_0:mdoen_1" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:PAD" "PHY_MDIO" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:Y" "CORETSE_0:MDI" "CORETSE_1:MDI" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TCK" "TCK" }
