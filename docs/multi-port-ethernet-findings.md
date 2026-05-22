@@ -36,8 +36,8 @@ Mac│   ┌──────────┐                                   
 
 ### CoreTSE soft MAC IP
 
-- **CoreTSE v3.2 User Guide DS50003245C** — IP-level documentation. PDF on
-  Microchip's site (`microchip.com/...../CoreTSE_UG.pdf`).
+- **CoreTSE v3.2 User Guide DS50003245C** — IP-level documentation.
+  PDF: <https://ww1.microchip.com/downloads/aemDocuments/documents/FPGA/ProductDocuments/UserGuides/ip_cores/directcores/CoreTSE_UG.pdf>
   - §1.10 MDIO Management — describes the IP's MDIO master + internal slave
   - §3.1 MAC Core Registers — register map (TSE_BASEADDR + 0x000-0x044)
   - §3.5 SGMII/TBI/1000Base-X Registers (Indirect Addressing through MDIO)
@@ -47,13 +47,20 @@ Mac│   ┌──────────┐                                   
     default 18) as "MDIO Physical Address"
 
 - **CoreTSE Handbook DS50003245E** — newer handbook covering the same IP.
+  PDF: <https://ww1.microchip.com/downloads/aemDocuments/documents/FPGA/ProductDocuments/UserGuides/ip_cores/directcores/CoreTSE_HB.pdf>
   Confirms MDI/MDO/MDOEN are all in the PCLK clock domain (no external
   MDC input on the core).
+
+- **UG0687 PolarFire 1G Ethernet Solutions User Guide**.
+  PDF: <https://ww1.microchip.com/downloads/aemDocuments/documents/FPGA/ProductDocuments/UserGuides/microsemi_polarfire_fpga_1g_ethernet_solutions_user_guide_ug0687_v5.pdf>
+  Background on Ethernet IP options for PolarFire. Defines MDC/MDO/MDOEN/MDI
+  port semantics. Silent on multi-MAC use.
 
 ### VSC8575 PHY chip
 
 - **VMDS-10457 (VSC8575-11 datasheet)** Rev 4.2 — the authoritative source
   on the PHY chip side.
+  Product page (with datasheet link): <https://www.microchip.com/en-us/product/vsc8575-11>
   - **§3.1 Operating Modes** — Table 1 lists supported MAC↔Media mode
     combinations. SGMII MAC ↔ 10/100/1000BASE-T copper is what we use.
   - **§3.1.1.1 MAC Interface SGMII** — explicit register-level setup
@@ -101,7 +108,13 @@ Mac│   ┌──────────┐                                   
 
 ### Linux kernel mscc driver
 
-Production driver for the VSC85xx PHY family.
+Production driver for the VSC85xx PHY family. Authoritative
+cross-reference for any VSC PHY register-access details.
+
+- mscc.h (constants): <https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/phy/mscc/mscc.h>
+- mscc_main.c (main driver): <https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/phy/mscc/mscc_main.c>
+- Driver source tree: <https://github.com/torvalds/linux/tree/master/drivers/net/phy/mscc>
+
 `drivers/net/phy/mscc/mscc.h` confirms the page values:
 
 ```c
@@ -129,8 +142,6 @@ register 19 on the GPIO page (= 19G):
 This is the same as the datasheet's 19G[15:14] description but lets us
 cross-check the page mapping definitively.
 
-URL: <https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/phy/mscc/mscc.h>
-
 ### Microchip demo guides (multi-instance hints)
 
 - **DG0633 IGLOO2 CoreTSE MAC 1000 Base-T Loopback Demo** (single-port
@@ -140,24 +151,73 @@ URL: <https://raw.githubusercontent.com/torvalds/linux/master/drivers/net/phy/ms
   >  solutions. CoreTSE MAC can be used in SmartFusion2 devices along
   >  with MSS Ethernet MAC to support multiple Ethernet interfaces."
 
+  PDF: <https://ww1.microchip.com/downloads/aemdocuments/documents/fpga/ProductDocuments/UserGuides/m2gl_dg0633_core_tse_mac_1000_baset_loopback_v1.pdf>
+
   But DG0633 itself is single-instance and doesn't show how. It punts to
-  **AC423 (SmartFusion2/IGLOO2 Ethernet Application Note)** for details —
-  which Microchip's CDN blocks automated fetches of. Worth retrieving via
-  a browser session.
+  AC423 for details.
+
+- **DG0637 SmartFusion2 CoreTSE_AHB 1000 Base-T Loopback Demo** — sister
+  demo for SmartFusion2. Echoes the DG0633 multi-instance language
+  verbatim. Same situation: single-port demo, no example.
+  PDF: <https://ww1.microchip.com/downloads/aemDocuments/documents/FPGA/ApplicationNotes/ApplicationNotes/microsemi_smartfusion2_coretse_ahb_1000_baset_loopback_demo_guide_dg0637.pdf>
+
+- **AC423 SmartFusion2/IGLOO2 Ethernet Solutions Application Note** — the
+  document Microchip explicitly cites for multi-instance details. **Could
+  not retrieve automatically — Microchip CDN returns HTTP 403 to
+  non-browser fetches.** Worth getting via a logged-in browser session.
+  Doc portal: <https://www.microsemi.com/document-portal/doc_details/134017-ac423-smartfusion2-soc-fpga-and-igloo2-fpga-ethernet-solutions-application-note>
+
+- **AN4623** — single-port Ethernet bring-up reference design our firmware
+  is derived from. Provides working port-0 init code.
+  Product page (with download link): <https://www.microchip.com/en-us/application-notes/an4623>
+
+- **DG0799 PolarFire 1G Ethernet IOD CDR Demo** — PolarFire-specific
+  single-SGMII ethernet demo. Useful reference for PF_IOD_CDR usage.
+  Product page: <https://www.microchip.com/en-us/application-notes/dg0799>
+
+### Microchip support articles (relevant but blocked)
+
+Both returned HTTP 403 to automated fetches; worth retrieving via a
+browser session if we keep debugging:
+
+- **MDIO interface on the CoreSGMII**:
+  <https://microchip.my.site.com/s/article/MDIO-interface-on-the-CoreSGMII>
+- **Connecting multiple PHYs to one MDIO bus**:
+  <https://microchip.my.site.com/s/article/Connecting-multiple-PHYs-to-one-MDIO--Management-Data-Input-Output--bus>
 
 ### Other relevant findings
 
-- `polarfire-soc-video-kit-reference-design` on GitHub is the closest
+- **`polarfire-soc-video-kit-reference-design`** on GitHub — closest
   multi-link PolarFire example we found. It uses **CoreSGMII + MSS GEM**
   with **two separate MDIO buses** (one per MAC), not two CoreTSE soft
   IPs on a shared bus. Microchip's published reference pattern when they
   want two MACs talking to PHYs is **bus separation**, not sharing.
+  - Repo: <https://github.com/polarfire-soc/polarfire-soc-video-kit-reference-design>
+  - TSN top-level wiring (two separate MDIO buses):
+    <https://github.com/polarfire-soc/polarfire-soc-video-kit-reference-design/blob/master/script_support/components/TSN/VKPFSOC_TSN.tcl>
+  - CoreSGMII instantiation with `MDIO_PHYID:18`:
+    <https://github.com/polarfire-soc/polarfire-soc-video-kit-reference-design/blob/master/script_support/components/TSN/CORESGMII_C0.tcl>
 
-- `polarfire-soc` GitHub Discussion #211 ("Using both Ethernet ports on
+- **`polarfire-soc` GitHub Discussion #211** ("Using both Ethernet ports on
   Icicle kit") notes the Icicle kit's two MSS GEMs share a single MDIO
   bus to the dual-port PHY, and "you can use them one at a time, but
   not both at the same time" — a precedent that even Microchip's hardware
   designs back away from concurrent multi-MAC + shared MDIO.
+  URL: <https://github.com/orgs/polarfire-soc/discussions/211>
+
+### Open-source MAC alternatives (if we abandon dual-CoreTSE)
+
+- **alexforencich/verilog-ethernet** — production-quality 1G/10G Ethernet
+  MAC + UDP/IP stack in pure Verilog, BSD-licensed, widely used (Corundum
+  NIC, others). Would replace CORETSE_1 if we pivot to CoreSGMII + open MAC.
+  Repo: <https://github.com/alexforencich/verilog-ethernet>
+
+- **secworks/sha256** — well-tested SHA-256 core for future attestation
+  work (BSD).
+  Repo: <https://github.com/secworks/sha256>
+
+- **secworks/hmac** — HMAC wrapper around the SHA-256 core (BSD).
+  Repo: <https://github.com/secworks/hmac>
 
 ## Key facts established empirically
 
