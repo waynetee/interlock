@@ -276,10 +276,23 @@ sd_mark_pins_unused -sd_name ${sd_name} -pin_names {PF_IOD_CDR_C1_0:RX_VAL}
 
 sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {SSDetect} -hdl_file {hdl\SSDetect.v} -instance_name {SSDetect_1}
 
-# Sub-PR #9 — mdio_combiner: wire-ORs CORETSE_0 and CORETSE_1 MDO/MDOEN
-# outputs onto a single BIBUF_0 driver so both internal MDIO slaves can
-# respond on the shared bus.  See src_hdl/mdio_combiner.sv for details.
-sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {mdio_combiner} -hdl_file {hdl\mdio_combiner.sv} -instance_name {mdio_combiner_0}
+# iter-4 — tse1_loopback: CORETSE_1's MDIO bus is now wholly INTERNAL to
+# the FPGA fabric.  CORETSE_1's master + slave communicate only with each
+# other through this loopback; the external MDIO bus (to the VSC8575)
+# carries only CORETSE_0's transactions.
+#
+# Reason: iter-3 verbose diagnostics confirmed CORETSE_1's slave at PHY 19
+# was electrically indistinguishable from "nothing there" (matched the
+# PHY 17 unused-address negative control exactly).  Hypothesis: CoreTSE's
+# slave logic requires its own master to be generating MDC; with the
+# master idle (firmware accessing PHY 19 via CORETSE_0's master), the
+# slave never engages.  iter-4 tests this by giving CORETSE_1 its own
+# private MDIO bus.
+#
+# The sub-PR #9 mdio_combiner is no longer needed and is not
+# instantiated in this iteration.  src_hdl/mdio_combiner.sv stays in the
+# project but unused.
+sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {tse1_loopback} -hdl_file {hdl\tse1_loopback.sv} -instance_name {tse1_loopback_0}
 
 
 
@@ -287,17 +300,21 @@ sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {mdio_combiner} -
 sd_connect_pins -sd_name ${sd_name} -pin_names {"AND2_2:A" "CORESPI_0_0:PRESETN" "CoreUARTapb_0:PRESETN" "Core_reset_pf_0:FABRIC_RESET_N" "MIV_RV32_C0_0:RESETN" "PF_IOD_CDR_CCC_C0_0:ARST_N" "PHY_RST" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"AND2_2:B" "PF_IOD_CDR_CCC_C0_0:PLL_LOCK" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"AND2_2:Y" "CORETSE_0:PRESETN" "CORETSE_1:PRESETN" "PF_IOD_CDR_C0_0:RST_N" "PF_IOD_CDR_C1_0:RST_N" "SSDetect_0:rst_b" "SSDetect_1:rst_b" "pkt_counter_0:rst_n" "pkt_counter_1:rst_n" "sticky_bit_0:rst_n" }
-# MDIO bus drivers go through mdio_combiner_0 (sub-PR #9) so both CoreTSEs'
-# slave responses can reach BIBUF_0.  CORETSE_0:MDO/MDOEN → combiner inputs;
-# combiner outputs → BIBUF_0:D/E.
-sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:D" "mdio_combiner_0:mdo" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:E" "mdio_combiner_0:mdoen" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MDO"   "mdio_combiner_0:mdo_0" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MDOEN" "mdio_combiner_0:mdoen_0" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MDO"   "mdio_combiner_0:mdo_1" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MDOEN" "mdio_combiner_0:mdoen_1" }
+# iter-4: two-bus MDIO architecture.
+# External bus (CORETSE_0 ↔ VSC8575 PHY chip + CORETSE_0's internal slave):
+#   CORETSE_0:MDO/MDOEN drive BIBUF_0 directly (no combiner).
+# Internal bus (CORETSE_1 master ↔ CORETSE_1 slave only):
+#   CORETSE_1:MDO/MDOEN → tse1_loopback_0 → CORETSE_1:MDI.
+sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:D" "CORETSE_0:MDO" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:E" "CORETSE_0:MDOEN" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MDO"   "tse1_loopback_0:mdo" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MDOEN" "tse1_loopback_0:mdoen" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MDI"   "tse1_loopback_0:mdi" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:PAD" "PHY_MDIO" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:Y" "CORETSE_0:MDI" "CORETSE_1:MDI" }
+# iter-4: CORETSE_1:MDI is NO LONGER on this external-bus net.  It comes
+# from tse1_loopback_0:mdi instead (wired below).  Only CORETSE_0:MDI
+# sees the external bus.
+sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:Y" "CORETSE_0:MDI" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TCK" "TCK" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TDI" "TDI" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TDO" "TDO" }

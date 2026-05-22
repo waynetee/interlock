@@ -151,10 +151,10 @@ static uint16_t mdio_read_v(uint32_t tse_base, uint8_t phy, uint8_t reg,
     return v;
 }
 
-/* Full PCS register dump for a single MDIO address.  Reads the four most
- * diagnostic SGMII/TBI registers per CoreTSE doc §3.5 and prints each with
- * its indicator bits and cycle count. */
-static void dump_pcs(const char *label, uint8_t phy)
+/* Full PCS register dump for a single MDIO address through a specific
+ * CoreTSE master.  In iter-4 we have TWO independent MDIO buses, so the
+ * tse_base parameter selects which master's bus the dump reads from. */
+static void dump_pcs(uint32_t tse_base, const char *label, uint8_t phy)
 {
     uint32_t ind, cyc;
     uint16_t r;
@@ -164,20 +164,20 @@ static void dump_pcs(const char *label, uint8_t phy)
     uart_print(" addr=");
     uart_print_dec(phy);
 
-    r = mdio_read_v(TSE_BASEADDR, phy, 0x00, &ind, &cyc);
+    r = mdio_read_v(tse_base, phy, 0x00, &ind, &cyc);
     uart_print(" Ctl=");   uart_print_hex16(r);
     uart_print("/i=");     uart_print_hex16((uint16_t)ind);
     uart_print("/c=");     uart_print_hex16((uint16_t)cyc);
 
-    r = mdio_read_v(TSE_BASEADDR, phy, 0x01, &ind, &cyc);
+    r = mdio_read_v(tse_base, phy, 0x01, &ind, &cyc);
     uart_print(" Sts=");   uart_print_hex16(r);
     uart_print("/i=");     uart_print_hex16((uint16_t)ind);
 
-    r = mdio_read_v(TSE_BASEADDR, phy, 0x0F, &ind, &cyc);
+    r = mdio_read_v(tse_base, phy, 0x0F, &ind, &cyc);
     uart_print(" ExtSts="); uart_print_hex16(r);
     uart_print("/i=");      uart_print_hex16((uint16_t)ind);
 
-    r = mdio_read_v(TSE_BASEADDR, phy, 0x11, &ind, &cyc);
+    r = mdio_read_v(tse_base, phy, 0x11, &ind, &cyc);
     uart_print(" TBICtl="); uart_print_hex16(r);
     uart_print("/i=");      uart_print_hex16((uint16_t)ind);
 
@@ -649,39 +649,45 @@ void phy1_autonegotiation(void)
 
   if(copper_link_up != 0u)
   {
-    *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1300;
-    *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x1;
-    while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+    /* iter-4: PHY 19 (CORETSE_1's internal SGMII slave) is now on the
+     * INTERNAL MDIO bus, reachable only via TSE1_BASEADDR.  All PHY-19
+     * accesses below use TSE1_BASEADDR (CORETSE_1's own master), which
+     * also makes CORETSE_1's internal MDC toggle — the precondition the
+     * iter-3 diagnostics narrowed in on.  PHY 29 (VSC8575 port 1 copper)
+     * stays on the EXTERNAL bus and is accessed via TSE_BASEADDR above. */
+    *(volatile unsigned int *) (TSE1_BASEADDR + 0x028) = 0x1300;
+    *(volatile unsigned int *) (TSE1_BASEADDR + 0x024) = 0x1;
+    while ((*(volatile unsigned int *) (TSE1_BASEADDR + 0x034)) != 0);
 
-    phy_reg = *(volatile unsigned int *) (TSE_BASEADDR + 0x030);
-    *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x0;
+    phy_reg = *(volatile unsigned int *) (TSE1_BASEADDR + 0x030);
+    *(volatile unsigned int *) (TSE1_BASEADDR + 0x024) = 0x0;
 
     phy_reg |= 0x1000;
 
-    *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1300;
-    *(volatile unsigned int *) (TSE_BASEADDR + 0x02C) = phy_reg;
-    while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+    *(volatile unsigned int *) (TSE1_BASEADDR + 0x028) = 0x1300;
+    *(volatile unsigned int *) (TSE1_BASEADDR + 0x02C) = phy_reg;
+    while ((*(volatile unsigned int *) (TSE1_BASEADDR + 0x034)) != 0);
 
-    *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1300;
-    *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x1;
-    while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+    *(volatile unsigned int *) (TSE1_BASEADDR + 0x028) = 0x1300;
+    *(volatile unsigned int *) (TSE1_BASEADDR + 0x024) = 0x1;
+    while ((*(volatile unsigned int *) (TSE1_BASEADDR + 0x034)) != 0);
 
-    phy_reg = *(volatile unsigned int *) (TSE_BASEADDR + 0x030);
-    *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x0;
+    phy_reg = *(volatile unsigned int *) (TSE1_BASEADDR + 0x030);
+    *(volatile unsigned int *) (TSE1_BASEADDR + 0x024) = 0x0;
 
     phy_reg |= 0x0200;
 
-    *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1300;
-    *(volatile unsigned int *) (TSE_BASEADDR + 0x02C) = phy_reg;
-    while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+    *(volatile unsigned int *) (TSE1_BASEADDR + 0x028) = 0x1300;
+    *(volatile unsigned int *) (TSE1_BASEADDR + 0x02C) = phy_reg;
+    while ((*(volatile unsigned int *) (TSE1_BASEADDR + 0x034)) != 0);
 
     do {
-      *(volatile unsigned int *) (TSE_BASEADDR + 0x028) = 0x1301;
-      *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x1;
-      while ((*(volatile unsigned int *) (TSE_BASEADDR + 0x034)) != 0);
+      *(volatile unsigned int *) (TSE1_BASEADDR + 0x028) = 0x1301;
+      *(volatile unsigned int *) (TSE1_BASEADDR + 0x024) = 0x1;
+      while ((*(volatile unsigned int *) (TSE1_BASEADDR + 0x034)) != 0);
 
-      phy_reg = *(volatile unsigned int *) (TSE_BASEADDR + 0x030);
-      *(volatile unsigned int *) (TSE_BASEADDR + 0x024) = 0x0;
+      phy_reg = *(volatile unsigned int *) (TSE1_BASEADDR + 0x030);
+      *(volatile unsigned int *) (TSE1_BASEADDR + 0x024) = 0x0;
 
       autoneg_complete = phy_reg & 0x0020;
       --sgmii_aneg_timeout;
@@ -850,7 +856,7 @@ int main(void)
 {
     UART_init(&g_uart, COREUARTAPB0_BASE_ADDR,
               BAUD_VALUE_115200, (DATA_8_BITS | NO_PARITY));
-    uart_print("\r\n\r\n[boot] interlock firmware iter-3 starting\r\n");
+    uart_print("\r\n\r\n[boot] interlock firmware iter-4 starting\r\n");
 
     uart_print("[boot] configure_zl30364 (clock generator)\r\n");
     configure_zl30364();
@@ -895,10 +901,11 @@ int main(void)
     uart_print("[boot] phy1_autonegotiation done\r\n");
 
     /* Final state dump. */
-    dump_phy_status(TSE_BASEADDR, PHY0_COPPER_ADDR, "port0 copper");
-    dump_phy_status(TSE_BASEADDR, PHY0_SGMII_ADDR,  "port0 SGMII");
-    dump_phy_status(TSE_BASEADDR, PHY1_COPPER_ADDR, "port1 copper");
-    dump_phy_status(TSE_BASEADDR, PHY1_SGMII_ADDR,  "port1 SGMII");
+    dump_phy_status(TSE_BASEADDR,  PHY0_COPPER_ADDR, "port0 copper");
+    dump_phy_status(TSE_BASEADDR,  PHY0_SGMII_ADDR,  "port0 SGMII");
+    dump_phy_status(TSE_BASEADDR,  PHY1_COPPER_ADDR, "port1 copper");
+    /* iter-4: PHY 19 is on the INTERNAL bus → read via TSE1_BASEADDR. */
+    dump_phy_status(TSE1_BASEADDR, PHY1_SGMII_ADDR,  "port1 SGMII");
 
     /* CoreTSE_1 sanity probe (already initialized, this just confirms the
      * address is readable and what MAC_CONFIG_1 reads back as). */
@@ -907,25 +914,50 @@ int main(void)
     uart_print_hex32(tse1_mc1);
     uart_print("\r\n");
 
-    /* iter-3 verbose PCS register dump.  Compares known-good PHY 18
-     * (CORETSE_0 slave) against under-test PHY 19 (CORETSE_1 slave) and
-     * a baseline unused address (PHY 17 negative control).  Distinguishes
-     * "slave never drove the bus" (data=0xFFFF, i=00) from "master timed
-     * out" (data=0xFFFF, i=04 NOT_VALID). */
-    uart_print("[diag] PCS register dump (iter-3 verbose probes)\r\n");
-    dump_pcs("PHY18 (CORETSE_0 known good)", 18);
-    dump_pcs("PHY19 (CORETSE_1 under test)", 19);
-    dump_pcs("PHY17 (unused; negative ctl)", 17);
+    /* iter-4 dual-bus verbose probes.  After iter-3 confirmed CORETSE_1's
+     * slave was electrically identical to PHY 17 (unused address), iter-4
+     * gives CORETSE_1 its own internal MDIO bus (tse1_loopback.sv in
+     * gateware) and routes PHY 19 transactions through TSE1_BASEADDR
+     * (CORETSE_1's own master).  These probes verify the new topology
+     * by comparing what each master sees.
+     *
+     * Expected (if hypothesis is correct):
+     *   Via CORETSE_0 (TSE_BASEADDR, external bus):
+     *     - PHY 18 responds  (CORETSE_0's own slave)
+     *     - PHY 28 responds  (VSC8575 port 0 copper)
+     *     - PHY 19 silent    (no longer on this bus — it's on internal bus)
+     *     - PHY 17 silent    (nothing there)
+     *   Via CORETSE_1 (TSE1_BASEADDR, internal bus):
+     *     - PHY 19 responds  (CORETSE_1's own slave, now reachable!)
+     *     - PHY 18 silent    (different bus)
+     *     - PHY 28 silent    (different bus)
+     *     - PHY 17 silent    (nothing there)
+     *
+     * If we see this pattern, the hypothesis holds and the two-bus
+     * architecture works.  Any deviation tells us something new. */
+
+    uart_print("[diag] iter-4 PCS dumps via CORETSE_0 master (TSE_BASEADDR, external bus)\r\n");
+    dump_pcs(TSE_BASEADDR, "PHY18 (CORETSE_0 slave, expect OK)",     18);
+    dump_pcs(TSE_BASEADDR, "PHY28 (VSC8575 p0,    expect OK)",       28);
+    dump_pcs(TSE_BASEADDR, "PHY19 (CORETSE_1, expect SILENT on ext)",19);
+    dump_pcs(TSE_BASEADDR, "PHY17 (unused, baseline)",               17);
+
+    uart_print("[diag] iter-4 PCS dumps via CORETSE_1 master (TSE1_BASEADDR, internal bus)\r\n");
+    dump_pcs(TSE1_BASEADDR, "PHY19 (CORETSE_1 slave, expect OK NOW)",19);
+    dump_pcs(TSE1_BASEADDR, "PHY18 (CORETSE_0 slave, expect SILENT)",18);
+    dump_pcs(TSE1_BASEADDR, "PHY28 (VSC8575 p0,    expect SILENT)",  28);
+    dump_pcs(TSE1_BASEADDR, "PHY17 (unused, baseline)",              17);
 
     uart_print("[boot] init complete — polling both ports\r\n");
 
     uint32_t tick = 0;
     while (1) {
         for (volatile uint32_t i = 0; i < 8000000; i++) { }
-        uint16_t s0c = mdio_read(TSE_BASEADDR, PHY0_COPPER_ADDR, 1);
-        uint16_t s0s = mdio_read(TSE_BASEADDR, PHY0_SGMII_ADDR,  1);
-        uint16_t s1c = mdio_read(TSE_BASEADDR, PHY1_COPPER_ADDR, 1);
-        uint16_t s1s = mdio_read(TSE_BASEADDR, PHY1_SGMII_ADDR,  1);
+        uint16_t s0c = mdio_read(TSE_BASEADDR,  PHY0_COPPER_ADDR, 1);
+        uint16_t s0s = mdio_read(TSE_BASEADDR,  PHY0_SGMII_ADDR,  1);
+        uint16_t s1c = mdio_read(TSE_BASEADDR,  PHY1_COPPER_ADDR, 1);
+        /* iter-4: PHY 19 on internal bus. */
+        uint16_t s1s = mdio_read(TSE1_BASEADDR, PHY1_SGMII_ADDR,  1);
         uart_print("[poll t=");
         uart_print_dec(tick++);
         uart_print("] p0c=");
