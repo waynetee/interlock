@@ -10,7 +10,7 @@ Run: `python3 test_protocol.py`
 
 ## Layout
 
-`protocol.py` (~420 lines) holds everything, one section per component in
+`protocol.py` (~500 lines) holds everything, one section per component in
 data-path order; the section banners mark the trust boundaries:
 
 | Section | Trusted by | Spec section |

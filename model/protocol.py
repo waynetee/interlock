@@ -2,7 +2,9 @@
 
 One object per component, in data-path order; the section banners mark trust
 boundaries. Components exchange serialized wire bytes, so test vectors here
-are byte-exact for the FPGA gateware and any other implementation.
+are byte-exact for the FPGA gateware and any other implementation. Every
+fixed-width message is defined once by a layout table; pack() and unpack()
+are generated from the same table, so builders and parsers cannot disagree.
 
 All integers are big-endian, fixed width. The cipher is a stand-in stream
 cipher (SHA-256 keystream XOR, domain-separated per direction) so the model
@@ -13,15 +15,61 @@ import hashlib
 import hmac as _hmac
 import struct
 from math import log2, inf
+from typing import NamedTuple
 
-UNIT = 4                # bytes per token on the wire
-VERSION = b"ilock-v5"   # 8 bytes
-RVERSION = b"recomp-v1"
+UNIT = 4                 # bytes per token on the wire
+TAG = 32                 # HMAC-SHA-256 tag size
+VERSION = b"ilock-v5"    # 8 bytes
+RVERSION = b"recomp-v1"  # 9 bytes
 
 
 # ===========================================================================
 # Wire formats and hashes (shared by every component)
 # ===========================================================================
+
+def pack(layout, fields):
+    out = b""
+    for name, size, kind in layout:
+        v = fields[name]
+        chunk = (v.to_bytes(size, "big") if kind == "int"
+                 else struct.pack(">d", v) if kind == "float" else v)
+        assert len(chunk) == size, name
+        out += chunk
+    return out
+
+
+def unpack(layout, data):
+    out, pos = {}, 0
+    for name, size, kind in layout:
+        chunk = data[pos:pos + size]
+        out[name] = (int.from_bytes(chunk, "big") if kind == "int"
+                     else struct.unpack(">d", chunk)[0] if kind == "float" else chunk)
+        pos += size
+    return out
+
+
+# Packet = header | ciphertext. recomp_commitment = H(key) = H2.
+HEADER = {
+    "in":  [("length", 4, "int"), ("request_id", 8, "int"),
+            ("recomp_commitment", 32, "bytes")],
+    "out": [("length", 4, "int"), ("request_id", 8, "int")],
+}
+HDR = {d: sum(size for _, size, _ in l) for d, l in HEADER.items()}
+
+# Record: what the interlock commits per packet (hashing step 1).
+RECORD = [("length", 4, "int"), ("request_id", 8, "int"), ("packet_hash", 32, "bytes")]
+
+# Certificate body m (the HMAC tag follows it on the wire).
+CERT = [("version", 8, "bytes"), ("interlock_id", 8, "int"),
+        ("bucket_start", 8, "int"), ("num_buckets", 4, "int"),
+        ("overall_in", 32, "bytes"), ("overall_out", 32, "bytes"),
+        ("nonce", 16, "bytes")]
+
+# Recomputation certificate body (doc, Recomputation certificate).
+RECOMP_CERT = [("version", 9, "bytes"), ("recomp_id", 8, "int"),
+               ("nonce", 16, "bytes"), ("h1_in", 32, "bytes"), ("h2", 32, "bytes"),
+               ("h1_out", 32, "bytes"), ("n_units", 4, "int"), ("U", 8, "float")]
+
 
 def H(data):
     return hashlib.sha256(data).digest()
@@ -55,26 +103,21 @@ def bytes_to_tokens(data):
     return [int.from_bytes(data[i:i + UNIT], "big") for i in range(0, len(data), UNIT)]
 
 
-# input  packet: length(4) | request_id(8) | recomp_commitment(32) | ciphertext
-# output packet: length(4) | request_id(8) | ciphertext
-# Header = everything before the ciphertext. recomp_commitment = H(key) = H2.
-
-HDR = {"in": 44, "out": 12}
-
-
 def input_packet(request_id, key, ciphertext):
-    return (len(ciphertext).to_bytes(4, "big") + request_id.to_bytes(8, "big")
-            + H(key) + ciphertext)
+    return pack(HEADER["in"], {"length": len(ciphertext), "request_id": request_id,
+                               "recomp_commitment": H(key)}) + ciphertext
 
 
 def output_packet(request_id, ciphertext):
-    return len(ciphertext).to_bytes(4, "big") + request_id.to_bytes(8, "big") + ciphertext
+    return pack(HEADER["out"], {"length": len(ciphertext),
+                                "request_id": request_id}) + ciphertext
 
 
 def parse_packet(direction, pkt):
-    """-> (length, request_id, ciphertext). Header fields are pkt[:HDR[direction]]."""
-    return (int.from_bytes(pkt[:4], "big"), int.from_bytes(pkt[4:12], "big"),
-            pkt[HDR[direction]:])
+    """-> header fields plus "ciphertext"."""
+    p = unpack(HEADER[direction], pkt)
+    p["ciphertext"] = pkt[HDR[direction]:]
+    return p
 
 
 def packet_hash(direction, pkt):
@@ -82,46 +125,72 @@ def packet_hash(direction, pkt):
     return H(pkt[:HDR[direction]] + H(pkt[HDR[direction]:]))
 
 
-# Log -> certificate hashing, the three steps:
-
 def record(direction, pkt):
-    """Step 1, per packet: length(4) | request_id(8) | packet_hash(32)."""
-    return pkt[:12] + packet_hash(direction, pkt)
+    """Hashing step 1, per packet."""
+    p = parse_packet(direction, pkt)
+    return pack(RECORD, {"length": p["length"], "request_id": p["request_id"],
+                         "packet_hash": packet_hash(direction, pkt)})
 
 
 def bucket_hash(records):
-    """Step 2, per bucket: hash of the ordered records (H of empty if none)."""
+    """Hashing step 2, per bucket: the ordered records (H of empty if none)."""
     return H(b"".join(records))
 
 
 def overall_hash(bucket_hashes):
-    """Step 3, per second: hash of the bucket-hash sequence, one per direction."""
+    """Hashing step 3, per second: the bucket-hash sequence, one per direction."""
     return H(b"".join(bucket_hashes))
 
 
 def cert_body(interlock_id, bucket_start, hashes_in, hashes_out, nonce):
     """m — every field is derivable from the log + latched nonce (prover-auditable)."""
-    return (VERSION + interlock_id.to_bytes(8, "big") + bucket_start.to_bytes(8, "big")
-            + len(hashes_in).to_bytes(4, "big")
-            + overall_hash(hashes_in) + overall_hash(hashes_out) + nonce)
+    return pack(CERT, {"version": VERSION, "interlock_id": interlock_id,
+                       "bucket_start": bucket_start, "num_buckets": len(hashes_in),
+                       "overall_in": overall_hash(hashes_in),
+                       "overall_out": overall_hash(hashes_out), "nonce": nonce})
 
 
 def parse_certificate(cert):
-    m, tag = cert[:-32], cert[-32:]
-    return {"version": m[:8], "interlock_id": int.from_bytes(m[8:16], "big"),
-            "bucket_start": int.from_bytes(m[16:24], "big"),
-            "num_buckets": int.from_bytes(m[24:28], "big"),
-            "overall_in": m[28:60], "overall_out": m[60:92], "nonce": m[92:108],
-            "m": m, "tag": tag}
+    m, tag = cert[:-TAG], cert[-TAG:]
+    return {**unpack(CERT, m), "m": m, "tag": tag}
 
 
 def parse_recomp_certificate(cert):
-    m, tag = cert[:-32], cert[-32:]
-    assert m[:9] == RVERSION
-    return {"recomp_id": int.from_bytes(m[9:17], "big"), "nonce": m[17:33],
-            "h1_in": m[33:65], "h2": m[65:97], "h1_out": m[97:129],
-            "n_units": int.from_bytes(m[129:133], "big"),
-            "U": struct.unpack(">d", m[133:141])[0], "m": m, "tag": tag}
+    m, tag = cert[:-TAG], cert[-TAG:]
+    c = {**unpack(RECOMP_CERT, m), "m": m, "tag": tag}
+    assert c["version"] == RVERSION
+    return c
+
+
+def locate(direction, records, x):
+    """Index of the packet covering byte x of a bucket, walking the records by
+    cumulative wire size; None means x is past the bucket's content (the
+    record list alone proves emptiness). The frontend and the verifier both
+    locate through this one function, so their size arithmetic cannot diverge."""
+    pos = 0
+    for i, rec in enumerate(records):
+        size = HDR[direction] + unpack(RECORD, rec)["length"]
+        if pos <= x < pos + size:
+            return i
+        pos += size
+    return None
+
+
+class Opening(NamedTuple):
+    """Everything the prover transmits for one challenge (doc, Challenge
+    step 3). Fields after records_out are None when byte x is empty."""
+    y: int                    # challenged output bucket
+    cert_out: bytes           # certificate covering y
+    hashes_out: list          # that second's output bucket hashes
+    records_out: list         # records of bucket y
+    header_out: bytes = None  # header of the hit packet
+    h1_out: bytes = None      # H(ciphertext) of the hit packet
+    w: int = None             # bucket of the matching input packet
+    cert_in: bytes = None     # certificate covering w
+    hashes_in: list = None    # that second's input bucket hashes
+    records_in: list = None   # records of bucket w
+    header_in: bytes = None   # input header (carries the H2 commitment)
+    h1_in: bytes = None       # H(ciphertext) of the input packet
 
 
 # ===========================================================================
@@ -166,18 +235,18 @@ class Interlock:
 
     def on_packet(self, direction, pkt):
         """Forward (return pkt) or drop (return None). Drops are never hashed."""
-        length, rid, ct = parse_packet(direction, pkt)
+        p = parse_packet(direction, pkt)
         last = self.last_in_id if direction == "in" else self.last_out_id
-        if length != len(ct) or length > self.s_max:
+        if p["length"] != len(p["ciphertext"]) or p["length"] > self.s_max:
             return None
-        if rid <= last:
+        if p["request_id"] <= last:
             return None
         if self.used[direction] + len(pkt) > self.capacity:
             return None
         if direction == "in":
-            self.last_in_id = rid
+            self.last_in_id = p["request_id"]
         else:
-            self.last_out_id = rid
+            self.last_out_id = p["request_id"]
         self.records[direction].append(record(direction, pkt))
         self.used[direction] += len(pkt)
         return pkt
@@ -195,9 +264,8 @@ class Interlock:
         assert len(self.hashes["in"]) == self.n
         m = cert_body(self.interlock_id, self.bucket - self.n,
                       self.hashes["in"], self.hashes["out"], self.nonce)
-        cert = m + mac(self.mac_key, m)
         self.hashes = {"in": [], "out": []}
-        return cert
+        return m + mac(self.mac_key, m)
 
 
 # ===========================================================================
@@ -227,7 +295,7 @@ class Frontend:
         expect = cert_body(self.interlock_id, start,
                            self.second_hashes(start, "in"),
                            self.second_hashes(start, "out"), expected_nonce)
-        return cert[:-32] == expect
+        return cert[:-TAG] == expect
 
     def bucket_packets(self, bucket, direction):
         return [p for b, d, p in self.log if b == bucket and d == direction]
@@ -237,40 +305,33 @@ class Frontend:
                 for b in range(start, start + self.n)]
 
     def _side(self, bucket, direction):
+        """-> (certificate, that second's bucket hashes, the bucket's records)."""
         start = bucket - bucket % self.n
-        return {"cert": self.certs[start],
-                "hashes": self.second_hashes(start, direction),
-                "records": [record(direction, p) for p in self.bucket_packets(bucket, direction)]}
+        return (self.certs[start], self.second_hashes(start, direction),
+                [record(direction, p) for p in self.bucket_packets(bucket, direction)])
 
     def open_challenge(self, y, x):
-        """Opening for byte x of output bucket y: the smallest log slice the
-        verifier needs to recompute the certificates (doc, Challenge step 3)."""
-        out = self._side(y, "out")
-        opening = {"y": y, "cert_out": out["cert"], "hashes_out": out["hashes"],
-                   "records_out": out["records"]}
-        pos = 0
-        for pkt in self.bucket_packets(y, "out"):
-            if pos <= x < pos + len(pkt):
-                opening["header_out"] = pkt[:HDR["out"]]
-                opening["h1_out"] = H(pkt[HDR["out"]:])
-                rid = parse_packet("out", pkt)[1]
-                w, in_pkt = next((b, p) for b, d, p in self.log
-                                 if d == "in" and parse_packet("in", p)[1] == rid)
-                inp = self._side(w, "in")
-                opening.update({"w": w, "cert_in": inp["cert"], "hashes_in": inp["hashes"],
-                                "records_in": inp["records"],
-                                "header_in": in_pkt[:HDR["in"]],
-                                "h1_in": H(in_pkt[HDR["in"]:])})
-                return opening
-            pos += len(pkt)
-        return opening  # byte x is empty: the record list alone proves it
+        """Opening for byte x of output bucket y (doc, Challenge step 3)."""
+        cert_out, hashes_out, records_out = self._side(y, "out")
+        hit = locate("out", records_out, x)
+        if hit is None:
+            return Opening(y, cert_out, hashes_out, records_out)
+        pkt = self.bucket_packets(y, "out")[hit]
+        rid = parse_packet("out", pkt)["request_id"]
+        w, in_pkt = next((b, p) for b, d, p in self.log
+                         if d == "in" and parse_packet("in", p)["request_id"] == rid)
+        cert_in, hashes_in, records_in = self._side(w, "in")
+        return Opening(y, cert_out, hashes_out, records_out,
+                       header_out=pkt[:HDR["out"]], h1_out=H(pkt[HDR["out"]:]),
+                       w=w, cert_in=cert_in, hashes_in=hashes_in, records_in=records_in,
+                       header_in=in_pkt[:HDR["in"]], h1_in=H(in_pkt[HDR["in"]:]))
 
     def challenge_materials(self, rid):
         """Ciphertexts + key for the recomputation stage (prover side only)."""
-        in_ct = next(parse_packet(d, p)[2] for _, d, p in self.log
-                     if d == "in" and parse_packet(d, p)[1] == rid)
-        out_ct = next(parse_packet(d, p)[2] for _, d, p in self.log
-                      if d == "out" and parse_packet(d, p)[1] == rid)
+        in_ct = next(parse_packet(d, p)["ciphertext"] for _, d, p in self.log
+                     if d == "in" and parse_packet(d, p)["request_id"] == rid)
+        out_ct = next(parse_packet(d, p)["ciphertext"] for _, d, p in self.log
+                      if d == "out" and parse_packet(d, p)["request_id"] == rid)
         return in_ct, self.keys[rid], out_ct
 
 
@@ -308,9 +369,9 @@ class RecompInterlock:
             q = table.get(unit, (1 - spent) / (RESIDUAL_SPACE - len(table)))
             U = inf if q <= 0 else U - log2(q)
             node.reveal(unit)
-        m = (RVERSION + self.recomp_id.to_bytes(8, "big") + nonce
-             + h1_in + h2 + H(output_ct)
-             + len(units).to_bytes(4, "big") + struct.pack(">d", U))
+        m = pack(RECOMP_CERT, {"version": RVERSION, "recomp_id": self.recomp_id,
+                               "nonce": nonce, "h1_in": h1_in, "h2": h2,
+                               "h1_out": H(output_ct), "n_units": len(units), "U": U})
         return m + mac(self.mac_key, m)
 
 
@@ -350,6 +411,7 @@ class Verifier:
         self.used_ids = set()
 
     def check_certificate(self, cert):
+        """(a) authentic: valid tag, this protocol, our device."""
         c = parse_certificate(cert)
         assert mac_ok(self.mac_key, c["m"], c["tag"])
         assert c["version"] == VERSION and c["interlock_id"] == self.interlock_id
@@ -369,49 +431,44 @@ class Verifier:
         return (rng.randrange(max(0, current_bucket - window), current_bucket),
                 rng.randrange(self.capacity))
 
-    def _check_side(self, cert, direction, bucket, hashes, records):
-        c = self.check_certificate(cert)
+    def _check_side(self, cert, overall_field, bucket, hashes, records):
+        c = self.check_certificate(cert)                       # (a)
         start = c["bucket_start"]
         assert start <= bucket < start + self.n
-        assert overall_hash(hashes) == c["overall_" + direction]
-        assert bucket_hash(records) == hashes[bucket - start]
+        assert overall_hash(hashes) == c[overall_field]        # (b)
+        assert bucket_hash(records) == hashes[bucket - start]  # (c)
 
     @staticmethod
-    def _check_packet(records, idx, header, h1):
-        assert header[:12] == records[idx][:12]       # length + request_id
-        assert H(header + h1) == records[idx][12:44]  # packet_hash
-        return int.from_bytes(header[4:12], "big")    # request_id
+    def _check_packet(direction, records, idx, header, h1):
+        """The revealed header + ciphertext hash must reproduce the record."""
+        rec, hdr = unpack(RECORD, records[idx]), unpack(HEADER[direction], header)
+        assert (hdr["length"], hdr["request_id"]) == (rec["length"], rec["request_id"])
+        assert H(header + h1) == rec["packet_hash"]
+        return rec["request_id"]
 
     def verify_opening(self, y, x, op):
         """Doc checks (a)-(e). Returns None if byte x is empty, else the
         binding values {rid, h1_in, h2, h1_out} for the recomputation check."""
-        assert op["y"] == y
-        self._check_side(op["cert_out"], "out", y, op["hashes_out"], op["records_out"])
-        pos, hit = 0, None
-        for i, rec in enumerate(op["records_out"]):   # locate byte x by cumulative size
-            size = 12 + int.from_bytes(rec[:4], "big")
-            if pos <= x < pos + size:
-                hit = i
-                break
-            pos += size
+        assert op.y == y
+        self._check_side(op.cert_out, "overall_out", y, op.hashes_out, op.records_out)
+        hit = locate("out", op.records_out, x)                 # (d) byte x -> packet
         if hit is None:
-            assert x >= pos        # past the bucket's content: empty, done
-            return None
-        rid = self._check_packet(op["records_out"], hit, op["header_out"], op["h1_out"])
-        # input binding: committed inbound, earlier bucket, ID match, single use
-        self._check_side(op["cert_in"], "in", op["w"], op["hashes_in"], op["records_in"])
-        assert op["w"] <= y
-        idx = next(i for i, r in enumerate(op["records_in"])
-                   if int.from_bytes(r[4:12], "big") == rid)
-        assert self._check_packet(op["records_in"], idx, op["header_in"], op["h1_in"]) == rid
+            return None  # past the bucket's content: empty, done
+        rid = self._check_packet("out", op.records_out, hit, op.header_out, op.h1_out)
+        # (e) input binding: committed inbound, earlier bucket, ID match, single use
+        self._check_side(op.cert_in, "overall_in", op.w, op.hashes_in, op.records_in)
+        assert op.w <= y
+        idx = next(i for i, r in enumerate(op.records_in)
+                   if unpack(RECORD, r)["request_id"] == rid)
+        assert self._check_packet("in", op.records_in, idx, op.header_in, op.h1_in) == rid
         assert rid not in self.used_ids
         self.used_ids.add(rid)
-        return {"rid": rid, "h1_in": op["h1_in"], "h2": op["header_in"][12:44],
-                "h1_out": op["h1_out"]}
+        return {"rid": rid, "h1_in": op.h1_in, "h1_out": op.h1_out,
+                "h2": unpack(HEADER["in"], op.header_in)["recomp_commitment"]}
 
     def verify_recomp(self, cert, nonce, binding):
-        """Doc check (f): the recomputation certificate matches the opened
-        values; returns the attested unexplained information U in bits."""
+        """(f) the recomputation certificate matches the opened values;
+        returns the attested unexplained information U in bits."""
         c = parse_recomp_certificate(cert)
         assert mac_ok(self.recomp_key, c["m"], c["tag"])
         assert c["recomp_id"] == self.recomp_id and c["nonce"] == nonce
