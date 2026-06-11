@@ -4,11 +4,8 @@ Run with: python3 test_protocol.py
 """
 import random
 
-from wire import H, input_packet, output_packet, encrypt, tokens_to_bytes
-from interlock import Interlock
-from frontend import Frontend
-from verifier import Verifier
-from recomp import RecompInterlock, HonestNode
+from protocol import (H, input_packet, output_packet, make_pair,
+                      Interlock, Frontend, Verifier, RecompInterlock, RecompNode)
 
 N = 50  # buckets per certificate (1000 in production; small here for readability)
 ILOCK_KEY, ILOCK_ID = H(b"interlock-key"), 7
@@ -19,12 +16,6 @@ NONCE, CHALLENGE_NONCE = H(b"nonce")[:16], H(b"challenge")[:16]
 def declared_d(prompt_tokens):
     """Toy stand-in for the declared computation (an LLM in the real system)."""
     return [(sum(prompt_tokens) + 7 * i) % 2**16 for i in range(8)]
-
-
-def make_pair(rid, prompt_tokens, key, response_tokens=None):
-    response = response_tokens or declared_d(prompt_tokens)
-    return (input_packet(rid, key, encrypt(key, b"in", tokens_to_bytes(prompt_tokens))),
-            output_packet(rid, encrypt(key, b"out", tokens_to_bytes(response))))
 
 
 def run_second(ilock, fe, schedule):
@@ -40,13 +31,13 @@ def run_second(ilock, fe, schedule):
     return cert
 
 
-def honest_run(response_tokens=None):
+def honest_run(respond=declared_d):
     """Two seconds of traffic: request in second 0, response in second 1 (bucket N+7)."""
     ilock = Interlock(ILOCK_KEY, ILOCK_ID, buckets_per_cert=N)
     fe = Frontend(ILOCK_ID, buckets_per_cert=N)
     ver = Verifier(ILOCK_KEY, ILOCK_ID, RECOMP_KEY, RECOMP_ID, buckets_per_cert=N)
     key = H(b"pair-key")
-    in_pkt, out_pkt = make_pair(1, [10, 20, 30], key, response_tokens)
+    in_pkt, out_pkt = make_pair(1, [10, 20, 30], key, respond)
     fe.keys[1] = key
     run_second(ilock, fe, {3: [("in", in_pkt)]})
     ilock.on_nonce(NONCE)
@@ -64,7 +55,7 @@ def challenge(fe, ver, y, x):
     in_ct, key, out_ct = fe.challenge_materials(binding["rid"])
     rcert = RecompInterlock(RECOMP_KEY, RECOMP_ID).run(
         CHALLENGE_NONCE, binding["h1_in"], binding["h2"], in_ct, key, out_ct,
-        HonestNode(declared_d))
+        RecompNode(declared_d))
     return ver.verify_recomp(rcert, CHALLENGE_NONCE, binding)
 
 
@@ -94,14 +85,14 @@ def test_empty_byte_and_empty_bucket():
 
 
 def test_covert_output_detected():
-    _, fe, ver = honest_run(response_tokens=[99] * 8)  # output not explained by D(x)
-    assert challenge(fe, ver, N + 7, 0) > 30           # ~42 bits per unexplained unit
+    _, fe, ver = honest_run(respond=lambda p: [99] * 8)  # output not explained by D(x)
+    assert challenge(fe, ver, N + 7, 0) > 30             # ~42 bits per unexplained unit
 
 
 def test_interlock_drop_rules():
     ilock = Interlock(ILOCK_KEY, ILOCK_ID, s_max=100, buckets_per_cert=N)
     key = H(b"k")
-    ok_in, ok_out = make_pair(5, [1], key)
+    ok_in, ok_out = make_pair(5, [1], key, declared_d)
     assert ilock.on_packet("in", ok_in) is not None
     assert ilock.on_packet("in", ok_in) is None                      # replayed inbound ID
     assert ilock.on_packet("in", input_packet(4, key, b"x")) is None  # non-monotonic inbound
@@ -138,16 +129,16 @@ def test_certificate_gap_rejected():
 
 def test_fabricated_input_rejected():
     _, fe, ver = honest_run()
-    fake_in, _ = make_pair(1, [7, 7, 7], H(b"other-key"))  # same ID, different content
-    fe.log[0] = (3, "in", fake_in)
+    fake_in, _ = make_pair(1, [7, 7, 7], H(b"other-key"), declared_d)
+    fe.log[0] = (3, "in", fake_in)              # same ID, different content
     fe.keys[1] = H(b"other-key")
     assert raises(lambda: challenge(fe, ver, N + 7, 0))
 
 
 def test_duplicate_response_rejected():
-    ilock, fe, ver = (h := honest_run())[0], h[1], h[2]
+    ilock, fe, ver = honest_run()
     key = fe.keys[1]
-    _, dup = make_pair(1, [10, 20, 30], key, response_tokens=[42] * 8)
+    _, dup = make_pair(1, [10, 20, 30], key, lambda p: [42] * 8)
     ilock.on_nonce(NONCE)
     run_second(ilock, fe, {2: [("out", dup)]})  # second response, same request ID
     assert challenge(fe, ver, N + 7, 0) is not None
@@ -160,9 +151,9 @@ def test_recomp_ingress_and_sum_checks():
     in_ct, key, out_ct = fe.challenge_materials(binding["rid"])
     ri = RecompInterlock(RECOMP_KEY, RECOMP_ID)
     args = (CHALLENGE_NONCE, binding["h1_in"], binding["h2"])
-    assert ri.run(*args, in_ct, H(b"wrong-key"), out_ct, HonestNode(declared_d)) is None
+    assert ri.run(*args, in_ct, H(b"wrong-key"), out_ct, RecompNode(declared_d)) is None
 
-    class CheatNode(HonestNode):                 # claims prob 1 for many units
+    class CheatNode(RecompNode):                 # claims prob 1 for many units
         def commit(self):
             return {i.to_bytes(4, "big"): 1.0 for i in range(4)}
     assert ri.run(*args, in_ct, key, out_ct, CheatNode(declared_d)) is None

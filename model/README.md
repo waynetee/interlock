@@ -1,25 +1,32 @@
 # Protocol reference model
 
 Executable golden model of `docs/verification-protocol.md` (v5). Pure Python,
-stdlib only. Intended as the reference that the FPGA gateware and a
-performant prover frontend are tested against: every component speaks
+stdlib only, two files. Intended as the reference that the FPGA gateware and
+a performant prover frontend are tested against: components exchange
 serialized wire bytes, so a test vector here ("this packet stream in → this
 certificate out") is byte-exact for any other implementation.
 
 Run: `python3 test_protocol.py`
 
-## Files (one per trust domain)
+## Layout
 
-| File | Role | Spec section |
+`protocol.py` (~420 lines) holds everything, one section per component in
+data-path order; the section banners mark the trust boundaries:
+
+| Section | Trusted by | Spec section |
 |---|---|---|
-| `wire.py` | packet/record/certificate formats, the three hashing steps, stand-in cipher | Log format, Certificate format |
-| `interlock.py` | the streaming state machine: validity rules, bucket hashing, per-second certificate, nonce latch | Roles: interlock |
-| `frontend.py` | the log; derives hashes on demand; builds challenge openings; byte-audits certificates | Roles: prover frontend |
-| `verifier.py` | anchor, challenge selection, opening checks (a)–(e), recomputation check (f). Its imports are the verifier's TCB | Challenge |
-| `recomp.py` | Option 1: ingress gating on H1/H2, commit-then-reveal loop, Σq ≤ 1 check | Recomputation certificate |
-| `test_protocol.py` | honest end-to-end run + one negative test per check | Properties P1–P4 |
+| Wire formats and hashes | shared definitions | Log format, Certificate format |
+| Prover compute (`make_pair`) | nobody — its only contract is the bytes it emits | — |
+| `Interlock` | verifier | Roles: interlock |
+| `Frontend` | prover | Roles: prover frontend |
+| `RecompInterlock` / `RecompNode` | verifier / prover (node runs in enclosure) | Recomputation certificate, Option 1 |
+| `Verifier` | verifier — its methods are checks (a)–(f) | Challenge |
 
-`interlock.py` is written event-style (`on_packet` / `on_bucket_boundary` /
+`test_protocol.py` is an honest end-to-end run plus one negative test per
+check (tampered log, certificate gap, fabricated input, duplicate response,
+drop rules, Σq ≤ 1, H2 ingress gate, nonce echo, covert output → large U).
+
+`Interlock` is written event-style (`on_packet` / `on_bucket_boundary` /
 `on_second`) with fixed-size state, mirroring the planned gateware, so a
 cocotb testbench can drive the RTL and this model with the same event
 sequence and compare state at every boundary.
@@ -28,13 +35,13 @@ sequence and compare state at every boundary.
 
 - **Cipher:** SHA-256-keystream XOR (domain-separated per direction) instead
   of AES-CTR. Position-addressable like CTR, which is all the protocol uses.
-  Swap point: `wire.encrypt`.
+  Swap point: `protocol.encrypt`.
 - **Bucket assignment** is passed to the frontend explicitly by the test
   driver instead of via in-stream boundary markers.
 - **No wall clock:** anchor monotonicity is checked; counter-rate-vs-time and
   the 2× speedup bound are not modeled.
 - **Probabilities are floats** (the spec suggests dyadic/fixed-point for
-  hardware); the recomputation node is a toy deterministic function, not an
+  hardware); the recomputation node runs a toy deterministic function, not an
   LLM — model quality only affects the size of U, not what verifies.
 - **Cut-and-choose certificate release** is not modeled (certificates are
   handed over directly).
