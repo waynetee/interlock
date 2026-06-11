@@ -10,17 +10,18 @@ All integers are big-endian, fixed width. The cipher is a stand-in stream
 cipher (SHA-256 keystream XOR, domain-separated per direction) so the model
 has no dependencies; the real system uses AES-CTR. Both are
 position-addressable, which is all the protocol relies on.
+
+This file covers the workload dataflow and the challenge opening; the
+recomputation stage (scoring a challenged pair to produce U) is in recomp.py.
 """
 import hashlib
 import hmac as _hmac
 import struct
-from math import log2, inf
 from typing import NamedTuple
 
 UNIT = 4                 # bytes per token on the wire
 TAG = 32                 # HMAC-SHA-256 tag size
 VERSION = b"ilock-v5"    # 8 bytes
-RVERSION = b"recomp-v1"  # 9 bytes
 
 
 # ===========================================================================
@@ -64,12 +65,6 @@ CERT = [("version", 8, "bytes"), ("interlock_id", 8, "int"),
         ("bucket_start", 8, "int"), ("num_buckets", 4, "int"),
         ("overall_in", 32, "bytes"), ("overall_out", 32, "bytes"),
         ("nonce", 16, "bytes")]
-
-# Recomputation certificate body (doc, Recomputation certificate).
-RECOMP_CERT = [("version", 9, "bytes"), ("recomp_id", 8, "int"),
-               ("nonce", 16, "bytes"), ("h1_in", 32, "bytes"), ("h2", 32, "bytes"),
-               ("h1_out", 32, "bytes"), ("n_units", 4, "int"), ("U", 8, "float")]
-
 
 def H(data):
     return hashlib.sha256(data).digest()
@@ -153,13 +148,6 @@ def cert_body(interlock_id, bucket_start, hashes_in, hashes_out, nonce):
 def parse_certificate(cert):
     m, tag = cert[:-TAG], cert[-TAG:]
     return {**unpack(CERT, m), "m": m, "tag": tag}
-
-
-def parse_recomp_certificate(cert):
-    m, tag = cert[:-TAG], cert[-TAG:]
-    c = {**unpack(RECOMP_CERT, m), "m": m, "tag": tag}
-    assert c["version"] == RVERSION
-    return c
 
 
 def locate(direction, records, x):
@@ -336,76 +324,17 @@ class Frontend:
 
 
 # ===========================================================================
-# Recomputation, Option 1 (challenge time)
-#
-# A stateless recomputation interlock (verifier hardware at the enclosure
-# boundary) mediates a commit-then-reveal scoring loop with a recomputation
-# node (prover hardware inside the verifier enclosure). Scoring runs in
-# ciphertext space — the interlock never decrypts.
-# ===========================================================================
-
-RESIDUAL_SPACE = 2 ** (8 * UNIT)  # unlisted units share the leftover probability
-
-
-class RecompInterlock:
-    def __init__(self, mac_key, recomp_id):
-        self.mac_key, self.recomp_id = mac_key, recomp_id
-
-    def run(self, nonce, h1_in, h2, input_ct, key_material, output_ct, node):
-        """One challenge. Returns a certificate, or None if a check fails.
-        Ingress is gated by commitments: only data matching H1_in/H2 reaches
-        the node (the key material post-dates the response, so unpinned it
-        could smuggle the answers in)."""
-        if H(input_ct) != h1_in or H(key_material) != h2:
-            return None
-        node.load(input_ct, key_material)
-        units = [output_ct[i:i + UNIT] for i in range(0, len(output_ct), UNIT)]
-        U = 0.0
-        for unit in units:                     # commit, check, look up, reveal
-            table = node.commit()
-            spent = sum(table.values())
-            if spent > 1 + 1e-12:              # sub-distribution check: without it
-                return None                    # the node could claim prob 1 for everything
-            q = table.get(unit, (1 - spent) / (RESIDUAL_SPACE - len(table)))
-            U = inf if q <= 0 else U - log2(q)
-            node.reveal(unit)
-        m = pack(RECOMP_CERT, {"version": RVERSION, "recomp_id": self.recomp_id,
-                               "nonce": nonce, "h1_in": h1_in, "h2": h2,
-                               "h1_out": H(output_ct), "n_units": len(units), "U": U})
-        return m + mac(self.mac_key, m)
-
-
-class RecompNode:
-    """Honest recomputation node: runs the declared computation and predicts
-    the true ciphertext units, holding back a little probability mass for
-    (here unmodeled) hardware noise."""
-    def __init__(self, declared_d, confidence=0.999):
-        self.d, self.confidence = declared_d, confidence
-
-    def load(self, input_ct, key):
-        prompt = bytes_to_tokens(decrypt(key, b"in", input_ct))
-        self.ct = encrypt(key, b"out", tokens_to_bytes(self.d(prompt)))
-        self.i = 0
-
-    def commit(self):
-        return {self.ct[self.i * UNIT:(self.i + 1) * UNIT]: self.confidence}
-
-    def reveal(self, unit):
-        self.i += 1
-
-
-# ===========================================================================
 # External verifier
 #
 # The verifier's TCB: anchors certificates, selects challenges, runs the
-# opening checks (a)-(e) and the recomputation check (f) from the doc.
+# opening checks (a)-(e) from the doc. The recomputation check (f) is in
+# recomp.py.
 # ===========================================================================
 
 class Verifier:
-    def __init__(self, mac_key, interlock_id, recomp_key, recomp_id,
-                 buckets_per_cert=1000, capacity=100_000):
+    def __init__(self, mac_key, interlock_id, buckets_per_cert=1000,
+                 capacity=100_000):
         self.mac_key, self.interlock_id = mac_key, interlock_id
-        self.recomp_key, self.recomp_id = recomp_key, recomp_id
         self.n, self.capacity = buckets_per_cert, capacity
         self.anchors = []   # bucket_start of each anchored certificate
         self.used_ids = set()
@@ -465,33 +394,3 @@ class Verifier:
         self.used_ids.add(rid)
         return {"rid": rid, "h1_in": op.h1_in, "h1_out": op.h1_out,
                 "h2": unpack(HEADER["in"], op.header_in)["recomp_commitment"]}
-
-    def verify_recomp(self, cert, nonce, binding):
-        """(f) the recomputation certificate matches the opened values;
-        returns the attested unexplained information U in bits."""
-        c = parse_recomp_certificate(cert)
-        assert mac_ok(self.recomp_key, c["m"], c["tag"])
-        assert c["recomp_id"] == self.recomp_id and c["nonce"] == nonce
-        for k in ("h1_in", "h2", "h1_out"):
-            assert c[k] == binding[k]
-        return c["U"]
-
-
-# ===========================================================================
-# Challenge procedure (doc, Challenge steps 3-5)
-#
-# The protocol's own choreography: open the log, verify the opening,
-# run the recomputation, check its certificate. The anchor/select steps
-# (1-2) are Verifier.anchor and Verifier.select.
-# ===========================================================================
-
-def run_challenge(verifier, frontend, recomp_interlock, node, y, x, nonce):
-    """Returns the attested U for byte x of output bucket y, or None if
-    that byte is empty. Raises if any check fails."""
-    binding = verifier.verify_opening(y, x, frontend.open_challenge(y, x))
-    if binding is None:
-        return None
-    in_ct, key, out_ct = frontend.challenge_materials(binding["rid"])
-    cert = recomp_interlock.run(nonce, binding["h1_in"], binding["h2"],
-                                in_ct, key, out_ct, node)
-    return verifier.verify_recomp(cert, nonce, binding)

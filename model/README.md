@@ -10,8 +10,10 @@ Run: `python3 test_protocol.py`
 
 ## Layout
 
-`protocol.py` (~500 lines) holds everything, one section per component in
-data-path order; the section banners mark the trust boundaries:
+`protocol.py` (~400 lines) is the workload dataflow and challenge opening,
+one section per component in data-path order; `recomp.py` (~110 lines) is the
+challenge-time recomputation stage, joining back via `run_challenge()`. The
+section banners mark the trust boundaries:
 
 | Section | Trusted by | Spec section |
 |---|---|---|
@@ -19,8 +21,8 @@ data-path order; the section banners mark the trust boundaries:
 | Prover compute (`make_pair`) | nobody — its only contract is the bytes it emits | — |
 | `Interlock` | verifier | Roles: interlock |
 | `Frontend` | prover | Roles: prover frontend |
-| `RecompInterlock` / `RecompNode` | verifier / prover (node runs in enclosure) | Recomputation certificate, Option 1 |
-| `Verifier`, `run_challenge` | verifier — checks (a)–(f) and the challenge choreography | Challenge |
+| `Verifier` (protocol.py) | verifier — checks (a)–(e) | Challenge |
+| `RecompInterlock` / `RecompNode` / `verify_recomp` / `run_challenge` (recomp.py) | verifier / prover (node runs in enclosure) | Recomputation certificate, Option 1 |
 
 `test_protocol.py` is an honest end-to-end run plus one negative test per
 check (tampered log, certificate gap, fabricated input, duplicate response,

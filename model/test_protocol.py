@@ -5,8 +5,8 @@ Run with: python3 test_protocol.py
 import random
 
 from protocol import (H, input_packet, output_packet, make_pair, Interlock,
-                      Frontend, Verifier, RecompInterlock, RecompNode,
-                      run_challenge)
+                      Frontend, Verifier)
+from recomp import RecompInterlock, RecompNode, run_challenge
 
 N = 50  # buckets per certificate (1000 in production; small here for readability)
 ILOCK_KEY, ILOCK_ID = H(b"interlock-key"), 7
@@ -36,7 +36,7 @@ def honest_run(respond=declared_d):
     """Two seconds of traffic: request in second 0, response in second 1 (bucket N+7)."""
     ilock = Interlock(ILOCK_KEY, ILOCK_ID, buckets_per_cert=N)
     fe = Frontend(ILOCK_ID, buckets_per_cert=N)
-    ver = Verifier(ILOCK_KEY, ILOCK_ID, RECOMP_KEY, RECOMP_ID, buckets_per_cert=N)
+    ver = Verifier(ILOCK_KEY, ILOCK_ID, buckets_per_cert=N)
     key = H(b"pair-key")
     in_pkt, out_pkt = make_pair(1, [10, 20, 30], key, respond)
     fe.keys[1] = key
@@ -51,7 +51,8 @@ def honest_run(respond=declared_d):
 
 def challenge(fe, ver, y, x):
     return run_challenge(ver, fe, RecompInterlock(RECOMP_KEY, RECOMP_ID),
-                         RecompNode(declared_d), y, x, CHALLENGE_NONCE)
+                         RecompNode(declared_d), y, x, CHALLENGE_NONCE,
+                         RECOMP_KEY, RECOMP_ID)
 
 
 def raises(fn):
@@ -157,7 +158,7 @@ def test_recomp_ingress_and_sum_checks():
 def test_wrong_nonce_rejected():
     ilock = Interlock(ILOCK_KEY, ILOCK_ID, buckets_per_cert=N)
     fe = Frontend(ILOCK_ID, buckets_per_cert=N)
-    ver = Verifier(ILOCK_KEY, ILOCK_ID, RECOMP_KEY, RECOMP_ID, buckets_per_cert=N)
+    ver = Verifier(ILOCK_KEY, ILOCK_ID, buckets_per_cert=N)
     cert = run_second(ilock, fe, {})            # nonce register still zero
     assert raises(lambda: ver.anchor(NONCE, cert))
 
