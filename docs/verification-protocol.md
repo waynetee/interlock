@@ -1,4 +1,4 @@
-# Verified Output Stream: Interlock Commitments + Recomputation Certificate (v4)
+# Interlock Verification Protocol: Traffic Commitments, Challenges, and Recomputation Certificates (v4)
 
 ## Properties
 
