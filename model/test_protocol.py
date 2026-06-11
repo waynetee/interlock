@@ -4,8 +4,9 @@ Run with: python3 test_protocol.py
 """
 import random
 
-from protocol import (H, input_packet, output_packet, make_pair,
-                      Interlock, Frontend, Verifier, RecompInterlock, RecompNode)
+from protocol import (H, input_packet, output_packet, make_pair, Interlock,
+                      Frontend, Verifier, RecompInterlock, RecompNode,
+                      run_challenge)
 
 N = 50  # buckets per certificate (1000 in production; small here for readability)
 ILOCK_KEY, ILOCK_ID = H(b"interlock-key"), 7
@@ -49,14 +50,8 @@ def honest_run(respond=declared_d):
 
 
 def challenge(fe, ver, y, x):
-    binding = ver.verify_opening(y, x, fe.open_challenge(y, x))
-    if binding is None:
-        return None
-    in_ct, key, out_ct = fe.challenge_materials(binding["rid"])
-    rcert = RecompInterlock(RECOMP_KEY, RECOMP_ID).run(
-        CHALLENGE_NONCE, binding["h1_in"], binding["h2"], in_ct, key, out_ct,
-        RecompNode(declared_d))
-    return ver.verify_recomp(rcert, CHALLENGE_NONCE, binding)
+    return run_challenge(ver, fe, RecompInterlock(RECOMP_KEY, RECOMP_ID),
+                         RecompNode(declared_d), y, x, CHALLENGE_NONCE)
 
 
 def raises(fn):

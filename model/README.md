@@ -20,7 +20,7 @@ data-path order; the section banners mark the trust boundaries:
 | `Interlock` | verifier | Roles: interlock |
 | `Frontend` | prover | Roles: prover frontend |
 | `RecompInterlock` / `RecompNode` | verifier / prover (node runs in enclosure) | Recomputation certificate, Option 1 |
-| `Verifier` | verifier — its methods are checks (a)–(f) | Challenge |
+| `Verifier`, `run_challenge` | verifier — checks (a)–(f) and the challenge choreography | Challenge |
 
 `test_protocol.py` is an honest end-to-end run plus one negative test per
 check (tampered log, certificate gap, fabricated input, duplicate response,

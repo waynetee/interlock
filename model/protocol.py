@@ -418,3 +418,23 @@ class Verifier:
         for k in ("h1_in", "h2", "h1_out"):
             assert c[k] == binding[k]
         return c["U"]
+
+
+# ===========================================================================
+# Challenge procedure (doc, Challenge steps 3-5)
+#
+# The protocol's own choreography: open the log, verify the opening,
+# run the recomputation, check its certificate. The anchor/select steps
+# (1-2) are Verifier.anchor and Verifier.select.
+# ===========================================================================
+
+def run_challenge(verifier, frontend, recomp_interlock, node, y, x, nonce):
+    """Returns the attested U for byte x of output bucket y, or None if
+    that byte is empty. Raises if any check fails."""
+    binding = verifier.verify_opening(y, x, frontend.open_challenge(y, x))
+    if binding is None:
+        return None
+    in_ct, key, out_ct = frontend.challenge_materials(binding["rid"])
+    cert = recomp_interlock.run(nonce, binding["h1_in"], binding["h2"],
+                                in_ct, key, out_ct, node)
+    return verifier.verify_recomp(cert, nonce, binding)
