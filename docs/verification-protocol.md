@@ -1,4 +1,4 @@
-# Interlock Verification Protocol: Traffic Commitments, Challenges, and Recomputation Certificates (v4)
+# Interlock Verification Protocol: Logs, Certificates, and Recomputation (v5)
 
 ## Properties
 
@@ -16,57 +16,68 @@ Scope: single request→response pairs; size/time-distribution accounting deferr
 1. **Reset-free by construction** — the HMAC key and bucket counter share a battery-backed volatile domain, so state loss permanently ends the certificate stream rather than restarting it (re-commissioning with a new key required). Availability-for-simplicity trade: battery failure bricks verification, not traffic.
 2. **Speedup resistant** beyond ~2× — slowdown needs no assumption; it is directly visible in the verifier's anchor log.
 3. The HMAC key `k` (shared with the verifier) stays secret.
-4. Its ~70 KB of working memory is tamper-proof. The interlock retains only the current second; all history lives in prover storage.
+4. Its ~70 KB of working memory — one second of state — is tamper-proof.
 
-## Commitment hierarchy
+## The two objects
 
-Three levels; a challenge response opens one path from root to packet.
+The protocol is built from two objects:
 
-```
-certificate   =  HMAC_k( header ‖ H(input bucket hashes) ‖ H(output bucket hashes) )    — 1/second
-bucket hash   =  H( (len₁, id₁, pkt_hash₁) ‖ (len₂, id₂, pkt_hash₂) ‖ … )               — 1/ms/direction
-packet hash   =  H( len ‖ id ‖ [recomp_commitment ‖] H(ciphertext) )                    — per packet
-```
+- a **log** — the traffic itself, stored by the prover;
+- a **certificate** — a once-per-second commitment to the log, emitted by the interlock.
 
-The ordered `(length, id, pkt_hash)` records in a bucket hash reconstruct the byte stream exactly (P1); `H(ciphertext)` is kept as a separable leaf so it can serve as a recomputation-certificate public input without revealing the ciphertext.
+The interlock processes the log on the fly and stores none of it. The prover frontend logs everything. The certificate is a deterministic function of the log (plus the latched nonce), so anyone holding a slice of the log can recompute the corresponding hashes: the prover uses this to byte-audit every certificate as it arrives, and the verifier uses it to check any sampled piece of the prover's log at challenge time.
+
+### Log format
+
+A log is a time-ordered sequence of packets; there is one log per direction. Time is divided into 1 ms buckets, and the interlock emits a boundary marker each millisecond (excluded from all hashes) so the prover's log reproduces the interlock's packet→bucket assignment exactly.
 
 **Input packet:** `length ‖ request_id ‖ recomp_commitment ‖ ciphertext`, where `recomp_commitment = H(key material for this request and its response)` and ciphertext = `AES_K(prompt tokens)`.
 **Output packet:** `length ‖ request_id ‖ ciphertext` = `AES_K(response tokens)`.
-Packets carry no hash fields — the interlock computes all hashes itself, so there is nothing to mismatch and no hash channel to police.
 
-**Certificate fields** (fixed-width serialization):
+Every wire byte belongs to exactly one logged packet (P1). Packets carry no hash fields — all hashes are derived from the log, so there is nothing to mismatch and no hash channel to police.
+
+**Validity rules**, enforced by the interlock on the fly (violating packets are dropped — never forwarded, never hashed): `length ≤ S_max`; request IDs strictly increasing across the session inbound, and strictly increasing within each bucket outbound (the prover pre-sorts; the outbound comparator resets per bucket because responses finish out of order). Drops leave no trace in commitments and need none — a dropped packet never exits the node, so it carries no exfiltration risk; the prover observes drops directly by comparing its own logs on the two sides.
+
+### Certificate format
+
+Every second the interlock emits a certificate committing to the last 1000 buckets of both logs, computed incrementally as packets stream through:
 
 ```
-version ‖ interlock_id ‖ bucket_start ‖ num_buckets(=1000) ‖ H(in-seq) ‖ H(out-seq) ‖ nonce ‖ HMAC_k(…)
+1. per packet:   record       =  (length, request_id, H(packet))
+2. per bucket:   bucket_hash  =  H(record₁ ‖ record₂ ‖ …)            (H(ε) if empty)
+3. per second:   overall      =  H(bucket_hash₁ ‖ … ‖ bucket_hash₁₀₀₀)   one per direction
+
+certificate = version ‖ interlock_id ‖ bucket_start ‖ num_buckets(=1000)
+              ‖ overall_in ‖ overall_out ‖ nonce ‖ HMAC_k(all of it)
 ```
+
+`H(packet)` is structured as `H(len ‖ id ‖ [recomp_commitment ‖] H(ciphertext))` so the ciphertext hash is a separable leaf: a challenge can reveal a packet's header and `H(ciphertext)` without the ciphertext, and `H(ciphertext)` doubles as a recomputation-certificate public input (below).
 
 | Field | Why it exists |
 |---|---|
 | `version`, `interlock_id` | bind the MAC to this protocol and device |
 | `bucket_start`, `num_buckets` | place this second on the bucket timeline; consecutive certificates must tile it — a gap the prover cannot fill is a violation (P2, P4) |
-| the two sequence hashes | commit 2000 bucket hashes without shipping them |
+| `overall_in`, `overall_out` | commit 2000 bucket hashes without shipping them |
 | `nonce` | latest verifier nonce seen; proves the certificate postdates it (P4) |
-| `length`, `request_id` in bucket records | locate byte x; bind response to request without payload exposure (P1, P5) |
+| `length`, `request_id` in records | locate a challenged byte; bind response to request without payload exposure (P1, P5) |
 | `H(ciphertext)` | the H1 the recomputation certificate binds to (P3, P5) |
 | `recomp_commitment` | the H2 pinning the keys, fixed at request time (P3) |
 
-Every certificate field is exactly prover-predictable, so the prover can byte-audit certificates as they arrive. The interlock's total covert-output surface is the nonce-latch timing (≤1 bit per nonce update) plus the HMAC tag itself (coverable by cut-and-choose, below).
+**Nonce latch:** the verifier occasionally sends a plaintext nonce inbound; the interlock latches the latest and echoes it in every certificate. No authentication needed: the verifier credits only nonces it generated, so injecting or replaying nonces is indistinguishable from dropping them — both read as staleness. The interlock generates MACs but never verifies one. Every certificate field is exactly prover-predictable, so the interlock's total covert-output surface is the nonce-latch timing (≤1 bit per nonce update) plus the HMAC tag itself (coverable by cut-and-choose, below).
 
-## Steady state (no verifier present)
+### Roles
 
-Every **millisecond**, per direction: close the bucket, hash its records (`H(ε)` if empty), emit a boundary marker into the stream (excluded from hashes) so the prover's transcript reproduces the interlock's packet→bucket assignment. Drop — never hashed, never emitted — any packet over `S_max` or violating ID order: strictly increasing across the session inbound; strictly increasing within each bucket outbound (prover pre-sorts; the output comparator resets per bucket because responses finish out of order). Drops leave no trace in commitments and need none — a dropped packet never exits the node, so it carries no exfiltration risk; the prover monitors drops operationally by comparing its own two switch logs.
-
-Every **second**: emit the certificate, discard the bucket hashes. The prover stores certificates, bucket-hash sequences (~166 GB/30 days both directions), and the full transcript.
-
-**Nonce latch:** the verifier occasionally sends a plaintext nonce inbound; the interlock latches the latest and echoes it in every certificate. No authentication needed: the verifier credits only nonces it generated, so injecting or replaying nonces is indistinguishable from dropping them — both read as staleness. The interlock generates MACs but never verifies one.
+- **Interlock:** processes both streams on the fly — enforce validity rules, hash, latch nonces, emit one certificate per second. Holds only the current second (~70 KB) and stores no history.
+- **Prover frontend:** logs everything — both packet logs with boundary markers, key material, and every certificate — for the challenge window (~30 days). Derived hashes are not stored; any second's records and bucket hashes are recomputed from the log on demand (rehashing one second of traffic is at most ~100 MB of hashing).
+- **Verifier:** keeps an anchor log of nonce→certificate round trips, samples challenges, and recomputes hashes over the log slices the prover supplies.
 
 ## Challenge
 
 1. **Anchor.** Verifier sends a fresh nonce; prover returns the next certificate echoing it, stamping current bucket `B` within `[t_nonce, t_receipt]`. Verifier logs the anchor and checks counter monotonicity and counter rate vs. wall clock.
 2. **Select.** Uniform `(bucket y, byte x)` over `[B − window, B] × [0, C)`, where `C` is per-bucket capacity (100 KB at 100 MB/s line rate). Uniform-over-capacity is size-weighted sampling: every transmitted byte is equally likely to be challenged; an `x` past the bucket's content is a cheap liveness check.
-3. **Open** (entirely from prover storage): the stored certificate covering `y`, its 1000-entry output bucket-hash sequence, bucket `y`'s record list; then for the hit packet, its header and `H(ciphertext)` — and the same opening for the matching input packet in bucket `w` (certificate, sequence, records, header, `H(ciphertext)`, `recomp_commitment`). Under the ZKP option no ciphertext is ever sent to the verifier.
+3. **Open.** From its log, the prover derives and sends the smallest slice sufficient for the verifier to recompute the certificate: the stored certificate covering `y`, that second's 1000 output bucket hashes, bucket `y`'s records, and the hit packet's header and `H(ciphertext)` — plus the same opening for the matching input packet in bucket `w` (certificate, bucket hashes, records, header, `H(ciphertext)`, `recomp_commitment`). If `Σ lengths < x` the record list alone proves emptiness and the challenge ends. Under the ZKP option no ciphertext is ever sent to the verifier.
 4. **Recompute.** The prover supplies a recomputation certificate (next section) binding to the opened values.
-5. **Verify**, in order: (a) both certificates' MACs and `interlock_id` against the anchor log; (b) sequences hash to certificate commitments; (c) record lists hash to the two bucket hashes; (d) byte `x` falls in the claimed packet per cumulative lengths; (e) input binding — bucket `w` ≤ bucket `y`, request IDs match, this ID has explained no other response; (f) the recomputation certificate verifies against `(H1_in, H2, H1_out)`, yielding U.
+5. **Verify**, in order: (a) both certificates' MACs and `interlock_id` against the anchor log; (b) the bucket hashes recompute each certificate's `overall`; (c) the records recompute the two bucket hashes; (d) byte `x` falls in the claimed packet per cumulative lengths; (e) input binding — bucket `w` ≤ bucket `y`, request IDs match, this ID has explained no other response; (f) the recomputation certificate verifies against `(H1_in, H2, H1_out)`, yielding U.
 
 Input binding closes the fabricated-input cheat (a "request" containing the covert output would recompute with zero surprisal); single-use closes its amortized variant (one innocent request explaining many responses).
 
@@ -103,18 +114,18 @@ The prover's own hardware recomputes inside a verifier enclosure; a second, simp
 
 Both instantiations bind the same triple `(H1_in, H2, H1_out)` and end at the same interface; they use H2 oppositely — the ZKP to connect plaintext tokens to wire bytes inside the circuit, Option 1 to pin what may enter the enclosure after the response exists.
 
-**End-to-end chain:** wire bytes → packet hash → bucket hash → HMAC certificate (fixed within 1 s of transmission) → H1/H2 → in-circuit tokens → U. The verifier needs nothing but its anchor log, the opened commitments, and the proof.
+**End-to-end chain:** wire bytes → log → certificate (fixed within 1 s of transmission) → H1/H2 → tokens → U. The verifier needs nothing but its anchor log, the opened log slices, and the recomputation certificate.
 
-**Worked sizes:** anchor certificate ~150 B → challenge ~12 B → opening ≈ 2 certificates + two 32 KB hash sequences + two record lists (~48 B/packet) + two headers with hashes (~100 B) → recomputation certificate ~150 MB (ZKP option). Everything outside the proof verifies with a few hundred hashes over ~100 KB.
+**Worked sizes:** anchor certificate ~150 B → challenge ~12 B → opening ≈ 2 certificates + two 32 KB bucket-hash lists + two record lists (~48 B/packet) + two headers with hashes (~100 B) → recomputation certificate ~150 MB (ZKP option). Everything outside the recomputation verifies with a few hundred hashes over ~100 KB.
 
 **Certificate-release audit (optional):** since every certificate field is prover-predictable, a prover worried about covert bits in HMAC tags can release challenge-time tags via slot-bound cut-and-choose: the verifier binds one commitment per certificate slot *before* revealing its own τ′ — it must never act as an unrestricted HMAC oracle.
 
 ## Spec decisions
 
 1. **One key commitment per pair.** `H2 = H(key material)` covers both the request and its response, carried in the input packet (matching the paper's packet format). Per-direction keys would require a second commitment field.
-2. **Hash alignment.** `H(ciphertext)` must be the hash the ZKP circuit proves — SHA-256 — so the interlock's payload-hashing block is SHA-256. Bucket and certificate levels never enter the circuit and could differ, but everything stays SHA-256 for one gateware core.
+2. **Hash alignment.** `H(ciphertext)` must be the hash the ZKP circuit proves — SHA-256 — so the interlock's payload-hashing block is SHA-256. The log/certificate levels never enter the circuit and could differ, but everything stays SHA-256 for one gateware core.
 3. **AES mode.** The cipher must allow position-addressable fixed-width token units (e.g., AES-CTR with fixed bytes-per-token serialization) so recomputation options can address individual token ciphertexts without decrypting the stream.
 
 ## Suggested parameters
 
-`H` = SHA-256; MAC = HMAC-SHA-256 (pre-shared `k`); bucket = 1 ms; certificate period = 1 s; `request_id` = 64-bit; `S_max` = deployment-set; per-bucket capacity `C` = 100 KB; challenge window = 30 days (prover-side storage).
+`H` = SHA-256; MAC = HMAC-SHA-256 (pre-shared `k`); bucket = 1 ms; certificate period = 1 s; `request_id` = 64-bit; `S_max` = deployment-set; per-bucket capacity `C` = 100 KB; challenge window = 30 days (prover-side log storage).
