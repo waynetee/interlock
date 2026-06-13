@@ -1,16 +1,25 @@
-# Interlock Verification Protocol: Logs, Certificates, and Recomputation (v5)
+# Interlock Verification Protocol: Logs, Certificates, and Recomputation (v6)
+
+## Two invariants
+
+The whole design rests on two statements:
+
+1. **Everything that passes through is bound by certificates.** Every byte in either direction lands in a time bucket, is hashed, and is committed by an HMAC certificate within one second. This is a hard guarantee, enforced by interlock hardware.
+2. **Almost everything bound by certificates is reproducible from the prover's records.** The prover logs the traffic so it can answer challenges — but this is best-effort, not guaranteed.
+
+The asymmetry is the point. **The certificate is the sole authority; the prover record is a convenience replica.** A challenge the record cannot satisfy *consistently with the certificate* is simply a failed challenge, charged as unexplained information. So the prover's logging only needs to be good *enough* to keep its U-rate under budget: a missing or corrupt record degrades gracefully into a U charge rather than breaking soundness, which is why "almost" is the honest word in invariant 2. (This is distinct from interlock-*dropped* packets, which are bound by neither certificate nor record — see Validity rules.)
 
 ## Properties
 
-The protocol gives the verifier four properties about a compute node's network output, and gives the prover one:
+More precisely, the protocol gives the verifier four properties about a compute node's network traffic, and gives the prover one:
 
 - **P1 — Complete attribution.** Every byte leaving the node belongs to exactly one packet in one time bucket; there is no unattributed wire traffic.
 - **P2 — No rewriting.** What the prover can later claim about past traffic is fixed at the time the traffic occurred, before any challenge is known.
-- **P3 — Measurable explanation.** For any randomly sampled output, the verifier obtains a sound upper bound U on the information in it that is not explained by a declared computation on a committed input.
+- **P3 — Measurable explanation.** For any randomly sampled output, the verifier obtains a sound upper bound U on the information in it that is not explained by a declared computation on committed inputs.
 - **P4 — Timeline integrity.** Traffic volume and bucket numbering are anchored to wall-clock time; history cannot be stretched, replayed, or run ahead.
 - **P5 (prover) — Confidentiality.** The verifier learns packet lengths, request IDs, timing, and U — never payloads, keys, or weights.
 
-Scope: single request→response pairs; size/time-distribution accounting deferred.
+Scope: single-shot pairs and multi-part exchanges (multi-turn, long inputs, long outputs) via the reference structure below; size/time-distribution accounting deferred.
 
 **Interlock assumptions:**
 1. **Reset-free by construction** — the HMAC key and bucket counter share a battery-backed volatile domain, so state loss permanently ends the certificate stream rather than restarting it (re-commissioning with a new key required). Availability-for-simplicity trade: battery failure bricks verification, not traffic.
@@ -31,10 +40,12 @@ The interlock processes the log on the fly and stores none of it. The prover fro
 
 A log is a time-ordered sequence of packets; there is one log per direction. Time is divided into 1 ms buckets, and the interlock emits a boundary marker each millisecond (excluded from all hashes) so the prover's log reproduces the interlock's packet→bucket assignment exactly.
 
-**Input packet:** `length ‖ request_id ‖ recomp_commitment ‖ ciphertext`, where `recomp_commitment = H(key material for this request and its response)` and ciphertext = `AES_K(prompt tokens)`.
-**Output packet:** `length ‖ request_id ‖ ciphertext` = `AES_K(response tokens)`.
+**Input (request) packet:** `length ‖ request_id ‖ reference_id ‖ recomp_commitment ‖ ciphertext`, where `recomp_commitment = H(key material for this request and its response)`, `reference_id` points to an earlier request whose context this one extends (or null; see References), and ciphertext = `AES_K(prompt tokens)`.
+**Output (response) packet:** `length ‖ request_id ‖ ciphertext` = `AES_K(response tokens)`. A response inherits its context through its request, so it carries no reference.
 
 Every wire byte belongs to exactly one logged packet (P1). Packets carry no hash fields — all hashes are derived from the log, so there is nothing to mismatch and no hash channel to police.
+
+The cleartext header carries only what a trusted party must act on without decrypting: `length` (sizing), `request_id` (binding/ordering), `reference_id` (chain navigation by the verifier), `recomp_commitment` (key-gating). Everything else compute or the frontend needs — completion markers, role hints — rides inside the encrypted payload, cert-bound via `H(ciphertext)` but opaque to the interlock and verifier and reproduced naturally by recomputation.
 
 **Validity rules**, enforced by the interlock on the fly (violating packets are dropped — never forwarded, never hashed): `length ≤ S_max`; request IDs strictly increasing across the session inbound, and strictly increasing within each bucket outbound (the prover pre-sorts; the outbound comparator resets per bucket because responses finish out of order). Drops leave no trace in commitments and need none — a dropped packet never exits the node, so it carries no exfiltration risk; the prover observes drops directly by comparing its own logs on the two sides.
 
@@ -51,7 +62,7 @@ certificate = version ‖ interlock_id ‖ bucket_start ‖ num_buckets(=1000)
               ‖ overall_in ‖ overall_out ‖ nonce ‖ HMAC_k(all of it)
 ```
 
-`H(packet)` is structured as `H(len ‖ id ‖ [recomp_commitment ‖] H(ciphertext))` so the ciphertext hash is a separable leaf: a challenge can reveal a packet's header and `H(ciphertext)` without the ciphertext, and `H(ciphertext)` doubles as a recomputation-certificate public input (below).
+`H(packet)` is structured as `H(header ‖ H(ciphertext))` (the header being the cleartext fields above) so the ciphertext hash is a separable leaf: a challenge can reveal a packet's header and `H(ciphertext)` without the ciphertext, and `H(ciphertext)` doubles as a recomputation-certificate public input (below).
 
 | Field | Why it exists |
 |---|---|
@@ -60,6 +71,7 @@ certificate = version ‖ interlock_id ‖ bucket_start ‖ num_buckets(=1000)
 | `overall_in`, `overall_out` | commit 2000 bucket hashes without shipping them |
 | `nonce` | latest verifier nonce seen; proves the certificate postdates it (P4) |
 | `length`, `request_id` in records | locate a challenged byte; bind response to request without payload exposure (P1, P5) |
+| `reference_id` in records | navigate the context chain at challenge time (References) |
 | `H(ciphertext)` | the H1 the recomputation certificate binds to (P3, P5) |
 | `recomp_commitment` | the H2 pinning the keys, fixed at request time (P3) |
 
@@ -71,15 +83,39 @@ certificate = version ‖ interlock_id ‖ bucket_start ‖ num_buckets(=1000)
 - **Prover frontend:** logs everything — both packet logs with boundary markers, key material, and every certificate — for the challenge window (~30 days). Derived hashes are not stored; any second's records and bucket hashes are recomputed from the log on demand (rehashing one second of traffic is at most ~100 MB of hashing).
 - **Verifier:** keeps an anchor log of nonce→certificate round trips, samples challenges, and recomputes hashes over the log slices the prover supplies.
 
+## References and multi-part exchanges
+
+A single request→response pair handles a one-shot prompt that fits in one packet. Everything larger — a multi-turn conversation, a prompt too big for one packet, a response too big for one packet — is built from the same primitive: a request carries a `reference_id` pointing at an earlier request whose context it extends. The chain of references is the assembled context.
+
+This costs the interlock nothing. A `reference_id` is just bytes in the header that it hashes like any other field; all the chaining logic lives in the (untrusted) frontend and compute and is *verified* after the fact by the verifier walking references through cert-bound records.
+
+**Context assembly.** To recompute the response to request `q`: walk back from `q` along `reference_id`, and for each request in the chain include its payload *and its response, if one is cert-bound*. The root (null reference) bottoms out the recursion; its payload is genuine external input. The rule is uniform — *context = the cert-bound chain* — and it covers every case below.
+
+**The three applications, one mechanism:**
+
+- **Multi-turn.** Turn *n*'s request references turn *n−1*'s request; the chain pulls in every prior turn's prompt and response.
+- **Long input.** The frontend (or customer) splits a large prompt into chunks sent as a reference chain, all but the last carrying no response. They can be sent in a burst — the chain, not arrival order or bucket position, defines assembly order — subject only to staying under per-bucket capacity `C`. The final chunk is the one that draws a response.
+- **Long output.** A response is capped at `S_max`; compute emits a bounded chunk and the frontend issues a continuation request referencing it, which draws the next chunk. The continuation carries no new payload content, only the reference, so it is not an input channel.
+
+**Completion markers live in the encrypted payload.** Whether a request is the final chunk ("compute now") and whether a response is complete (EOS) vs. truncated are decided by compute and the frontend, who hold the keys — not by the interlock or verifier. So these markers are payload tokens, not header fields: cert-bound via `H(ciphertext)`, reproduced by recomputation as ordinary prompt/output tokens, and invisible to the trusted parties. The verifier never needs them — it identifies the response-triggering request by id-match, and intermediate chunks as chain links with no matching response.
+
+**Integrity rules** (checked at challenge time, when the chain is opened):
+
+- *Causality / acyclicity.* `reference_id` must be an earlier request: the cheap check is `reference_id < request_id` (monotonic ids), confirmed by `referenced bucket ≤ referencing bucket` when the link is opened. This rules out cycles and forward references.
+- *Cardinality.* One response per request (single-use, as before), but a request may be referenced by *many* later requests — these are different rules. Branching conversations and reuse are fine; a second response to an already-answered request is a violation.
+- *No fabricated links.* Every request in the chain must itself open against a certificate, so a prover cannot splice in a fabricated prior to launder covert output — the generalization of the single-pair fabricated-input defense.
+
+**Graceful degradation, again.** If a referenced request or response was cert-bound but is missing from the prover's record, recomputation assembles a short context, mispredicts, and the gap surfaces as U — the same "certificates are authority, records are best-effort" behavior, with no special handling for chains.
+
 ## Challenge
 
 1. **Anchor.** Verifier sends a fresh nonce; prover returns the next certificate echoing it, stamping current bucket `B` within `[t_nonce, t_receipt]`. Verifier logs the anchor and checks counter monotonicity and counter rate vs. wall clock.
 2. **Select.** Uniform `(bucket y, byte x)` over `[B − window, B] × [0, C)`, where `C` is per-bucket capacity (100 KB at 100 MB/s line rate). Uniform-over-capacity is size-weighted sampling: every transmitted byte is equally likely to be challenged; an `x` past the bucket's content is a cheap liveness check.
 3. **Open.** From its log, the prover derives and sends the smallest slice sufficient for the verifier to recompute the certificate: the stored certificate covering `y`, that second's 1000 output bucket hashes, bucket `y`'s records, and the hit packet's header and `H(ciphertext)` — plus the same opening for the matching input packet in bucket `w` (certificate, bucket hashes, records, header, `H(ciphertext)`, `recomp_commitment`). If `Σ lengths < x` the record list alone proves emptiness and the challenge ends. Under the ZKP option no ciphertext is ever sent to the verifier.
 4. **Recompute.** The prover supplies a recomputation certificate (next section) binding to the opened values.
-5. **Verify**, in order: (a) both certificates' MACs and `interlock_id` against the anchor log; (b) the bucket hashes recompute each certificate's `overall`; (c) the records recompute the two bucket hashes; (d) byte `x` falls in the claimed packet per cumulative lengths; (e) input binding — bucket `w` ≤ bucket `y`, request IDs match, this ID has explained no other response; (f) the recomputation certificate verifies against `(H1_in, H2, H1_out)`, yielding U.
+5. **Verify**, in order: (a) both certificates' MACs and `interlock_id` against the anchor log; (b) the bucket hashes recompute each certificate's `overall`; (c) the records recompute the two bucket hashes; (d) byte `x` falls in the claimed packet per cumulative lengths; (e) input binding — the response's context chain (References) opens against certificates, each link earlier than the next, request IDs matching, the challenged request having explained no other response; (f) the recomputation certificate verifies against `(H1_in, H2, H1_out)`, yielding U.
 
-Input binding closes the fabricated-input cheat (a "request" containing the covert output would recompute with zero surprisal); single-use closes its amortized variant (one innocent request explaining many responses).
+Input binding closes the fabricated-input cheat (a "request" containing the covert output would recompute with zero surprisal); single-use closes its amortized variant (one innocent request explaining many responses). For a single-shot pair the chain is one link; for multi-part exchanges it is the full reference chain, opened the same way.
 
 ## Recomputation certificate
 
