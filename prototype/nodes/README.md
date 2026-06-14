@@ -57,6 +57,12 @@ FPGA is the **transparent passthrough wire** on those legs; `interlock.py` is
 still the logical interlock doing the certificate logic in software — moving that
 logic into the gateware is the later V3b step.
 
+Status: this topology is validated end-to-end with a **mock compute**
+(`MOCK=1 python3 compute.py` on the host) — chat turns + `/challenge` ran with
+the compute legs crossing the FPGA (interface counters matched, `usb_tx == enP7s7_rx`).
+The only remaining step for a real run is swapping the mock for real Llama
+(`~/venv-hf/bin/python compute.py`), which just needs GPU memory headroom.
+
 Then chat; `/challenge [id]` verifies a past response and reports its unexplained
 information U; `/list`; `/quit`.
 
