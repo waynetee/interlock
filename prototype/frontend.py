@@ -96,8 +96,28 @@ def challenge(rid):
                 {"op": "challenge", "opening": opening_to_json(fe.open_challenge(turns[rid], 0))})
 
 
+def show_cert(rid):
+    """Print the certificate that commits this packet, plus the packet's record."""
+    op = fe.open_challenge(turns[rid], 0)
+    c = parse_certificate(op.cert_out)
+    rec = unpack(RECORD, op.records_out[locate("out", op.records_out, 0)])
+    print(f"  === certificate committing packet #{rid} (response bucket {turns[rid]}) ===")
+    print(f"  version      {c['version'].decode(errors='replace')}")
+    print(f"  interlock_id {c['interlock_id']}")
+    print(f"  bucket_start {c['bucket_start']}   num_buckets {c['num_buckets']}")
+    print(f"  overall_out  {c['overall_out'].hex()}   (commits all output buckets this cert)")
+    print(f"  overall_in   {c['overall_in'].hex()}")
+    print(f"  nonce        {c['nonce'].hex()}")
+    print(f"  hmac_tag     {c['tag'].hex()}")
+    print(f"  -- this packet's committed record --")
+    print(f"  request_id {rec['request_id']}   length {rec['length']}")
+    print(f"  packet_hash   {rec['packet_hash'].hex()}   (= H(header | H(ciphertext)))")
+    print(f"  H(ciphertext) {op.h1_out.hex()}")
+    print(f"  cert ({len(op.cert_out)} bytes): {op.cert_out.hex()}")
+
+
 def main():
-    print("[frontend] chat with Llama — commands: /challenge [id], /list, /quit\n")
+    print("[frontend] chat with Llama — commands: /challenge [id], /cert [id], /list, /quit\n")
     while True:
         try:
             line = input("you> ").strip()
@@ -110,6 +130,14 @@ def main():
         if line == "/list":
             for rid, y in turns.items():
                 print(f"  #{rid}  response bucket {y}")
+            continue
+        if line.startswith("/cert"):
+            parts = line.split()
+            rid = int(parts[1]) if len(parts) > 1 else state["rid"]
+            if rid not in turns:
+                print("  no such turn (use /list)")
+            else:
+                show_cert(rid)
             continue
         if line.startswith("/challenge"):
             parts = line.split()

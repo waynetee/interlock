@@ -45,7 +45,7 @@ MOCK=1 ./run_all.sh        # wiring test, no Llama (canned compute)
 python3 test_protocol.py   # cert/challenge unit tests (no Llama, no servers)
 ```
 
-Then chat; `/challenge [id]` verifies a past response is the committed one;
+Then chat; `/challenge [id]` verifies a past response is the committed one; `/cert [id]` prints the certificate committing it;
 `/list`; `/quit`.
 
 ## Run — over the FPGA
