@@ -50,23 +50,52 @@ is software (no hardware trust boundary yet); payloads are plaintext (encryption
 is V3); one OS hosts everything (isolation not real); decoding is greedy
 (hardware-nondeterminism noise model deferred).
 
-## FPGA / MacBook path (next step)
+## FPGA forwarding test (2026-06-14)
 
-The FPGA is cabled to both Spark ports and forwarding. Interface state confirms
-the hardware is ready:
+Attempted to route the traffic through the FPGA from the single Spark, using the
+`docker` group to get the network privileges a non-root account lacks: a macvlan
+network over the USB NIC (`enxb8fbb3b1f53c`) with the lightweight (stdlib-only)
+**client run in a container whose only interface is that NIC** — so its packets
+to the host's `10.10.10.2` (on the *other* NIC, `enP7s7`) have no path except out
+the USB port → FPGA → back in the built-in port. Compute would stay on the host.
 
-- `enP7s7` (built-in eth) = **10.10.10.2/24**, UP — one FPGA port.
-- `enxb8fbb3b1f53c` (USB-C eth) = UP, no IP — the other FPGA port.
+Result: **generic Ethernet frames do not cross the current FPGA image.** Measured
+with interface packet counters:
+
+| Test | usb_tx (left USB NIC) | enP7s7_rx (arrived at built-in NIC) |
+|---|---|---|
+| broadcast ARP (no static ARP) | +6 | **+0** |
+| unicast ICMP (static ARP both sides) | +6 | **+0** |
+
+The OS-level loop is provably correct — frames *do* egress the USB NIC — but
+nothing arrives on the built-in NIC, for either broadcast or unicast. So the
+block is in the gateware, not the host: the currently flashed deframe/reframe
+image does not transparently forward generic IP/Ethernet between its two ports.
+This is consistent with the gateware extracting a length field and reframing — it
+likely forwards only its specific packet format, not arbitrary Ethernet II frames
+(EtherType 0x0800/0x0806), which get dropped.
+
+Interface state (hardware is cabled, links up):
+
+- `enP7s7` (built-in eth) = **10.10.10.2/24**, UP/carrier — one FPGA port.
+- `enxb8fbb3b1f53c` (USB-C eth) = UP/carrier, no IP — the other FPGA port.
 - `wlP9s9` (WiFi) = default route + Tailscale — management.
 
-This run did **not** traverse the FPGA: only the Spark sits on the 10.10.10.0/24
-link (both ends), so exercising it would be a single-host loop, which needs root
-(netns / raw sockets / policy routing) that the agent account lacks. The MacBook
-case avoids this entirely — two real hosts, so traffic between them genuinely
-crosses the FPGA.
+### To actually traverse the FPGA, one of
 
-Code is drop-in for that (`COMPUTE_HOST` / `COMPUTE_BIND`, connect-or-spawn):
-run `compute_server.py` on the Spark (reachable at 10.10.10.2), plug the MacBook
-into the FPGA's free port with a 10.10.10.x IP, and run
-`COMPUTE_HOST=10.10.10.2 python3 run_demo.py` there. The MacBook client is pure
-Python stdlib — no torch. Add static ARP if ARP won't cross the bridge.
+1. **Flash a transparent passthrough image** that forwards all Ethernet frames
+   byte-for-byte between the two CoreTSE ports — then IP/TCP rides through and the
+   prototype runs over the real link unchanged.
+2. **Speak the V3 custom packet format** the current image expects, instead of IP
+   (a raw-`AF_PACKET` sender/receiver matching the gateware's framing).
+3. **Verify cabling / port mapping** — that the two Spark NICs land on the FPGA's
+   actual bridged port pair.
+
+### MacBook path (once forwarding works)
+
+Code is already drop-in (`COMPUTE_HOST` / `COMPUTE_BIND`, connect-or-spawn): run
+`compute_server.py` on the Spark (reachable at 10.10.10.2), plug the MacBook into
+the FPGA's free port with a 10.10.10.x IP, and run
+`COMPUTE_HOST=10.10.10.2 python3 run_demo.py`. The MacBook client is pure Python
+stdlib — no torch. Two real hosts sidesteps the single-host netns/root issue, but
+still needs the gateware forwarding fix above.
