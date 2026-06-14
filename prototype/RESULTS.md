@@ -1,11 +1,43 @@
-# Prototype run results — 2026-06-14
+# Prototype run results
 
-> Historical record. The prototype was later consolidated to node-per-process
-> (`prototype/{wire,compute,interlock,frontend,verifier}.py`) and the
-> recomputation / U measurement descoped to a later step (recomputation or ZKP).
-> The U figures below were a real measurement at the time, via the now-removed
-> `run_demo.py`; file names like `compute_server.py`/`run_demo.py` refer to that
-> earlier layout.
+## Consolidated node-per-process — real Llama-7B across the FPGA (2026-06-14)
+
+The current prototype (`prototype/{wire,compute,interlock,frontend,verifier}.py`)
+run with each node as its own process and the workload genuinely crossing the
+FPGA: `compute.py` (real Llama-2-7B) on the Spark host (built-in NIC, 10.10.10.2),
+and `interlock.py` + `verifier.py` + `frontend.py` in a macvlan container on the
+USB-NIC side (10.10.10.3) via `run_clients.sh`, so the client↔compute legs go out
+the USB port → FPGA (passthrough) → built-in port.
+
+```
+you> What is the capital of France?
+llama> Paris is the capital of France.          [packet #1]
+you> And what about Germany?
+llama> Berlin is the capital of Germany.        [packet #2]   (multi-turn context)
+you> /challenge 1
+  packet #1 VERIFIED — it is the committed response to request #1
+=== FPGA traversal (client<->compute legs): usb_tx +14  enP7s7_rx +14 ===
+```
+
+Counters match exactly, so every request/response and the challenge crossed the
+interlock hardware. (Recomputation / U is descoped — the verifier confirms the
+response is the committed one; turning it into a U bound is a later step.)
+
+Operational note: forwarding had to be recovered first. After a week of the box
+being heavily used, the FPGA showed carrier on both links but forwarded nothing.
+A JTAG reflash (`PROGRAM PASSED`) and an ISC re-init (`set_programming_action
+-name {MPF300TS} -action DEVICE_INFO`) both passed but did NOT fix it — the
+wedged part was the external VSC8575 PHY, which JTAG can't power-cycle. A
+**physical power cycle of the eval board** restored forwarding immediately. The
+flash config is non-volatile and was fine throughout. (See `bitstreams/MANIFEST.txt`.)
+
+---
+
+> Below: historical record from the earlier (pre-consolidation) layout. The
+> prototype was later consolidated to node-per-process and the recomputation / U
+> measurement descoped to a later step (recomputation or ZKP). The U figures were
+> a real measurement at the time, via the now-removed `run_demo.py`; file names
+> like `compute_server.py`/`run_demo.py` refer to that earlier layout.
 
 Captured run of the V1 / V2 / recomputation milestones on the Spark
 (`spark-c191`, aarch64, Llama-2-7B, `venv-hf` torch 2.13/cu130, transformers
