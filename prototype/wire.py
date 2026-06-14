@@ -20,7 +20,7 @@ __all__ = [
     "pack", "unpack", "H", "mac", "mac_ok", "encrypt", "decrypt",
     "tokens_to_bytes", "bytes_to_tokens", "input_packet", "output_packet",
     "parse_packet", "packet_hash", "record", "bucket_hash", "overall_hash",
-    "cert_body", "parse_certificate", "locate",
+    "cert_body", "cert_body_from_roots", "parse_certificate", "locate",
 ]
 
 UNIT = 4                 # bytes per token on the wire
@@ -137,12 +137,17 @@ def overall_hash(bucket_hashes):
     return H(b"".join(bucket_hashes))
 
 
-def cert_body(interlock_id, bucket_start, hashes_in, hashes_out, nonce):
-    """m — every field is derivable from the log + latched nonce (prover-auditable)."""
+def cert_body_from_roots(interlock_id, bucket_start, num_buckets, overall_in, overall_out, nonce):
+    """m, from the already-computed overall roots (what a streaming interlock has)."""
     return pack(CERT, {"version": VERSION, "interlock_id": interlock_id,
-                       "bucket_start": bucket_start, "num_buckets": len(hashes_in),
-                       "overall_in": overall_hash(hashes_in),
-                       "overall_out": overall_hash(hashes_out), "nonce": nonce})
+                       "bucket_start": bucket_start, "num_buckets": num_buckets,
+                       "overall_in": overall_in, "overall_out": overall_out, "nonce": nonce})
+
+
+def cert_body(interlock_id, bucket_start, hashes_in, hashes_out, nonce):
+    """m from the per-bucket hash lists (what the prover recomputes from its log)."""
+    return cert_body_from_roots(interlock_id, bucket_start, len(hashes_in),
+                                overall_hash(hashes_in), overall_hash(hashes_out), nonce)
 
 
 def parse_certificate(cert):

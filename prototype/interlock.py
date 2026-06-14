@@ -5,15 +5,23 @@ run as a process, forwards each turn to compute and emits the certificate the
 prover stores. Verifier-trusted: it holds the shared MAC key. It never originates
 or interprets payloads — it forwards and certifies.
 """
+import hashlib
+
 from wire import *                       # noqa: F401,F403 - the wire vocabulary
 from common import (call, serve, MAC, IID, NONCE, N,
                     COMPUTE_HOST, PORT_COMPUTE, PORT_INTERLOCK)
 
 
 class Interlock:
-    """Processes both streams; emits one HMAC certificate per `buckets_per_cert`
-    boundaries. Event-style to mirror the gateware: on_packet / on_bucket_boundary
-    / on_second. Holds only the current second of state."""
+    """Processes both streams one packet at a time; emits one HMAC certificate per
+    `buckets_per_cert` boundaries. Event-style to mirror the gateware: on_packet /
+    on_bucket_boundary / on_second.
+
+    Streaming: instead of accumulating record/bucket-hash lists, it keeps a running
+    SHA-256 per direction for the current bucket and another for the whole cert
+    window — each packet is folded in and discarded. State is constant (a handful
+    of hash contexts + counters), and the certificate is byte-identical to the
+    list-based computation (H of a concatenation == streaming update)."""
 
     def __init__(self, mac_key, interlock_id, s_max=100_000, capacity=100_000,
                  buckets_per_cert=1000):
@@ -23,9 +31,10 @@ class Interlock:
         self.nonce = bytes(16)                # latched verifier nonce
         self.last_in_id = -1                  # inbound comparator, session-wide
         self.last_out_id = -1                 # outbound comparator, resets per bucket
-        self.records = {"in": [], "out": []}  # current bucket
-        self.used = {"in": 0, "out": 0}       # current bucket bytes
-        self.hashes = {"in": [], "out": []}   # closed buckets this second
+        self.used = {"in": 0, "out": 0}       # bytes in the current bucket
+        self.bkt = {"in": hashlib.sha256(), "out": hashlib.sha256()}   # current bucket
+        self.all = {"in": hashlib.sha256(), "out": hashlib.sha256()}   # cert window
+        self.nb = 0                           # buckets closed this cert window
 
     def on_nonce(self, nonce):
         self.nonce = nonce  # latch unauthenticated; verifier credits only its own nonces
@@ -44,24 +53,26 @@ class Interlock:
             self.last_in_id = p["request_id"]
         else:
             self.last_out_id = p["request_id"]
-        self.records[direction].append(record(direction, pkt))
+        self.bkt[direction].update(record(direction, pkt))   # fold this packet in
         self.used[direction] += len(pkt)
         return pkt
 
     def on_bucket_boundary(self):
-        """Close the 1 ms bucket: hash its records, reset per-bucket state."""
+        """Close the bucket: fold its hash into the cert-window hash, reset per-bucket state."""
         for d in ("in", "out"):
-            self.hashes[d].append(bucket_hash(self.records[d]))
-            self.records[d], self.used[d] = [], 0
+            self.all[d].update(self.bkt[d].digest())
+            self.bkt[d], self.used[d] = hashlib.sha256(), 0
         self.last_out_id = -1
         self.bucket += 1
+        self.nb += 1
 
     def on_second(self):
-        """After the n-th boundary: emit the certificate, discard the bucket hashes."""
-        assert len(self.hashes["in"]) == self.n
-        m = cert_body(self.interlock_id, self.bucket - self.n,
-                      self.hashes["in"], self.hashes["out"], self.nonce)
-        self.hashes = {"in": [], "out": []}
+        """After the n-th boundary: emit the certificate, reset the window hashes."""
+        assert self.nb == self.n
+        m = cert_body_from_roots(self.interlock_id, self.bucket - self.n, self.n,
+                                 self.all["in"].digest(), self.all["out"].digest(), self.nonce)
+        self.all = {"in": hashlib.sha256(), "out": hashlib.sha256()}
+        self.nb = 0
         return m + mac(self.mac_key, m)
 
 
