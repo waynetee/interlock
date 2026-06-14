@@ -4,6 +4,14 @@ Short, runnable demo of the earlier milestones from `docs/prototype-plan.md`,
 reusing the reference model in `../model/protocol.py` for all certificate and
 challenge logic.
 
+Two flavors:
+- **`run_demo.py` / `chat.py`** (this folder) — compact, single process: one
+  orchestrator instantiates the interlock/frontend/verifier objects and talks to
+  `compute_server.py`. This is what the FPGA demo runs.
+- **`nodes/`** — node-per-process: each design node (compute, interlock,
+  frontend, verifier) is its own process talking over TCP, so the code maps
+  one-to-one to the diagram. Start there to understand the node boundaries.
+
 ## Files
 
 | File | Role | Lines |
