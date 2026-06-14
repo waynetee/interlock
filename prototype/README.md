@@ -10,7 +10,28 @@ challenge logic.
 |---|---|---|
 | `transport.py` | length-prefixed framing over a TCP socket | ~25 |
 | `compute_server.py` | inference compute node: Llama-2-7B `gen` + `score` over TCP | ~80 |
-| `run_demo.py` | orchestrator: V1 dataflow → V2 cert/challenge → recomputation U | ~120 |
+| `run_demo.py` | scripted orchestrator: V1 dataflow → V2 cert/challenge → recomputation U | ~120 |
+| `chat.py` | interactive multi-turn chat + `/challenge` any past packet | ~150 |
+
+## Interactive chat
+
+`chat.py` is a CLI: hold a multi-turn Llama conversation, and challenge any past
+response on demand. Start `compute_server.py` first, then:
+
+```
+# on the host (loopback):
+cd ~/interlock-proto/prototype && python3 chat.py
+# over the FPGA (client in a macvlan container on the USB port):
+docker run -it --rm --network fpga_net --ip 10.10.10.3 -e COMPUTE_HOST=10.10.10.2 \
+  -v ~/interlock-proto:/proto python:3-slim python3 /proto/prototype/chat.py
+```
+
+Commands: type a message to chat; `/challenge [id]` verifies a response packet
+and prints its unexplained information U; `/tamper [id]` shows the challenge
+catches a flipped byte; `/list` shows turns; `/quit`. Each turn is logged as a
+request/response pair through the software interlock with a per-turn certificate.
+(`chat.py` needs only the Python stdlib — no torch — so the container client is
+`python:3-slim`.)
 
 ## Run — single host (Spark, loopback)
 
