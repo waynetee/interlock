@@ -30,13 +30,32 @@ version (what the FPGA demo runs).
   `frontend` — unlike the single-process version, the interlock is genuinely a
   separate in-path process here.
 
-## Run
+## Run — single host (loopback, no FPGA)
 
 ```
 MOCK=1 ./run_all.sh     # wiring test, no Llama (canned compute)
-./run_all.sh            # real Llama-2-7B on this host
-COMPUTE_HOST=10.10.10.2 ./run_all.sh   # compute reached through the FPGA
+./run_all.sh            # real Llama-2-7B, all four nodes on this host
 ```
+
+## Run — over the FPGA
+
+The FPGA can't sit in a single-host loop (the kernel loopback-shortcuts past it).
+Split it: **compute on the host's built-in-NIC side**, the **client nodes in a
+macvlan container on the USB-NIC side**, so their calls to compute cross the FPGA.
+
+```
+# on the Spark host (built-in NIC = 10.10.10.2), with torch:
+cd ~/interlock-proto/prototype/nodes && ~/venv-hf/bin/python compute.py
+
+# client nodes in a container on the USB-NIC side:
+docker run -it --rm --network fpga_net --ip 10.10.10.3 -e COMPUTE_HOST=10.10.10.2 \
+  -v ~/interlock-proto:/proto python:3-slim bash /proto/prototype/nodes/run_clients.sh
+```
+
+`interlock → compute` and `verifier → compute` then traverse the FPGA. Note the
+FPGA is the **transparent passthrough wire** on those legs; `interlock.py` is
+still the logical interlock doing the certificate logic in software — moving that
+logic into the gateware is the later V3b step.
 
 Then chat; `/challenge [id]` verifies a past response and reports its unexplained
 information U; `/list`; `/quit`.
