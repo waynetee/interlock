@@ -1,5 +1,12 @@
 # Prototype run results — 2026-06-14
 
+> Historical record. The prototype was later consolidated to node-per-process
+> (`prototype/{wire,compute,interlock,frontend,verifier}.py`) and the
+> recomputation / U measurement descoped to a later step (recomputation or ZKP).
+> The U figures below were a real measurement at the time, via the now-removed
+> `run_demo.py`; file names like `compute_server.py`/`run_demo.py` refer to that
+> earlier layout.
+
 Captured run of the V1 / V2 / recomputation milestones on the Spark
 (`spark-c191`, aarch64, Llama-2-7B, `venv-hf` torch 2.13/cu130, transformers
 5.8). Single-host over loopback TCP; see *FPGA / MacBook path* below for why the

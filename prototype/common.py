@@ -1,19 +1,13 @@
-"""Shared helpers for the node-per-process prototype.
-
-Each node (compute / interlock / frontend / verifier) is its own process and
-talks to the others over TCP with length-prefixed JSON. Packet/byte fields are
-carried as hex strings. The node *logic* still comes from ../../model/protocol.py.
+"""Shared infrastructure for the node processes: transport, ports, the shared
+secret/params, and (de)serialization. The wire *format* lives in wire.py; this
+file is just how nodes find and talk to each other.
 """
 import json
 import os
 import socket
-import sys
 import time
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(HERE, "..", "..", "model"))   # protocol.py
-sys.path.insert(0, os.path.join(HERE, ".."))                  # transport.py
-import protocol as P
+import wire
 from transport import send_msg, recv_msg
 
 HOST = "127.0.0.1"
@@ -23,10 +17,10 @@ PORT_VERIFIER  = int(os.environ.get("PORT_VERIFIER", 5554))
 COMPUTE_HOST   = os.environ.get("COMPUTE_HOST", HOST)   # compute may be remote (e.g. over the FPGA)
 
 KEY   = b"\x00" * 32              # per-request key material (plaintext prototype)
-MAC   = P.H(b"interlock-mac-key") # shared secret: interlock signs, verifier checks
+MAC   = wire.H(b"interlock-mac-key")  # shared secret: interlock signs, verifier checks
 IID   = 7
-NONCE = P.H(b"nonce")[:16]
-N, CONF, VOCAB = 8, 0.999, 32000  # buckets/cert, prediction confidence, vocab
+NONCE = wire.H(b"nonce")[:16]
+N     = 8                         # buckets per certificate (one cert per turn)
 
 
 def call(host, port, req, tries=60):
@@ -56,7 +50,7 @@ def serve(port, handler, name):
         c, _ = srv.accept()
         try:
             reply = handler(json.loads(recv_msg(c)))
-        except Exception as e:                      # noqa: BLE001 - report to caller
+        except Exception as e:                       # noqa: BLE001 - report to caller
             reply = {"error": f"{type(e).__name__}: {e}"}
         try:
             send_msg(c, json.dumps(reply).encode())
@@ -64,16 +58,8 @@ def serve(port, handler, name):
             c.close()
 
 
-def ids_to_bytes(ids):
-    return b"".join(i.to_bytes(4, "big") for i in ids)
-
-
-def bytes_to_ids(b):
-    return [int.from_bytes(b[i:i + 4], "big") for i in range(0, len(b), 4)]
-
-
 def opening_to_json(op):
-    """P.Opening (bytes / list[bytes] / int / None fields) -> JSON-safe dict."""
+    """wire.Opening (bytes / list[bytes] / int / None fields) -> JSON-safe dict."""
     out = {}
     for field, v in op._asdict().items():
         if isinstance(v, bytes):
@@ -94,4 +80,4 @@ def json_to_opening(d):
             kw[field] = [bytes.fromhex(x) for x in v]
         else:
             kw[field] = bytes.fromhex(v)
-    return P.Opening(**kw)
+    return wire.Opening(**kw)
