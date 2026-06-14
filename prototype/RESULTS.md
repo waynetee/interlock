@@ -50,6 +50,34 @@ is software (no hardware trust boundary yet); payloads are plaintext (encryption
 is V3); one OS hosts everything (isolation not real); decoding is greedy
 (hardware-nondeterminism noise model deferred).
 
+## RESOLVED (2026-06-14): passthrough flashed, prototype runs over the FPGA
+
+Built the passthrough bitstream (commit `7e87750` — transparent bidirectional
+cross-wire `fabric_bridge`, forwards all Ethernet frames) on the Hetzner Libero
+box and flashed it via the `box64test` FlashPro-in-qemu rig: **PROGRAM PASSED**
+(2026-06-14 13:00). The first attempt failed because another job was using
+~113 GB (all RAM + swap), OOM-thrashing the programming VM mid-write and leaving
+the FPGA links down; it completed cleanly once that memory was freed.
+
+**Forwarding now works.** The same test that failed below now passes — a
+container whose only NIC is the USB port pings the host on the built-in port
+through the FPGA: 4/4, 0% loss, ARP resolves with no static hack,
+`usb_tx +8 / enP7s7_rx +8`.
+
+**The full prototype then ran over the real link:** client in a macvlan
+container (`10.10.10.3`) → FPGA → `compute_server.py` (Llama-2-7B) on the host
+(`10.10.10.2`). Same results as loopback — cert verified, tamper rejected,
+`U(honest)=0.035` vs `U(corrupted)=174.5` bits. V1 dataflow genuinely traversed
+the interlock hardware.
+
+Bitstream archived: `/root/fpga/bitstreams/passthrough-7e87750.job` (Hetzner) and
+`~/fpe/top.job.passthrough` (Spark), sha256 `dce14135…`; prior deframe image
+backed up at `~/fpe/top.job.bak-20260614`. (Note: the passthrough image is a
+transparent wire — it does *not* do the interlock certificate logic, which stays
+in software; gateware cert logic is the later V3b step.)
+
+The diagnostic that led here is preserved below.
+
 ## FPGA forwarding test (2026-06-14)
 
 Attempted to route the traffic through the FPGA from the single Spark, using the
