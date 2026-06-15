@@ -16,3 +16,8 @@ the drop rules are covered too.
 Develop the Core entirely against this in sim; flash only once it's green, then
 re-run the same cert-byte comparison on the real device as the final gate
 (remember: sim passing != silicon — see the deframe synth-vs-sim history).
+
+The harness is **backend-agnostic** — it checks cert bytes, not how they're
+produced. For the SHA-256 / HMAC source decision (secworks fabric core vs the
+PolarFire User Crypto vs System Services), see
+[`../../docs/gateware-crypto-backend.md`](../../docs/gateware-crypto-backend.md).
