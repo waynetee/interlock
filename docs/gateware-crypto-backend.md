@@ -23,7 +23,11 @@ running bucket/window contexts. 66 cycles/block → ~100 MB/s per instance at
 
 - **Needs:** a small `sha256_stream` wrapper (byte→512-bit block assembly +
   padding + length tracking + `init`/`next` sequencing), written once and reused;
-  for HMAC, a thin FSM doing the two passes (`key⊕ipad`, `key⊕opad`).
+  for HMAC, a thin FSM doing the two passes (`key⊕ipad`, `key⊕opad`). NB: build
+  this FSM over the SHA core — secworks's own `hmac` repo is marked
+  non-functional ("does NOT yet work") and truncates to a 128-bit tag, whereas the
+  cert uses the full 256-bit tag. Validate the FSM against RFC 4231 vectors. The
+  HMAC here is the trivial case (fixed 108-byte body, fixed-size key, no streaming).
 - **Pros:** pure fabric, no CPU, fully inspectable (small TCB), line-rate, you
   own every line. Plain Verilog avoids the complex-SV synth-vs-sim trap that bit
   the deframe path.
