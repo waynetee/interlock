@@ -85,16 +85,50 @@ a fabric master that issues it with no CPU.
 | TCB / inspectability | **small, all ours** | large (CPU + gated lib) | medium |
 | Licensing | open (BSD) | gated (CAL, S-grade lic.) | in Libero |
 
+## Side-channel resistance (a stated requirement)
+
+Side-channel (DPA/SPA — power/EM) resistance **is** a requirement for this system,
+eventually. Crucially, it only applies where a **secret** is used in computation:
+
+- **Streaming hashes** are plain SHA-256 over data already on the wire (headers +
+  ciphertext; even `recomp_commitment = H(key)` is a publicly-transmitted hash).
+  No key is involved, so a power/EM attacker watching the hashing learns nothing a
+  wire tap wouldn't give. **No SCA hardening needed on the line-rate path.**
+- The **HMAC** is the only secret-bearing operation (the MAC key), and the key's
+  *storage* must also resist extraction. **This is the SCA-sensitive part** — and
+  it's the small, once-per-second one.
+
+Why this matters in the threat model: the prover **physically hosts** the
+interlock, so a power/EM attack to lift the MAC key → forge certificates →
+defeats the scheme. SCA resistance + secure key storage is what makes the
+existing "protect the HMAC secret" assumption hold against a physically-present
+adversary — not gold-plating.
+
+Implication: **do not DIY SCA countermeasures in fabric.** Masking/hiding of the
+compression function is a specialist discipline, easy to get subtly wrong and
+hard to validate. This is the one place the black-box hardware genuinely wins —
+the TeraFire's countermeasures are patented, validated, and the single-chip
+crypto flow was NCSC-reviewed. Note also that full SCA resistance is a *system*
+property (PSU filtering, EM shielding, layout, constant-time control), not just
+the core; the hardened core is necessary, not sufficient.
+
 ## Recommendation
 
 - **Streaming hashes (per-packet / bucket / window):** secworks fabric cores —
-  the only line-rate option, and the simplest.
-- **Once-per-second HMAC tag:** default to **secworks SHA + a small HMAC FSM** —
-  no CPU, smallest TCB, fully inspectable. The key lives in the battery-backed
-  fabric domain the interlock already assumes.
-- **Take the User Crypto only if** hardware key custody (DPA + sNVM) is a hard
-  requirement for the HMAC secret, and the cost of a Mi-V + CAL + a black-box in
-  the TCB is acceptable. That is a security-vs-TCB tradeoff, not a default.
+  the only line-rate option, the simplest, and no secret to leak. Unchanged by
+  the SCA requirement.
+- **HMAC tag — phased, because the conformance harness is backend-agnostic:**
+  - *Phase 1 (functional):* secworks SHA + a small HMAC FSM. Gets the Core and
+    `honest_pair` green and exercises the whole certificate dataflow. No SCA.
+  - *Phase 2 (SCA-hardened):* swap the HMAC to the **User Crypto / TeraFire**
+    (DPA/SPA-resistant) with the key in **sNVM**. Brings back the Mi-V + CAL, but
+    only for the HMAC path (the CPU isn't secret-bearing, so it needn't be
+    hardened). The cocotb test checks cert *bytes*, so the swap is **no-rework**
+    on conformance.
+- This resolves the earlier security-vs-TCB tension: a pure-fabric TCB cannot
+  provide hardware SCA assurance at all, so the stated SCA requirement makes the
+  User Crypto the right call for the HMAC — the soft-CPU cost is the price of
+  validated hardware countermeasures.
 
 ## Note on the conformance harness
 
