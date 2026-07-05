@@ -149,7 +149,7 @@ VM. Pick the tests that match what the current bitstream implements:
 
 | Test | Script | What PASS looks like |
 |---|---|---|
-| **Forwarding + sanitization** | `bench/canon_fwd.sh [count] [len]` | forced-DST (`02:..:01/02`) frames + `ILOCKFWD` payload captured on the far NIC — proves the frame traversed *and* was sanitized by the bridge |
+| **Forwarding + sanitization** | `bench/canon_fwd.sh [count] [len]` | forced-DST (`02:..:01/02`) frames captured on the far NIC — proves the frame traversed *and* was sanitized by the bridge (see the tcpdump caveat below) |
 | **TYPE-frame drop** | `bench/type_drop.sh [send] [recv] [count] [len]` | LENGTH frames forward, EtherType `0x86DD` frames drop, LENGTH frames *still* forward after (no wedge) |
 | **Spaced forwarding** | `bench/fwd_spaced_test.sh [count] [gap_ms]` | gentle forwarding probe safe for per-packet cert builds (no HMAC overrun) |
 | **Cert egress (bulk)** | `bench/canon_certtest.sh [count]` | cert frames (`ilock-v5` payload) captured on the port-0 NIC |
@@ -162,8 +162,18 @@ Example:
 
 ```
 bash ~/fpe/canon_fwd.sh 3000 64
-# PASS = both directions show forced-DST frames + ILOCKFWD payload on the recv side.
+# PASS = both directions report sanitized-frames(forced DST) > 0 on the recv side.
 ```
+
+> **tcpdump LLC caveat.** For 802.3 LENGTH frames, tcpdump parses the first 3
+> payload bytes as an LLC header (DSAP/SSAP/control), so the `ILOCKFWD` payload
+> renders as `CKFWD…` in the dump. `canon_fwd.sh`'s `ILOCKFWD-payload` counter
+> therefore reads **0 even when forwarding works** — it greps for the literal
+> `ILOCKFWD`, which the LLC parser has split. **The reliable signal is
+> `sanitized-frames (forced DST) > 0`**; the intact payload is visible in the hex
+> sample (`434b 4657 44…` = `CKFWD`). The same 3-byte LLC shift affects the cert
+> tests (`ilock-v5` shows as `ck-v5…`). (Verified on the live bench 2026-07-05:
+> 100 sanitized frames each direction, payload intact.)
 
 ### 6. UART telemetry (optional, host-side)
 
