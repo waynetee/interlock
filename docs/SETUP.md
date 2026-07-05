@@ -399,7 +399,10 @@ git config --local --add credential.https://github.com.helper \
 
 - **FlashPro Express**: runs on the machine physically connected to the
   board via USB. Build VM doesn't need it. Microchip ships a separate
-  installer.
+  installer. The full flash + hardware-test procedure for the project's
+  DGX Spark bench (including the x86-QEMU-on-ARM64 flash path) is in
+  [`flashing-and-testing.md`](flashing-and-testing.md), with the scripts in
+  [`../bench/`](../bench).
 - **SoftConsole / RISC-V firmware**: the precompiled Mi-V firmware
   (`iog_cdr.hex`) lives in `gateware/src/src_softconsole/` and is baked
   into the bitstream by Libero. Rebuilding the `.hex` needs a

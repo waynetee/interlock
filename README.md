@@ -78,20 +78,17 @@ wait.
 The resulting `.job` lands in `gateware/Libero_Project/designer/top/export/top.job`
 (this directory is `.gitignored`; it's regenerated on every build).
 
-## Flashing
+## Flashing and testing
 
-On a machine with FlashPro Express + USB connection to the board:
+On a machine with FlashPro Express + USB connection to the board, the minimal
+path is: `scp` the `.job` over, open FlashPro Express, load it, click RUN.
 
-```
-scp <hetzner>:/root/fpga/interlock/gateware/Libero_Project/designer/top/export/top.job .
-# then open FlashPro Express, load the .job, click RUN
-```
-
-## Testing
-
-See `NOTES.md` for the scapy + tcpdump pattern that confirms ethernet
-loopback from the Mac. Once the port-to-port bridge lands, the test will
-extend to Mac → board → Spark roundtrip.
+For the project's **DGX Spark bench** — where the board can't run Libero
+directly (ARM64 host, x86-only tools) — the full flash + hardware-test workflow
+is documented in [`docs/flashing-and-testing.md`](docs/flashing-and-testing.md),
+with the runnable scripts (flash chain + data-plane tests: forwarding, TYPE-drop,
+cert egress, beacon) version-controlled in [`bench/`](bench). See also `NOTES.md`
+for the original scapy + tcpdump loopback pattern.
 
 ## License
 
