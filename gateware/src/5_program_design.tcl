@@ -30,6 +30,15 @@ configure_ram -cfg_file {./src/src_cfg/RAM.cfg}
 
 generate_design_initialization_data
     
+# Hold the VSC8575 PHY in reset (PHY_RST/NRESET low) for the entire JTAG
+# programming window. The default I/O state during programming is tristate,
+# and the board pulls NRESET high (R551, 2K to VDD25_VSC), so without this
+# the PHY keeps running un-reset with MDC/MDIO floating and can wedge; the
+# post-flash CORERESET_PF pulse (~us) is far below the 2 ms warm-reset
+# minimum (VSC8575 datasheet VMDS-10457, Table 165) and cannot recover it.
+configure_tool -name {IO_PROGRAMMING_STATE} \
+    -params "ios_file:[file normalize ./src/src_constraints/prog_io_states.ios]"
+
 # Configure and generate programming file data
 # Examples for configuring the programming files TBD
 ## run_tool -name GENERATEPROGRAMMINGFILE

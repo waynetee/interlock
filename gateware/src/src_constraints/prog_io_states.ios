@@ -1,0 +1,1 @@
+set_prog_io_state -portName {PHY_RST} -input 1 -outputEnable 1 -output 0
