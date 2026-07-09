@@ -1,0 +1,163 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1620" height="840" viewBox="0 0 1620 840" font-family="Helvetica, Arial, sans-serif">
+  <defs>
+    <marker id="arr" markerWidth="9" markerHeight="7" refX="8" refY="3.5" orient="auto">
+      <polygon points="0 0, 9 3.5, 0 7" fill="#333"/>
+    </marker>
+  </defs>
+  <rect width="1620" height="840" fill="#ffffff"/>
+
+  <!-- ============ quarantine boundary (behind boxes) ============ -->
+  <line x1="880" y1="48" x2="880" y2="798" stroke="#8a5a00" stroke-width="1.6" stroke-dasharray="4 4" opacity="0.55"/>
+  <text x="868" y="76" text-anchor="end" font-size="11" font-style="italic" fill="#8a5a00">outside region</text>
+  <text x="892" y="76" text-anchor="start" font-size="11" font-style="italic" fill="#8a5a00">inside region (quarantine)</text>
+
+  <!-- ============ outer hosts ============ -->
+  <rect x="20" y="360" width="140" height="80" rx="8" fill="#e8f0fe" stroke="#2b5b8f" stroke-width="2"/>
+  <text x="90" y="395" text-anchor="middle" font-size="16" font-weight="bold" fill="#1a3d66">Prover</text>
+  <text x="90" y="415" text-anchor="middle" font-size="16" font-weight="bold" fill="#1a3d66">frontend</text>
+
+  <rect x="1460" y="360" width="140" height="80" rx="8" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+  <text x="1530" y="390" text-anchor="middle" font-size="16" font-weight="bold" fill="#1b5e20">Compute</text>
+  <text x="1530" y="410" text-anchor="middle" font-size="16" font-weight="bold" fill="#1b5e20">node</text>
+  <text x="1530" y="430" text-anchor="middle" font-size="11" fill="#1b5e20">(quarantined)</text>
+
+  <!-- ============ fabric boundary ============ -->
+  <rect x="190" y="35" width="1240" height="770" rx="12" fill="none" stroke="#b07d2b" stroke-width="2" stroke-dasharray="10 6"/>
+  <text x="210" y="62" font-size="15" font-weight="bold" fill="#8a5a00">Interlock device — PolarFire fabric, production core (fabric_bridge; no CPU on the datapath)</text>
+
+  <!-- ============ MAC/PHY boxes ============ -->
+  <rect x="210" y="355" width="100" height="90" rx="8" fill="#fef3e2" stroke="#b07d2b" stroke-width="2"/>
+  <text x="260" y="390" text-anchor="middle" font-size="13" font-weight="bold" fill="#5c3d00">MAC/PHY</text>
+  <text x="260" y="408" text-anchor="middle" font-size="12" fill="#5c3d00">port 0</text>
+  <text x="260" y="426" text-anchor="middle" font-size="11" fill="#5c3d00">(CoreTSE)</text>
+
+  <rect x="1310" y="355" width="100" height="90" rx="8" fill="#fef3e2" stroke="#b07d2b" stroke-width="2"/>
+  <text x="1360" y="390" text-anchor="middle" font-size="13" font-weight="bold" fill="#5c3d00">MAC/PHY</text>
+  <text x="1360" y="408" text-anchor="middle" font-size="12" fill="#5c3d00">port 1</text>
+  <text x="1360" y="426" text-anchor="middle" font-size="11" fill="#5c3d00">(CoreTSE)</text>
+
+  <!-- host <-> MAC links -->
+  <line x1="160" y1="390" x2="210" y2="390" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+  <line x1="210" y1="412" x2="160" y2="412" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+  <line x1="1410" y1="390" x2="1460" y2="390" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+  <line x1="1460" y1="412" x2="1410" y2="412" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+
+  <!-- ============ request pipe (frontend -> compute), top ============ -->
+  <text x="340" y="82" font-size="12" fill="#666" font-style="italic">request direction (in): frontend → compute</text>
+
+  <rect x="340" y="90" width="140" height="64" rx="8" fill="#fef3e2" stroke="#b07d2b" stroke-width="2"/>
+  <text x="410" y="116" text-anchor="middle" font-size="13" font-weight="bold" fill="#5c3d00">eth_deframe</text>
+  <text x="410" y="136" text-anchor="middle" font-size="10" fill="#5c3d00">sanitize 802.3 fields</text>
+
+  <rect x="505" y="90" width="145" height="64" rx="8" fill="#fef3e2" stroke="#b07d2b" stroke-width="2"/>
+  <text x="577" y="116" text-anchor="middle" font-size="13" font-weight="bold" fill="#5c3d00">canon_proc + gate</text>
+  <text x="577" y="136" text-anchor="middle" font-size="10" fill="#5c3d00">checks · drop · nonce · sync</text>
+
+  <rect x="675" y="90" width="140" height="64" rx="8" fill="#fef3e2" stroke="#b07d2b" stroke-width="2"/>
+  <text x="745" y="116" text-anchor="middle" font-size="13" font-weight="bold" fill="#5c3d00">traffic_commit</text>
+  <text x="745" y="136" text-anchor="middle" font-size="10" fill="#5c3d00">hash records (as accepted)</text>
+
+  <rect x="840" y="90" width="165" height="64" rx="8" fill="#fef3e2" stroke="#b07d2b" stroke-width="2"/>
+  <text x="922" y="116" text-anchor="middle" font-size="13" font-weight="bold" fill="#5c3d00">batch_buffer</text>
+  <text x="922" y="136" text-anchor="middle" font-size="10" fill="#5c3d00">ping-pong banks, swap at tick</text>
+
+  <rect x="1030" y="90" width="80" height="64" rx="8" fill="#fef3e2" stroke="#b07d2b" stroke-width="2"/>
+  <text x="1070" y="116" text-anchor="middle" font-size="13" font-weight="bold" fill="#5c3d00">2×1 mux</text>
+  <text x="1070" y="136" text-anchor="middle" font-size="10" fill="#5c3d00">fwd | sync</text>
+
+  <rect x="1135" y="90" width="130" height="64" rx="8" fill="#fef3e2" stroke="#b07d2b" stroke-width="2"/>
+  <text x="1200" y="116" text-anchor="middle" font-size="13" font-weight="bold" fill="#5c3d00">eth_reframe</text>
+  <text x="1200" y="136" text-anchor="middle" font-size="10" fill="#5c3d00">fresh headers + FCS</text>
+
+  <path d="M 260 355 L 260 122 L 340 122" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+  <line x1="480" y1="122" x2="505" y2="122" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+  <line x1="650" y1="122" x2="675" y2="122" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+  <line x1="815" y1="122" x2="840" y2="122" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+  <line x1="1005" y1="122" x2="1030" y2="122" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+  <line x1="1110" y1="122" x2="1135" y2="122" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+  <path d="M 1265 122 L 1360 122 L 1360 355" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+
+  <!-- ============ response pipe (compute -> frontend), bottom ============ -->
+  <text x="320" y="744" font-size="12" fill="#666" font-style="italic">response direction (out): compute → frontend</text>
+
+  <rect x="1135" y="650" width="140" height="64" rx="8" fill="#fef3e2" stroke="#b07d2b" stroke-width="2"/>
+  <text x="1205" y="676" text-anchor="middle" font-size="13" font-weight="bold" fill="#5c3d00">eth_deframe</text>
+  <text x="1205" y="696" text-anchor="middle" font-size="10" fill="#5c3d00">sanitize 802.3 fields</text>
+
+  <rect x="960" y="650" width="145" height="64" rx="8" fill="#fef3e2" stroke="#b07d2b" stroke-width="2"/>
+  <text x="1032" y="676" text-anchor="middle" font-size="13" font-weight="bold" fill="#5c3d00">canon_proc + gate</text>
+  <text x="1032" y="696" text-anchor="middle" font-size="10" fill="#5c3d00">checks · drop · sync</text>
+
+  <rect x="770" y="650" width="160" height="64" rx="8" fill="#fef3e2" stroke="#b07d2b" stroke-width="2"/>
+  <text x="850" y="676" text-anchor="middle" font-size="13" font-weight="bold" fill="#5c3d00">batch_buffer</text>
+  <text x="850" y="696" text-anchor="middle" font-size="10" fill="#5c3d00">ping-pong banks, swap at tick</text>
+
+  <rect x="600" y="650" width="140" height="64" rx="8" fill="#fef3e2" stroke="#b07d2b" stroke-width="2"/>
+  <text x="670" y="676" text-anchor="middle" font-size="13" font-weight="bold" fill="#5c3d00">traffic_commit</text>
+  <text x="670" y="696" text-anchor="middle" font-size="10" fill="#5c3d00">hash records (as released)</text>
+
+  <rect x="480" y="650" width="90" height="64" rx="8" fill="#fef3e2" stroke="#b07d2b" stroke-width="2"/>
+  <text x="525" y="676" text-anchor="middle" font-size="13" font-weight="bold" fill="#5c3d00">3×1 mux</text>
+  <text x="525" y="696" text-anchor="middle" font-size="10" fill="#5c3d00">fwd | cert | sync</text>
+
+  <rect x="320" y="650" width="130" height="64" rx="8" fill="#fef3e2" stroke="#b07d2b" stroke-width="2"/>
+  <text x="385" y="676" text-anchor="middle" font-size="13" font-weight="bold" fill="#5c3d00">eth_reframe</text>
+  <text x="385" y="696" text-anchor="middle" font-size="10" fill="#5c3d00">fresh headers + FCS</text>
+
+  <path d="M 1360 445 L 1360 682 L 1275 682" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+  <line x1="1135" y1="682" x2="1105" y2="682" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+  <line x1="960" y1="682" x2="930" y2="682" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+  <line x1="770" y1="682" x2="740" y2="682" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+  <line x1="600" y1="682" x2="570" y2="682" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+  <line x1="480" y1="682" x2="450" y2="682" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+  <path d="M 320 682 L 260 682 L 260 445" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+
+  <!-- ============ center: certification ============ -->
+  <rect x="420" y="470" width="160" height="64" rx="8" fill="#fdecea" stroke="#b3392f" stroke-width="1.8"/>
+  <text x="500" y="496" text-anchor="middle" font-size="13" font-weight="bold" fill="#7a1f17">HMAC key k</text>
+  <text x="500" y="514" text-anchor="middle" font-size="10" fill="#7a1f17">PUF-wrapped, sNVM (design)</text>
+
+  <rect x="650" y="440" width="190" height="94" rx="8" fill="#fef3e2" stroke="#b07d2b" stroke-width="2"/>
+  <text x="745" y="464" text-anchor="middle" font-size="13" font-weight="bold" fill="#5c3d00">cert_build</text>
+  <text x="745" y="482" text-anchor="middle" font-size="9.5" fill="#5c3d00">m = ver‖iid‖bucket_start‖N‖</text>
+  <text x="745" y="496" text-anchor="middle" font-size="9.5" fill="#5c3d00">overall_req‖overall_rsp‖nonce‖prev_τ</text>
+  <text x="745" y="514" text-anchor="middle" font-size="9.5" fill="#5c3d00">τ = HMAC_k(m) — chained certs</text>
+
+  <line x1="580" y1="502" x2="650" y2="502" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+
+  <!-- nonce from request canon_proc -->
+  <path d="M 560 154 L 560 410 L 700 410 L 700 440" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+  <text x="568" y="300" font-size="10" fill="#444">nonce (id = 0 packet)</text>
+
+  <!-- overall_req from request commit -->
+  <path d="M 745 154 L 745 440" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+  <text x="753" y="230" font-size="10" fill="#444">overall_req</text>
+
+  <!-- overall_rsp from response commit -->
+  <path d="M 670 650 L 670 580 L 800 580 L 800 534" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+  <text x="686" y="574" font-size="10" fill="#444">overall_rsp</text>
+
+  <!-- cert frames to 3x1 mux -->
+  <path d="M 660 534 L 660 612 L 525 612 L 525 650" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+  <text x="536" y="606" font-size="10" fill="#444">cert frames → frontend</text>
+
+  <!-- ============ sync packets ============ -->
+  <path d="M 515 154 L 515 175 L 335 175 L 335 635 L 510 635 L 510 650" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+  <text x="343" y="168" font-size="10" fill="#444">sync (id = 1, every tick, FIRST_ARR) → own sender</text>
+
+  <path d="M 1050 650 L 1050 154" fill="none" stroke="#333" stroke-width="1.6" marker-end="url(#arr)"/>
+  <text x="1058" y="404" font-size="10" fill="#444">sync → compute</text>
+
+  <!-- ============ bucket timer ============ -->
+  <rect x="1170" y="205" width="160" height="68" rx="8" fill="#fef3e2" stroke="#b07d2b" stroke-width="1.6"/>
+  <text x="1250" y="230" text-anchor="middle" font-size="13" font-weight="bold" fill="#5c3d00">bucket timer</text>
+  <text x="1250" y="247" text-anchor="middle" font-size="10" fill="#5c3d00">1 ms tick, free-running</text>
+  <text x="1250" y="262" text-anchor="middle" font-size="9" fill="#777">tick → canon_proc + buffers (both dirs)</text>
+
+  <!-- ============ debug note ============ -->
+  <rect x="1180" y="490" width="160" height="90" rx="8" fill="#f5f5f5" stroke="#888" stroke-width="1.6" stroke-dasharray="6 4"/>
+  <text x="1260" y="516" text-anchor="middle" font-size="11" font-weight="bold" fill="#555">debug taps</text>
+  <text x="1260" y="532" text-anchor="middle" font-size="9.5" fill="#555">counters, sticky flags,</text>
+  <text x="1260" y="545" text-anchor="middle" font-size="9.5" fill="#555">UART telemetry (dbg builds)</text>
+  <text x="1260" y="565" text-anchor="middle" font-size="10" fill="#a33">gated out of production</text>
+</svg>
