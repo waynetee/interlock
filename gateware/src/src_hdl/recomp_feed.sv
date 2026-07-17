@@ -77,7 +77,6 @@ module recomp_feed
   output wire [15:0] tuser_m,
 
   // AXI-Stream slave (estimates from the enclosure-facing eth_deframe).
-  // v1 ignores contents; only packet boundaries (tlast) pace the loop.
   input  wire        tvalid_e,
   output wire        tready_e,
   input  wire [31:0] tdata_e,

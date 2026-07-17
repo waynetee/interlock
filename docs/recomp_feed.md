@@ -6,7 +6,8 @@ where the two directions **couple**: it forwards the challenged input context
 to the prover's recomputation compute, then feeds the scored response
 **token-by-token**, receives the per-position **estimates** the compute
 emits, checks each for normalization, accumulates each position's surprisal into
-the running total `Û`, and hands off the result.
+the running total `Û`, and hands off the result — the challenged response's
+`ID` paired with `Û`, the pair the recomp certificate carries in OUTWARD.
 
 ```
                         ┌───────────────────────────────────────┐
@@ -15,7 +16,7 @@ the running total `Û`, and hands off the result.
    len @ beat #0        │  forward all but the final response   │  len @ beat#0
                         │                                       │
                         │                                       │
-         Û ◀─────────── │  final response:                      │ ◀─────────── AXIS est
+     id, Û ◀─────────── │  final response:                      │ ◀─────────── AXIS est
                         │   START ─▶ len,timing,tok_0 estimates │
                         │   loop: reveal tok_i ─▶ tok_i+1 est.  │
                         │                                       │
@@ -36,6 +37,8 @@ The challenged response however is captured into a buffer and fed to the recompu
 
   The final estimate is still scored in both cases — in (b) token_N is scored from the buffered token even though it is not revealed, so a response spanning multiple packets is scored packet-by-packet with no cross-packet token context.
 
+While a challenge's estimate loop runs, the packet port **stays ready and drops everything whole** — never forwarded — so the timer-driven `batch_buffer` drain is never stalled across a challenge of arbitrary duration. The staging contract already keeps traffic out of an active challenge; the drop makes a violation degrade to lost packets — already committed upstream, so the digest exposes them — instead of corrupted framing. Once the challenge completes, forwarding resumes only when the ingress is silent at a packet boundary, so it never resumes mid-packet.
+
 ## Timing estimate
 
 The timing estimate predicts the bucket difference between the challenged response and the corresponding request. The original bucket numbers might be overridden in the packet headers, in which case the original difference must be supplied in the response packet's header (the low word of the RESERVED field).
@@ -44,7 +47,7 @@ The timing estimate predicts the bucket difference between the challenged respon
 
 **Egress**
 
-A reveal is a single `(index, token)` pair, no header.
+A reveal is a single one-beat frame carrying the bare token, no header.
 
 Forwarded **context** packets are not reframed by the feed — they pass
 through verbatim with only the beat-#0 length carried on `tuser`.
@@ -86,8 +89,9 @@ There is a tradeoff between using raw probabilities p vs surprisals log(p) on th
    value** (the catch-all's probability if that value is not explicitly
    listed), convert it to a surprisal (`−log₂`), and add it to `Û`.
 
-`Û` — the total over length, timing, and every token position — is the
-block's output.
+`Û` — the total over length, timing, and every token position — is
+dispatched as a single-cycle pulse together with the challenged response's
+`ID` as the block's output.
 
 **Why both length and per-position EOS.** They guard opposite directions. A
 *response longer than the model would generate* is caught online by the
