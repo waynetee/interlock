@@ -44,68 +44,72 @@ The interlock processes the log on the fly and stores none of it. The prover fro
 - **Prover frontend:** logs everything — both packet logs with boundary markers, key material, and every certificate — for the challenge window (~30 days). Derived hashes are not stored; digests are recomputed from the log on demand (rehashing one second of traffic is at most ~100 MB of hashing).
 - **Verifier:** keeps an anchor log of nonce→certificate round trips, samples challenges, and recomputes hashes over the log slices the prover supplies.
 
-## Log format
+## Packet formats
+
+All layout tables in this document read in **transmission order** — left to right, top to bottom, cell widths proportional to field sizes and column widths as labeled (packet and certificate tables: 16 bytes per row). Every multi-octet field is big-endian (first octet = MSB).
+
+### Log format
 
 A log is a time-ordered sequence of packets; there is one log per direction. Time is divided into 1 ms buckets, and the interlock emits a boundary marker each millisecond (excluded from all hashes) so the prover's log reproduces the interlock's packet→bucket assignment exactly.
 
-**Input (request) packet:**
+**Input (request) packet 64 bytes:**
 
 ```
-      |127     96|95      64|63      32|31       0|
-      +----------+----------+---------------------+  512
+         32 bit     32 bit          64 bit
+      +----------+----------+---------------------+
       | PLD_LEN  |  BUCKET  |          ID         |
-      +----------+----------+---------------------+  384
+      +----------+----------+---------------------+
       |      REFERENCE      |       RESERVED      |
-      +---------------------+---------------------+  256
+      +---------------------+---------------------+
       |                                           |
-      +-                KEY_COMMIT               -+  128
+      +-                KEY_COMMIT               -+
       |                                           |
-      +-------------------------------------------+    0
+      +-------------------------------------------+
 ```
 
-**Output (response) packet:**
+**Output (response) packet 64 bytes:**
 
 
 ```
-      |127     96|95      64|63      32|31       0|
-      +----------+----------+---------------------+  512
+         32 bit     32 bit          64 bit
+      +----------+----------+---------------------+
       | PLD_LEN  |  BUCKET  |          ID         |
-      +----------+----------+---------------------+  384
+      +----------+----------+---------------------+
       |                                           |
-      +-                                         -+  256
+      +-                                         -+
       |                  RESERVED                 |
-      +-                                         -+  128
+      +-                                         -+
       |                                           |
-      +-------------------------------------------+    0
+      +-------------------------------------------+
 ```
 
-### Common HEADER fields
+#### Common HEADER fields
 
-These three fields sit at the top of both frames, so they land at different absolute offsets in the 512-bit request and the 128-bit response.
+These three fields sit at the top of both frames, at the same byte offsets.
 
-**PLD_LEN, bits [511:480] \
+**PLD_LEN** \
 Length of the ciphertext payload.
 
 <!-- REVISIT OK to use 32 bit BUCKET? it fits nicely in both REQ and RSP -->
-**BUCKET, bits [479:448] \
+**BUCKET** \
 Index of the time bucket the packet is targeting.
 
 <!-- REVISIT do we need the inference flag? -->
-**ID, bits [447:384] \
+**ID** \
 Identifier of the transaction. \
 **ID[0]** is the Inference flag, must be set for inference requests. \
 ID=0 is RESERVED for control messages.
 
-### Request Only HEADER fields
+#### Request Only HEADER fields
 
-**REFERENCE, bits [383:320]** \
+**REFERENCE** \
 Identifier of the transaction referenced in the current request. \
 Set to 0 (RESERVED) if no previous transaction is referenced. \
 The REFERENCE feature provides support for multi-turn conversations and multi-packet messages. See [References and multi-part exchanges](#references-and-multi-part-exchanges). \
 REFERENCE must be strictly less than ID.
 (A response inherits its context through its request, so it carries no reference.)
 
-**KEY_COMMIT, bits [255:0]** \
+**KEY_COMMIT** \
 Cryptographic commitment to the key material used for this request and its response.
 
 
@@ -121,75 +125,75 @@ The cleartext header carries only what a trusted party must act on without decry
   - A dropped packet never exits the node, so it carries no exfiltration risk
   - The prover initiates each transaction and notices drops via timeout
 
-## Certificate format
+### Certificate format 160 bytes
 
 Every second the interlock emits a certificate committing to the last 1000 buckets of both logs, computed incrementally as packets stream through:
 
 ```
-      |127     96|95      64|63      32|31       0|
-      +----------+----------+---------------------+ 1280
+         32 bit     32 bit     32 bit     32 bit
+      +----------+----------+----------+----------+
       | VERSION  |  DEVICE  | BKT_START| BKT_NUM  |
-      +----------+----------+---------------------+ 1152
+      +----------+----------+----------+----------+
       |                   NONCE                   |
-      +---------------------+---------------------+ 1024
+      +---------------------+---------------------+
       |                                           |
-      +-                 INWARD                  -+  896
+      +-                 INWARD                  -+
       |                                           |
-      +-------------------------------------------+  768
+      +-------------------------------------------+
       |                                           |
-      +-                 OUTWARD                 -+  640
+      +-                 OUTWARD                 -+
       |                                           |
-      +-------------------------------------------+  512
+      +-------------------------------------------+
       |                                           |
-      +-                  CHAIN                  -+  384
+      +-                  CHAIN                  -+
       |                                           |
-      +-------------------------------------------+  256
+      +-------------------------------------------+
       |                                           |
-      +-                AUTH_TAG                 -+  128
+      +-                AUTH_TAG                 -+
       |                                           |
-      +-------------------------------------------+    0
+      +-------------------------------------------+
 ```
 
-### Certificate message body (m)
+#### Certificate message body (m)
 
-**VERSION, bits [1279:1248]** \
+**VERSION** \
 Bind the certificate to the protocol version.
 
-**DEVICE, bits [1247:1216]** \
+**DEVICE** \
 Bind the certificate to the logging device.
 
-**BKT_START, bits [1215:1184]** \
+**BKT_START** \
 Index of the first time bucket in the certified interval. \
 Must be equal to the previous *built* certificate's BKT_START + BKT_NUM.
 
-**BKT_NUM, bits [1183:1152]** \
+**BKT_NUM** \
 Number of buckets observed in the certified interval. \
 Fixed 1000 in the current version.
 
-**NONCE, bits [1151:1024]** \
+**NONCE** \
 Verifier supplied nonce for recency check.
 See [Nonce latch](#nonce-latch)
 
-**INWARD, bits [1023:768]** \
+**INWARD** \
 Cryptographic commitment to the input (request) traffic observed during the certificate interval. \
 See [Traffic commitment generation](#traffic-commitment-generation).
 
-**OUTWARD, bits [767:512]** \
+**OUTWARD** \
 Cryptographic commitment to the output (response) traffic observed during the certificate interval. \
 See [Traffic commitment generation](#traffic-commitment-generation).
 
-**CHAIN, bits [511:256]** \
+**CHAIN** \
 AUTH_TAG (τ) of the previous certificate the interlock *built*. \
 Advances on every built certificate, binding the certificate stream into a single chain. \
 See [Certificate authentication tag (τ)](#certificate-authentication-tag-τ).
 
-### Certificate authentication tag (τ)
+#### Certificate authentication tag (τ)
 
-**AUTH_TAG, bits [255:0]** \
+**AUTH_TAG** \
 Cryptographic authentication tag (τ) of the certificate message body (m). \
 Produced using the pre-shared key `k`.
 
-### Traffic commitment generation
+#### Traffic commitment generation
 
 The packet level is structured such that:
 - The ciphertext hash is a separable leaf: a challenge can reveal a packet's header and `pld_digest` without the ciphertext.
@@ -207,8 +211,46 @@ The packet level records are then combined into a bucket level digest, then buck
 3. per cert:     cert_digest  = H(bkt_digest₁ ‖ … ‖ bkt_digest₁₀₀₀)   one per direction
 ```
 
-### Nonce latch
+#### Nonce latch
 The verifier occasionally sends a plaintext nonce inbound; the interlock latches the latest and echoes it in every certificate. No authentication needed: the verifier credits only nonces it generated, so injecting or replaying nonces is indistinguishable from dropping them — both read as staleness. The interlock generates MACs but never verifies one. Every certificate field is exactly prover-predictable, so the interlock's total covert-output surface is the nonce-latch timing (≤1 bit per nonce update) plus the AUTH_TAG itself (coverable by cut-and-choose, below).
+
+### Recomputation challenge frames
+```
+TODO review these
+```
+
+During a challenge the recomputation interlock and the recomputation node exchange two frame types over the enclosure link. Both ride as plain Ethernet DATA with no canonical header; the scoring semantics live in [Prover-recomputation instantiation (Option 1)](#prover-recomputation-instantiation-option-1-mediated-by-a-recomputation-interlock).
+
+**Reveal (TOKEN) frame, 4 bytes** — sent by the interlock, one per revealed position:
+
+```
+              16 bit                16 bit
+      +---------------------+---------------------+
+      |        INDEX        |        TOKEN        |
+      +---------------------+---------------------+
+```
+
+`INDEX` is the token position; `TOKEN` the revealed ciphertext unit.
+
+**Estimate frame** — sent by the node, one frame per estimated position, as a list of `(VALUE, PROBABILITY)` pairs:
+
+```
+              32 bit                32 bit
+      +---------------------+---------------------+
+      |        VALUE        |     PROBABILITY     |   entry #0 — EOS on token estimates
+      +---------------------+---------------------+
+      |          …          |          …          |
+      +---------------------+---------------------+
+      |        VALUE        |     PROBABILITY     |   final entry — catch-all
+      +---------------------+---------------------+
+```
+
+- Token `VALUE`s are the raw ciphertext-unit bytes; numeric `VALUE`s — length (in tokens) and timing (in buckets) — are big-endian.
+- Entry #0 of a **token** estimate is the EOS entry, matched by position, its `VALUE` ignored; length and timing estimates carry ordinary entries throughout.
+- The **final** pair is the catch-all — `VALUE` ignored, its probability charged per unlisted value. A frame ending on a dangling `VALUE` word reads as a bare catch-all probability.
+- Sequence per challenge, after the forwarded CTRL marker: one length estimate, one timing estimate, then one token estimate per position, the interlock answering each non-terminal token estimate with a reveal.
+
+**PROBABILITY** is an unsigned custom float in one big-endian 32-bit word — exponent in the top 6 bits, mantissa in the low 26, value = `1.MANT × 2^(−EXP)` (implicit leading 1). The minimum representable probability, `2^−63`, is the charge for a malformed estimate; values above 1.0 (`EXP = 0`, `MANT ≠ 0`) are representable and simply fail normalization.
 
 ## References and multi-part exchanges
 

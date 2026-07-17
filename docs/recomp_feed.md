@@ -45,24 +45,10 @@ The timing estimate predicts the bucket difference between the challenged respon
 
 ## Frame formats
 
-**Egress**
-
-A reveal is a single one-beat frame carrying the bare token, no header.
+The reveal and estimate frame formats are owned by `verification-protocol.md` (*Recomputation challenge frames*). Note: the current RTL still emits the bare token in the reveal frame; the `(index, token)` frame is pending on the recomp feature branch.
 
 Forwarded **context** packets are not reframed by the feed — they pass
 through verbatim with only the beat-#0 length carried on `tuser`.
-
-**Ingress**
-
-An estimate is a list of `(value, probability)` pairs, no header:
-
-| Entry | Meaning |
-|---|---|
-| 0          | EOS — probability of the response ending at the given index |
-| 1 … N-1    | `(value, probability)` pairs |
-| N          | catch-all — probability of "any other value" |
-
-Entry #0 (EOS) is meaningful only for token estimates; the length and timing estimates carry ordinary `(value, probability)` entries plus the entry-#N catch-all over their own value spaces.
 
 ## Scoring
 
