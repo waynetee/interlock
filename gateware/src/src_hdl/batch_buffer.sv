@@ -1,36 +1,4 @@
 // batch_buffer — format-agnostic ping-pong packet store
-// (see docs/batch_buffer.md).
-//
-// Stages each inbound AXI-Stream packet as a length-prefixed record in the
-// filling bank: the total byte length from tuser at beat #0 is written as a
-// 32-bit prefix word, then the packet's words verbatim. At tlast the record
-// is committed — the write pointer advances over it — or, on the drop flag,
-// abandoned — the write pointer rewinds to the last committed value — so a
-// bank only ever holds verified records.
-//
-// TODO rewrite
-// The banks swap on a free-running timer, exactly at the tick. The swap is
-// made safe by the admission guard: a packet's first beat is accepted only
-// when at least GUARD_CYCLES remain before the tick — and the bank has room
-// for a prefix plus one max packet — otherwise it stalls at beat #0 until
-// after the swap. An admitted packet therefore always finishes before the
-// tick: no record straddles banks, and the bank handed to the drain is
-// immutable with a frozen write pointer. (Should the guard ever be violated
-// — GUARD_CYCLES set below the upstream's worst-case packet time — the
-// in-flight record is abandoned rather than half-committed.)
-//
-// The drain walks the frozen bank's records via the length prefixes at its
-// own pace, re-emitting each as an AXI packet: tuser = total length on beat
-// #0 (straight from the prefix), swap flag (bit 0) on the tlast of the
-// batch's final record — the attestation trigger for downstream. If the
-// drain has not finished when the next tick lands (wire stall), it is
-// preempted: a termination beat (tkeep = 0, tlast, swap flag) closes the
-// cut stream, the un-emitted remainder is dropped, and the drain rebases
-// onto the new bank.
-//
-// Fill and drain run on the same clock; the fill writes one bank while the
-// drain reads the other (including on the swap cycle), so the storage maps
-// to a simple-dual-port BRAM with no address collisions.
 
 module batch_buffer
   // import is what makes the eth_pkg dependency visible to Libero's
@@ -44,7 +12,7 @@ module batch_buffer
   // Grace period (time for last writes to finish after the tick)
   // Max ~1.5KB packet with at least ~2B/cycle (hashing throughput)
   parameter int unsigned GRACE_PERIOD  = 1_000, // with safety margin
-  // Largest entry, in words (admission headroom).
+  // Largest entry, in words
   parameter int unsigned MAX_ENTRY_WORDS = 1 + (eth_pkg::ETH_LEN_MAX + 3) / 4,
   // re-insert the empty swap beat on the output
   parameter bit OUTPUT_SWAP = 1
@@ -63,7 +31,8 @@ module batch_buffer
   input  wire [15:0] tuser_s,
 
   // AXI-Stream master
-  // (tuser = total byte length at beat #0, swap flag (bit 0) at tlast)
+  // (tuser = total byte length at beat #0; bucket boundary = the standalone
+  //  empty swap beat when OUTPUT_SWAP = 1)
   output wire        tvalid_m,
   input  wire        tready_m,
   output wire [31:0] tdata_m,
@@ -71,7 +40,7 @@ module batch_buffer
   output wire        tlast_m,
   output wire [15:0] tuser_m,
 
-  // bank-swap tick, single-cycle pulse (TB sync / bring-up visibility)
+  // bank-swap tick and timer (single-cycle pulse)
   input wire         tick,
   input wire [31:0]  timer    // used for grace period
 );
@@ -259,9 +228,7 @@ module batch_buffer
             tdata_m_r  <= rd_data;
             tkeep_m_r  <= emit_last ? last_keep : 4'b1111;
             tlast_m_r  <= emit_last;
-            tuser_m_r  <= emit_first ? rd_pkt_len
-                        : emit_last  ? {15'b0, batch_last}
-                        :              16'h0;
+            tuser_m_r  <= emit_first ? rd_pkt_len : 16'h0;
             // fetch the next data (could also be new prefix)
             rd_data    <= drain_sel[1] ? (drain_sel[0] ? mem1[rd_ptr] : mem0[rd_ptr]) : '0;
             rd_ptr     <= rd_ptr + ptr_t'(1);

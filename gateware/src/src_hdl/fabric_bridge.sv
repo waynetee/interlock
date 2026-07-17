@@ -85,21 +85,9 @@ module fabric_bridge
   end
 
 
-  // Each direction is sanitized at the Ethernet layer:
-  //
-  //   MAC-RX ─► eth_deframe ─ AXI-Stream ─► eth_reframe ─► MAC-TX
-  //
-  // eth_deframe strips the header/PAD/FCS and forwards exactly LENGTH octets
-  // of DATA; eth_reframe rebuilds the frame with forced addresses, regenerated
-  // LENGTH/PAD, and a fresh FCS. canon_core sits between the two in
-  // interlock_path — bypassed here for now, so reframe's byte length (tuser,
-  // sampled on the first beat) comes from deframe's dbg_eth_len, the live view
-  // of the held header register: complete before the first data beat and
-  // stable until the next frame's header shifts through. deframe's 1-bit
-  // tuser truncation flag has no consumer yet and is left open.
-  //
-  // Direction naming: requests flow port 0 -> port 1 (client on port 0,
-  // server on port 1), responses flow port 1 -> port 0.
+  // Each direction is sanitized at the Ethernet layer and processed by the
+  // interlock path between the two edges (see docs/prod_ilock_core.md):
+
 
   // Forced station addresses: client side .01, server side .02.
   localparam logic [47:0] MAC_CLIENT = 48'h02_00_00_00_00_01;

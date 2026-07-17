@@ -368,8 +368,8 @@ traffic digest since enclosure seal/wipe, the commit-before-reveal ordering,
 and the `Û` accumulator. Without that state, a covert payload staged into
 the enclosure before or between predictions could be laundered as
 "explained." Reset of the recomputation device mid-session must abort the
-session, never resume it. (The recomputation certificate format is still a
-placeholder in RTL — see §11.)
+session, never resume it. (The recomputation certificate reuses the
+production traffic-cert format by decision — see §11.)
 
 ## 7. Fault tolerance
 
@@ -550,8 +550,6 @@ rewound, and a key that cannot be read.**
 7. **Speedup bound enforcement.** C5 assumes the device oscillator cannot
    run more than ~2× fast; the enforcement (oscillator choice, on-die clock
    monitoring, or tighter anchor cadence) is not yet specified.
-8. **Recomputation certificate format is a placeholder.** `recomp_ilock_core`
-   currently emits the production traffic-cert layout with `Û` standing in
-   for the response digest; the pinned format
-   `(nonce, H1_in, H2, H1_out, n_units, U)` needs its own builder before
-   recomputation results are protocol-valid.
+8. **Recomputation certificate reuses the production format** (by decision,
+   for now): INWARD carries the challenge-slice commitment, OUTWARD the
+   result `(id ‖ Û)`; the protocol's Option 1 section pins this layout.

@@ -1,12 +1,12 @@
 // cert_build — certificate construction and signature.
 //
-// The top layer of the commitment hierarchy (see docs/traffic_commit.md). Once
+// The top layer of the commitment hierarchy (see docs/cert_build.md). Once
 // per second it takes the finished "overall" hash plus the second's metadata,
 // assembles the signed message m, computes tau = HMAC_k(m) on its own hash
 // core, and drives the certificate frame out a 32-bit AXI-Stream port:
 //
-//   m   = ( version, interlock_id, bucket_start, num_buckets, overall_req,
-//           overall_rsp, nonce, prev_tau )
+//   m   = ( version, interlock_id, bucket_start, num_buckets, nonce,
+//           overall_req, overall_rsp, prev_tau )
 //   tau = HMAC_k( m )
 //   frame = [ reserved canonical header (zeros) ] || m || tau
 //
@@ -58,15 +58,15 @@ module cert_build
 );
 
   // Signed message m. Packed-struct order is the big-endian wire order (first
-  // field = byte 0 = MSB). See docs/traffic_commit.md (Certificate wire format).
+  // field = byte 0 = MSB). Format authority: verification-protocol.md.
   typedef struct packed {
     logic [31:0]  version;
     logic [31:0]  interlock_id;
-    logic [63:0]  bucket_start;
+    logic [31:0]  bucket_start;
     logic [31:0]  num_buckets;
+    logic [127:0] nonce;
     logic [255:0] overall_req;
     logic [255:0] overall_rsp;
-    logic [127:0] nonce;
     logic [255:0] prev_tau;
   } cert_msg_t;
 
@@ -119,7 +119,7 @@ module cert_build
   // because u_ser_f still holds a wire-stalled one (late link-up) — so the
   // verifier can reconstruct the dropped traffic-free certs and check them
   // against the next delivered cert's prev_tau. Emission is best-effort,
-  // accounting is not (see docs/traffic_commit.md, Implementation status).
+  // accounting is not (see docs/cert_build.md, Late link-up).
   logic [255:0] prev_tau_q;
 
   // m assembled combinationally from the latched per-certificate values (the
@@ -131,9 +131,9 @@ module cert_build
     m_reg.interlock_id = INTERLOCK_ID;
     m_reg.bucket_start = bkt_start;
     m_reg.num_buckets  = 32'(NUM_BUCKETS);
+    m_reg.nonce        = nonce_q;
     m_reg.overall_req  = overall_req;
     m_reg.overall_rsp  = overall_rsp;
-    m_reg.nonce        = nonce_q;
     m_reg.prev_tau     = prev_tau_q;
   end
 

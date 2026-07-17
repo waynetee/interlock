@@ -20,10 +20,9 @@
 // result and the ingress traffic digest feed cert_build; certificates and
 // canon_proc's sync packets are the only egress toward the frontend.
 //
-// TODO the certificate content is a placeholder: cert_build emits the prod
-// traffic-cert layout with Û standing in for the response digest. The
-// recomp certificate format {nonce, H1_in, H2, H1_out, n_units, U} is
-// pinned in the verification protocol doc and needs its own builder.
+// Certificate: reuses the prod cert_build/format by decision — INWARD =
+// challenge-slice commitment, OUTWARD = {id, Û} (verification-protocol.md,
+// Option 1).
 
 module recomp_ilock_core
   import canon_pkg::*;
@@ -335,10 +334,9 @@ module recomp_ilock_core
   wire [3:0]  c_tkeep;
   wire [15:0] c_tuser;
 
-  // TODO placeholder: prod traffic-cert layout with Û standing in for the
-  // response-direction digest (see module header). RSP_SYNC = 0: certs follow
-  // the ingress digest cadence and carry the last-dispatched Û (zero before
-  // the first challenge, stale between challenges).
+  // Prod cert format by decision (see module header). RSP_SYNC = 0: certs
+  // follow the ingress digest cadence and carry the last-dispatched Û (zero
+  // before the first challenge, stale between challenges).
   cert_build #(
     .NUM_BUCKETS (BKTS_PER_CERT),
     .RSP_SYNC    (1'b0)
