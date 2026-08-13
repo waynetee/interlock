@@ -13,18 +13,32 @@ attestation via the PolarFire System Controller).
 
 ## Status
 
+*(refreshed 2026-08-13)*
+
 | Milestone | Status |
 |---|---|
-| AN4623 demo builds on Libero v2024.2 (with patched IP versions) | ✓ |
-| AN4623 demo flashes and link comes up on MPF300-EVAL-KIT | ✓ |
-| Mac→FPGA→Mac loopback verified via scapy + tcpdump | ✓ |
-| Packet counter on LEDs (no firmware change) | — |
-| RX frame count over UART (firmware change) | — |
-| Port-to-port one-way bridge (variant B) | — |
-| Bidirectional bridge with FIFO between MACs (variant C) | — |
-| Mac → FPGA → DGX Spark physical setup | — |
-| Hash-chain FSM (in fabric) | — |
-| HMAC attestation via PF_USER_CRYPTO | — |
+| AN4623 baseline: builds on Libero v2024.2, flashes, loopback verified | ✓ |
+| Bidirectional port-to-port bridge | ✓ |
+| Frame sanitization + canonical packet processing (drop rules) on silicon | ✓ 2026-06-16 |
+| Per-packet hash commits + HMAC-authenticated traffic certificates on silicon | ✓ 2026-06-16 |
+| DGX Spark bench: flash chain (x86 VM) + two test NICs | ✓ (`docs/flashing-and-testing.md`) |
+| Multi-turn inference CLI demo over the interlock, in-band ZK challenge | ✓ 2026-06-18 (branch `docs/inference-cli-app`) |
+| Recomp interlock core (recompute-feed path) — what `main` builds today | ✓ on silicon 2026-07-20 |
+| Prod top at 1 ms buckets (bidirectional, ~6e-6 drop rate at ~97 Mb/s each way) | ✓ on silicon 2026-07-20 (branch `build/prod-1ms`) |
+| Bucket-timing / throughput characterization on the bench | ✓ 2026-08-11 |
+| Build-config knobs (`TOP={recomp,prod}`, `BUCKET_MS={100,1}`) merged to main | — (`feature/build-config-knobs`) |
+
+> **What `./build.sh` on `main` builds today:** the **recomp** top with a
+> **100 ms testing-override bucket period**. Sync + cert traffic appears on
+> port 0 only and only the 0→1 direction is processed — a silent port 1 is
+> expected on this build, not a setup problem. The production bidirectional
+> top at 1 ms is branch `build/prod-1ms`. Details in `docs/SETUP.md` §9
+> ("Which design did I just build?").
+
+**New to the project?** Read in order: this README →
+[`docs/SETUP.md`](docs/SETUP.md) (build environment) →
+[`docs/flashing-and-testing.md`](docs/flashing-and-testing.md) (flash + test
+on a bench) → [`bench/README.md`](bench/README.md) (the runnable scripts).
 
 ## Hardware target
 
