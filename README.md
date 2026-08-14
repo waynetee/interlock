@@ -35,10 +35,14 @@ attestation via the PolarFire System Controller).
 > top at 1 ms is branch `build/prod-1ms`. Details in `docs/SETUP.md` §9
 > ("Which design did I just build?").
 
-**New to the project?** Read in order: this README →
+**New to the project?** Read in order:
+[`docs/interlock-overview.md`](docs/interlock-overview.md) (what the device
+is and its security properties) → this README →
 [`docs/SETUP.md`](docs/SETUP.md) (build environment) →
 [`docs/flashing-and-testing.md`](docs/flashing-and-testing.md) (flash + test
 on a bench) → [`bench/README.md`](bench/README.md) (the runnable scripts).
+Setting up the Raspberry Pi side of the demo:
+[`docs/pi-setup.md`](docs/pi-setup.md).
 
 ## Hardware target
 
