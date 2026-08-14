@@ -94,6 +94,19 @@ The resulting `.job` lands in `gateware/Libero_Project/designer/top/export/top.j
 
 ## Flashing and testing
 
+**Don't want to build?** Silicon-validated `.job` files are published on the
+[Releases page](https://github.com/JamesPetrie/interlock/releases) with per-file
+provenance (source commit, bucket config, validation results, sha256):
+
+```
+gh release download bitstreams-2026-07-20 -R JamesPetrie/interlock -p '*.job'
+sha256sum *.job   # check against the release notes
+```
+
+Flashing needs **no Microchip license** — FlashPro Express is free (a
+microchip.com account may be needed to download the installer). The Libero
+Silver license in `docs/SETUP.md` is only for *building* bitstreams.
+
 On a machine with FlashPro Express + USB connection to the board, the minimal
 path is: `scp` the `.job` over, open FlashPro Express, load it, click RUN.
 
