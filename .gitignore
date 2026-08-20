@@ -20,3 +20,11 @@ tb/**/sim_build*/
 tb/**/results.xml
 tb/**/*.vcd
 tb/**/dump.vcd
+
+# Agent/editor backups — history is the place for old versions, not the tree
+*.bak
+*.bak[0-9]
+*.bak-*
+
+# Flashable bitstreams are published on the Releases page, not committed
+*.job
