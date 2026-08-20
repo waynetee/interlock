@@ -28,10 +28,6 @@ set_iobank -bank_name Bank4  \
 # User Locked I/O settings
 # 
 
-set_io -port_name LINK_OK  \
-    -pin_name D25          \
-    -fixed true            \
-    -DIRECTION OUTPUT
 
 
 set_io -port_name PHY_MDC  \
@@ -55,7 +51,7 @@ set_io -port_name PHY_RST  \
     -DIRECTION OUTPUT
 
 
-set_io -port_name RD_BC_ERROR  \
+set_io -port_name PKT_LED_1  \
     -pin_name F22              \
     -fixed true                \
     -DIRECTION OUTPUT
@@ -103,36 +99,14 @@ set_io -port_name TX_P_1  \
     -DIRECTION OUTPUT
 
 
-# Port 1 link-up indicator — LED_6 (C26)
-set_io -port_name LINK_OK_1  \
-    -pin_name C26            \
-    -fixed true              \
-    -DIRECTION OUTPUT
 
 
-# Sub-PR #5 debug LEDs (LED_8 … LED_11) — see top.tcl for what each shows.
-set_io -port_name LED_DBG_MTXACPT_1  \
-    -pin_name C27                    \
-    -fixed true                      \
-    -DIRECTION OUTPUT
 
 
-set_io -port_name LED_DBG_MTXACPT_0  \
-    -pin_name F23                    \
-    -fixed true                      \
-    -DIRECTION OUTPUT
 
 
-set_io -port_name LED_DBG_RCG_ERR_1  \
-    -pin_name H22                    \
-    -fixed true                      \
-    -DIRECTION OUTPUT
 
 
-set_io -port_name LED_DBG_RX1_CNT  \
-    -pin_name H21                  \
-    -fixed true                    \
-    -DIRECTION OUTPUT
 
 
 set_io -port_name REFCLK_N  \

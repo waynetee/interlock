@@ -19,10 +19,9 @@ sd_create_scalar_port -sd_name ${sd_name} -port_name {TDI} -port_direction {IN}
 sd_create_scalar_port -sd_name ${sd_name} -port_name {TMS} -port_direction {IN}
 sd_create_scalar_port -sd_name ${sd_name} -port_name {TRSTB} -port_direction {IN}
 
-sd_create_scalar_port -sd_name ${sd_name} -port_name {LINK_OK} -port_direction {OUT}
 sd_create_scalar_port -sd_name ${sd_name} -port_name {PHY_MDC} -port_direction {OUT}
 sd_create_scalar_port -sd_name ${sd_name} -port_name {PHY_RST} -port_direction {OUT}
-sd_create_scalar_port -sd_name ${sd_name} -port_name {RD_BC_ERROR} -port_direction {OUT}
+sd_create_scalar_port -sd_name ${sd_name} -port_name {PKT_LED_1} -port_direction {OUT}
 sd_create_scalar_port -sd_name ${sd_name} -port_name {PKT_LED} -port_direction {OUT}
 sd_create_scalar_port -sd_name ${sd_name} -port_name {REF_CLK_SEL} -port_direction {OUT}
 sd_create_scalar_port -sd_name ${sd_name} -port_name {SPISCLKO} -port_direction {OUT}
@@ -39,25 +38,13 @@ sd_create_scalar_port -sd_name ${sd_name} -port_name {RX_N_1} -port_direction {I
 sd_create_scalar_port -sd_name ${sd_name} -port_name {RX_P_1} -port_direction {IN} -port_is_pad {1}
 sd_create_scalar_port -sd_name ${sd_name} -port_name {TX_N_1} -port_direction {OUT} -port_is_pad {1}
 sd_create_scalar_port -sd_name ${sd_name} -port_name {TX_P_1} -port_direction {OUT} -port_is_pad {1}
-sd_create_scalar_port -sd_name ${sd_name} -port_name {LINK_OK_1} -port_direction {OUT}
 
-# Sub-PR #5 debug LEDs — instrumentation for diagnosing the bidirectional
-# bridge. Each LED exposes one internal signal so a single flash cycle
-# yields four extra diagnostic bits.
-#   LED_DBG_MTXACPT_1 (LED_8 / C27) : CORETSE_1:MTXACPT — is CORETSE_1's
-#       TX side asserting "ready to accept" on the A→B bridge?
-#   LED_DBG_MTXACPT_0 (LED_9 / F23) : CORETSE_0:MTXACPT — same for the
-#       reverse direction (B→A bridge).
-#   LED_DBG_RCG_ERR_1 (LED_10 / H22): Sticky CORETSE_1:RCG_ERROR — latches
-#       high on the first 8b/10b decode error on Port 1's TBI RX (clears
-#       only on reset). LED off = clean SGMII reception on Port 1.
-#   LED_DBG_RX1_CNT   (LED_11 / H21): bit-0 of a frame counter on
-#       CORETSE_1:MRXSOF — toggles per frame that CORETSE_1 receives
-#       from the Spark side.
-sd_create_scalar_port -sd_name ${sd_name} -port_name {LED_DBG_MTXACPT_1} -port_direction {OUT}
-sd_create_scalar_port -sd_name ${sd_name} -port_name {LED_DBG_MTXACPT_0} -port_direction {OUT}
-sd_create_scalar_port -sd_name ${sd_name} -port_name {LED_DBG_RCG_ERR_1} -port_direction {OUT}
-sd_create_scalar_port -sd_name ${sd_name} -port_name {LED_DBG_RX1_CNT}   -port_direction {OUT}
+# Two packet-counter heartbeats, one per port -- see pkt_counter.sv.
+#   PKT_LED   (LED_5 / B26): bit-0 of accepted frames on Port 0 (Pi side)
+#   PKT_LED_1 (LED_4 / F22): bit-0 of accepted frames on Port 1 (Spark side)
+# The Sub-PR #5 debug LEDs were removed 2026-08-20: LED_10's sticky
+# RCG_ERROR latches during initial link-up, so it reads red on every
+# power cycle regardless of health and cannot distinguish the two.
 
 sd_create_scalar_port -sd_name ${sd_name} -port_name {PHY_MDIO} -port_direction {INOUT} -port_is_pad {1}
 
@@ -209,9 +196,8 @@ sd_show_bif_pins -sd_name ${sd_name} -bif_pin_name {PF_IOD_CDR_CCC_C0_0:CDR_CLOC
 sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {SSDetect} -hdl_file {hdl\SSDetect.v} -instance_name {SSDetect_0}
 sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {pkt_counter} -hdl_file {hdl\pkt_counter.sv} -instance_name {pkt_counter_0}
 
-# Sub-PR #5 debug-LED HDL instances.
+# Second packet counter: the Port 1 heartbeat.
 sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {pkt_counter} -hdl_file {hdl\pkt_counter.sv} -instance_name {pkt_counter_1}
-sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {sticky_bit}  -hdl_file {hdl\sticky_bit.sv}  -instance_name {sticky_bit_0}
 
 # -------------------------------------------------------------------------
 # Port 1 instances (second VSC8575 PHY port; internal loopback for now)
@@ -306,7 +292,7 @@ sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {fabric_bridge} -
 # =========================== Shared / common ============================
 sd_connect_pins -sd_name ${sd_name} -pin_names {"AND2_2:A" "CORESPI_0_0:PRESETN" "CoreUARTapb_0:PRESETN" "Core_reset_pf_0:FABRIC_RESET_N" "MIV_RV32_C0_0:RESETN" "PF_IOD_CDR_CCC_C0_0:ARST_N" "PHY_RST" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"AND2_2:B" "PF_IOD_CDR_CCC_C0_0:PLL_LOCK" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"AND2_2:Y" "CORETSE_0:PRESETN" "CORETSE_1:PRESETN" "PF_IOD_CDR_C0_0:RST_N" "PF_IOD_CDR_C1_0:RST_N" "SSDetect_0:rst_b" "SSDetect_1:rst_b" "pkt_counter_0:rst_n" "pkt_counter_1:rst_n" "sticky_bit_0:rst_n" "fabric_bridge_0:rst_n" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"AND2_2:Y" "CORETSE_0:PRESETN" "CORETSE_1:PRESETN" "PF_IOD_CDR_C0_0:RST_N" "PF_IOD_CDR_C1_0:RST_N" "SSDetect_0:rst_b" "SSDetect_1:rst_b" "pkt_counter_0:rst_n" "pkt_counter_1:rst_n" "fabric_bridge_0:rst_n" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TCK" "TCK" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TDI" "TDI" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TDO" "TDO" }
@@ -317,7 +303,7 @@ sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TGT_TMS_0" "
 sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TGT_TRSTN_0" "MIV_RV32_C0_0:JTAG_TRSTN" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TMS" "TMS" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"COREJTAGDEBUG_C0_0:TRSTB" "TRSTB" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORESPI_0_0:PCLK" "CORETSE_0:MRXCLK" "CORETSE_0:MTXCLK" "CORETSE_0:PCLK" "CORETSE_1:MRXCLK" "CORETSE_1:MTXCLK" "CORETSE_1:PCLK" "CoreUARTapb_0:PCLK" "Core_reset_pf_0:CLK" "MIV_RV32_C0_0:CLK" "PF_CCC_0_0:OUT0_FABCLK_0" "SSDetect_0:rck" "SSDetect_1:rck" "pkt_counter_0:clk" "pkt_counter_1:clk" "sticky_bit_0:clk" "fabric_bridge_0:clk" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORESPI_0_0:PCLK" "CORETSE_0:MRXCLK" "CORETSE_0:MTXCLK" "CORETSE_0:PCLK" "CORETSE_1:MRXCLK" "CORETSE_1:MTXCLK" "CORETSE_1:PCLK" "CoreUARTapb_0:PCLK" "Core_reset_pf_0:CLK" "MIV_RV32_C0_0:CLK" "PF_CCC_0_0:OUT0_FABCLK_0" "SSDetect_0:rck" "SSDetect_1:rck" "pkt_counter_0:clk" "pkt_counter_1:clk" "fabric_bridge_0:clk" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORESPI_0_0:SPISCLKO" "SPISCLKO" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORESPI_0_0:SPISDI" "SPISDI" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORESPI_0_0:SPISDO" "SPISDO" }
@@ -360,15 +346,13 @@ sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MTXSOF"       "fabric
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MTXEOF"       "fabric_bridge_0:tse0_mtx_eof" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MTXDAT"       "fabric_bridge_0:tse0_mtx_dat" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MTXBYTEVALID" "fabric_bridge_0:tse0_mtx_bytevalid" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MTXACPT"      "fabric_bridge_0:tse0_mtx_acpt" "LED_DBG_MTXACPT_0" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MTXACPT"      "fabric_bridge_0:tse0_mtx_acpt" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:D" "CORETSE_0:MDO" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:E" "CORETSE_0:MDOEN" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:Y" "CORETSE_0:MDI" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:PAD" "PHY_MDIO" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MDC" "PHY_MDC" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:APBS" "CoreAPB3_0_0:APBmslave0" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:ANX_STATE[8:8]" "LINK_OK" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:RCG_ERROR" "RD_BC_ERROR" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"pkt_counter_0:led" "PKT_LED" }
 
 # ============= Port 1  (Spark side: CORETSE_1 / PF_IOD_CDR_C1 / SSDetect_1) =
@@ -392,15 +376,12 @@ sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MTXSOF"       "fabric
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MTXEOF"       "fabric_bridge_0:tse1_mtx_eof" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MTXDAT"       "fabric_bridge_0:tse1_mtx_dat" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MTXBYTEVALID" "fabric_bridge_0:tse1_mtx_bytevalid" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MTXACPT"      "fabric_bridge_0:tse1_mtx_acpt" "LED_DBG_MTXACPT_1" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MTXACPT"      "fabric_bridge_0:tse1_mtx_acpt" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MDO"   "tse1_loopback_0:mdo" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MDOEN" "tse1_loopback_0:mdoen" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MDI"   "tse1_loopback_0:mdi" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:APBS" "CoreAPB3_0_0:APBmslave3" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:ANX_STATE[8:8]" "LINK_OK_1" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:RCG_ERROR" "sticky_bit_0:d" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"sticky_bit_0:q" "LED_DBG_RCG_ERR_1" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"pkt_counter_1:led" "LED_DBG_RX1_CNT" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"pkt_counter_1:led" "PKT_LED_1" }
 
 # Re-enable auto promotion of pins of type 'pad'
 auto_promote_pad_pins -promote_all 1
