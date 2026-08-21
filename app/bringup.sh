@@ -98,9 +98,12 @@ docker run -d --name ilk_server --network host \
     -e MAX_NEW_TOKENS=24 -e CHALLENGE_TQ="${CHALLENGE_TQ:-10}" \
     python:3-slim python3 -u /app/model_server.py "$IFACE" >/dev/null
 sleep 6
-docker logs ilk_server 2>&1 | head -8
+ILK_LOG=$(docker logs ilk_server 2>&1 || true)
+# NB: capture, do not pipe. `head`/`grep -q` exit early, docker takes SIGPIPE,
+# and `set -o pipefail` turns rc=141 into a fatal error under `set -e`.
+printf "%s\n" "$ILK_LOG" | sed -n "1,8p"
 
-if ! docker logs ilk_server 2>&1 | grep -q "locked: bucket="; then
+if ! grep -qa "locked: bucket=" <<<"$ILK_LOG"; then
     echo
     echo "   !! no bucket lock -- the board is not emitting sync."
     echo "      Power-cycle the interlock (a reflash alone does not restart it)."

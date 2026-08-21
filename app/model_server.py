@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Spark port-1 model-server + in-band ZK control handler for the interlock (#2).
 
-Sits on the prover-compute side (interlock PORT 1 = enP7s7). The interlock forwards
+Sits on the prover-compute side (interlock PORT 0 / J15 = enP7s7). The interlock forwards
 canonical packets here (DST=server 02:..:02, SRC=client 02:..:01). Two kinds, told apart
 by a magic PAYLOAD prefix (so control isn't mistaken for an inference request):
 
-  * INFERENCE request  -> generate() -> response packet back out port 1
-  * ZK CONTROL message -> handle_challenge() -> status/result packets back out port 1
+  * INFERENCE request  -> generate() -> response packet back out the compute port
+  * ZK CONTROL message -> handle_challenge() -> status/result packets back out the compute port
 
 Driving the ZK challenge in-band over the interlock cable means no out-of-band (WiFi)
 channel: only small control messages travel — the proof is generated AND verified here
@@ -193,6 +193,13 @@ def handle_challenge(send, header, body, store, key=KEY):
     _HANDLED.add(rid)
     req_cert = parse_cert_data(body[8:8 + CERT_DATA_LEN])
     rsp_cert = parse_cert_data(body[8 + CERT_DATA_LEN:8 + 2 * CERT_DATA_LEN])
+    # Optional trailing verifier seed (see infcli.do_challenge). Absent from older
+    # clients, in which case the prover falls back to its own derivation and the
+    # subsampled pick is grindable -- so say which one happened.
+    _seed = body[8 + 2 * CERT_DATA_LEN:8 + 2 * CERT_DATA_LEN + 16]
+    print("[challenge] rid=%d verifier seed: %s" % (
+        rid, _seed.hex() if len(_seed) == 16 else "ABSENT (prover-derived pick)"),
+        flush=True)
     send(T_STATUS, b"challenge rid=%d received" % rid)
 
     # (a) cert authenticity
@@ -274,6 +281,32 @@ def handle_challenge(send, header, body, store, key=KEY):
         req_ids, rsp_ids = _ids(req_tokens), _ids(rsp_tokens)
     if not req_ids or not rsp_ids:
         send(T_RESULT, b"FAIL (d): empty token payload"); return
+
+    # ---- beat 11: the dishonest datacenter ---------------------------------
+    # One-shot flag dropped by demo_server (this directory is the container's
+    # /app, so host and container see the same file). When it is present the
+    # prover is handed a DIFFERENT response than the one the certifier
+    # fingerprinted -- the datacenter claiming an output it did not produce.
+    #
+    # This fails at full strength even in subsample mode, and that is the whole
+    # point of using it for the demo: the failure is in B1_out, which is not
+    # sampled. AES-CTR(key, iv_out, rsp_ids) is pinned to the certified ct_out,
+    # so a single changed token breaks the pin every time. The subsampled body
+    # (1 token-layer of ~460) is not what catches this and must not be credited
+    # with it. Removed as soon as it is read so it can never latch on.
+    _tamper = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), ".tamper")
+    if _os.path.exists(_tamper):
+        try:
+            _os.unlink(_tamper)
+        except OSError:
+            pass
+        _orig = list(rsp_ids)
+        rsp_ids = list(rsp_ids)
+        rsp_ids[-1] = (rsp_ids[-1] + 1) % 32000
+        print("[challenge] TAMPER: proving response %s instead of the certified %s"
+              % (rsp_ids[-3:], _orig[-3:]), flush=True)
+        send(T_STATUS, b"TAMPERED: proving an output the certifier did not fingerprint")
+
     send(T_STATUS, b"proving + verifying on the Spark (minutes; proof stays here)")
     # Cadence of streamed progress STATUS packets. Each control reply traverses the
     # interlock and is certified; raise CHALLENGE_STATUS_SECS to thin the in-band control
@@ -301,6 +334,7 @@ def handle_challenge(send, header, body, store, key=KEY):
     # PSK. The key itself is never sent, not even over loopback.
     out = backend({"op": "challenge", "req": req_ids, "rsp": rsp_ids,
                    "crypto": crypto,
+                   "seed": _seed.hex() if len(_seed) == 16 else None,
                    "tq": _os.environ.get("CHALLENGE_TQ", "80")}, on_status=on_status)
     v.update(out.get("result") or {})
     # RESULT (spec §6.1): one compact, single-frame key=value line. The client already

@@ -28,3 +28,6 @@ tb/**/dump.vcd
 
 # Flashable bitstreams are published on the Releases page, not committed
 *.job
+
+# one-shot beat-11 tamper flag, dropped by demo_server at runtime
+.tamper

@@ -1,0 +1,146 @@
+/* Initialised from https://www.shadcn-svelte.com/create/preview?preset=bKbbYqcie */
+
+@import 'tailwindcss';
+@import 'tw-animate-css';
+@import 'shadcn-svelte/tailwind.css';
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/geist-mono/wght.css';
+
+@custom-variant dark (&:is(.dark *));
+@plugin '@tailwindcss/forms';
+@plugin '@tailwindcss/typography';
+
+/* ---------------------------------------------------------------------------
+ * Instrument palette.
+ *
+ * The subject is a device clamped onto a wire, measuring signals. So the page is
+ * dressed as lab instrumentation rather than a dashboard: graphite ground, hairline
+ * rules, tight 2px corners, tabular figures, and a single cyan reserved for the
+ * live signal path. Nothing else is allowed to use the accent -- when the cyan
+ * moves, that is real traffic on a real cable.
+ *
+ * Deliberately single-theme. This runs on a projector in a dim room, and a light
+ * variant of an instrument face is a different design, not a recolour. The values
+ * sit on :root rather than .dark so the page renders identically whatever the
+ * viewer's system preference is.
+ * ------------------------------------------------------------------------- */
+:root {
+	--background: oklch(0.16 0.017 258);
+	--foreground: oklch(0.94 0.008 250);
+	--card: oklch(0.203 0.019 258);
+	--card-foreground: var(--foreground);
+	--popover: oklch(0.203 0.019 258);
+	--popover-foreground: var(--foreground);
+
+	--primary: oklch(0.82 0.145 205);
+	--primary-light: oklch(0.88 0.1 205);
+	--primary-foreground: oklch(0.16 0.017 258);
+
+	--secondary: oklch(0.26 0.02 258);
+	--secondary-foreground: var(--foreground);
+	--muted: oklch(0.245 0.019 258);
+	--muted-foreground: oklch(0.66 0.021 254);
+	--accent: oklch(0.26 0.02 258);
+	--accent-foreground: var(--foreground);
+
+	--destructive: oklch(0.68 0.2 22);
+	--border: oklch(0.315 0.022 256);
+	--input: oklch(0.315 0.022 256);
+	--ring: oklch(0.82 0.145 205);
+
+	/* instrument semantics -- distinct from the accent on purpose */
+	--signal: oklch(0.82 0.145 205);
+	--verified: oklch(0.82 0.17 163);
+	--caution: oklch(0.83 0.14 82);
+	--fault: oklch(0.68 0.2 22);
+	--grid: oklch(0.245 0.019 258);
+
+	--chart-1: var(--signal);
+	--chart-2: var(--verified);
+	--chart-3: var(--caution);
+	--chart-4: oklch(0.5 0.02 258);
+	--chart-5: oklch(0.36 0.02 258);
+	--radius: 0.14rem;
+	--sidebar: oklch(0.203 0.019 258);
+	--sidebar-foreground: var(--foreground);
+	--sidebar-primary: var(--signal);
+	--sidebar-primary-foreground: oklch(0.16 0.017 258);
+	--sidebar-accent: oklch(0.26 0.02 258);
+	--sidebar-accent-foreground: var(--foreground);
+	--sidebar-border: oklch(0.315 0.022 256);
+	--sidebar-ring: var(--signal);
+}
+
+.dark {
+	/* single-theme: .dark inherits :root, see the note above */
+}
+
+@theme inline {
+	--font-sans: 'Inter Variable', sans-serif;
+	--font-heading: 'Inter Variable', sans-serif;
+	--font-mono: 'Geist Mono Variable', monospace;
+	--color-sidebar-ring: var(--sidebar-ring);
+	--color-sidebar-border: var(--sidebar-border);
+	--color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+	--color-sidebar-accent: var(--sidebar-accent);
+	--color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+	--color-sidebar-primary: var(--sidebar-primary);
+	--color-sidebar-foreground: var(--sidebar-foreground);
+	--color-sidebar: var(--sidebar);
+	--color-signal: var(--signal);
+	--color-verified: var(--verified);
+	--color-caution: var(--caution);
+	--color-fault: var(--fault);
+	--color-grid: var(--grid);
+	--color-chart-5: var(--chart-5);
+	--color-chart-4: var(--chart-4);
+	--color-chart-3: var(--chart-3);
+	--color-chart-2: var(--chart-2);
+	--color-chart-1: var(--chart-1);
+	--color-ring: var(--ring);
+	--color-input: var(--input);
+	--color-border: var(--border);
+	--color-destructive: var(--destructive);
+	--color-accent-foreground: var(--accent-foreground);
+	--color-accent: var(--accent);
+	--color-muted-foreground: var(--muted-foreground);
+	--color-muted: var(--muted);
+	--color-secondary-foreground: var(--secondary-foreground);
+	--color-secondary: var(--secondary);
+	--color-primary-foreground: var(--primary-foreground);
+	--color-primary: var(--primary);
+	--color-primary-light: var(--primary-light);
+	--color-popover-foreground: var(--popover-foreground);
+	--color-popover: var(--popover);
+	--color-card-foreground: var(--card-foreground);
+	--color-card: var(--card);
+	--color-foreground: var(--foreground);
+	--color-background: var(--background);
+	--radius-sm: calc(var(--radius) * 0.6);
+	--radius-md: calc(var(--radius) * 0.8);
+	--radius-lg: var(--radius);
+	--radius-xl: calc(var(--radius) * 1.4);
+	--radius-2xl: calc(var(--radius) * 1.8);
+	--radius-3xl: calc(var(--radius) * 2.2);
+	--radius-4xl: calc(var(--radius) * 2.6);
+}
+
+@layer base {
+	* {
+		@apply border-border outline-ring/50;
+	}
+	body {
+		@apply bg-background text-foreground;
+	}
+	html {
+		@apply font-sans;
+		color-scheme: dark;
+	}
+	/* Instruments line their digits up. */
+	.tabular,
+	code,
+	kbd,
+	samp {
+		font-variant-numeric: tabular-nums;
+	}
+}

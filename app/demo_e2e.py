@@ -6,7 +6,7 @@ It replaces an earlier loopback-only driver that assumed both interlock ports we
 on this box and tokenized against llama-2-7b paths that no longer exist. The live
 rig is split:
 
-    Pi (port 0, eth0)  --interlock--  Spark (port 1, enP7s7)
+    Pi (port 1 / J30, eth0)  --interlock--  Spark (port 0 / J15, enP7s7)
 
 The Pi owns the text layer: it runs `tok.py` (the Rust `tokenizers` package and a
 tokenizer.json -- no transformers, no torch), seals the ids under AES-128-GCM, and

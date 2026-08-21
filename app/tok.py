@@ -30,12 +30,34 @@ MODEL = os.environ.get("TOKENIZER_DIR", os.path.join(HERE, "tokenizer/tinyllama"
 from tokenizers import Tokenizer
 
 
+_CACHE = {"t": None}
+
+
+def tokenizer():
+    """The tokenizer, loaded once. The CLI paths below run one command per
+    process so they never noticed the reload, but pi_agent holds this open for
+    the life of the demo and a 1.8 MB re-parse per prompt is not free."""
+    if _CACHE["t"] is None:
+        _CACHE["t"] = Tokenizer.from_file(os.path.join(MODEL, "tokenizer.json"))
+    return _CACHE["t"]
+
+
 def _tok():
-    return Tokenizer.from_file(os.path.join(MODEL, "tokenizer.json"))
+    return tokenizer()
+
+
+def encode_ids(text):
+    """Token ids for `text`. The importable form -- `encode` below wraps it in
+    the hex framing the CLI and the wire use."""
+    return list(tokenizer().encode(text).ids)
+
+
+def decode_ids(ids):
+    return tokenizer().decode(list(ids))
 
 
 def encode(text):
-    ids = _tok().encode(text).ids
+    ids = encode_ids(text)
     return b"".join(struct.pack("<I", i & 0xFFFFFFFF) for i in ids).hex()
 
 

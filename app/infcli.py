@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """infcli — port-0 driver + multi-turn chat frontend for the interlock (#3).
 
-Runs on the client side: the Raspberry Pi on port 0.
-It drives one inference packet at a time through the interlock on port 0, captures the
+Runs on the client side: the Raspberry Pi on port 1 (RJ45 J30).
+It drives one inference packet at a time through the interlock on the client port, captures the
 response and the per-packet certificates, verifies the certs locally, and on demand
 triggers a zero-knowledge proof IN BAND over the same cable.
 
@@ -88,7 +88,7 @@ _PORT = {"p": None}
 def canon_port(a):
     """The bucket-timed canonical port, opened on first use. Locking the flywheel and
     bootstrapping the declared-bucket offset take a few seconds, so this is done once
-    per process rather than once per request. The client sits on port 0 and speaks the
+    per process rather than once per request. The client sits on the client port and speaks the
     REQ direction, whose ids must be globally monotonic across runs."""
     if _PORT["p"] is None:
         import canon_tx
@@ -302,7 +302,7 @@ def send_payload(a, ct: bytes):
         rsp_header, rsp_ct = rsp_app[:APP_HDR], rsp_app[APP_HDR:]
     if rsp_cert:
         # RESPONSE direction. OUTWARD commits everything the interlock forwarded toward
-        # this client in that period, and this client is the only receiver on port 0 --
+        # this client in that period, and this client is the only receiver on the client port --
         # so our own capture IS the retained set, provided the whole period sits inside
         # the capture window. The right edge is guaranteed by having the certificate at
         # all (it is emitted when the period closes); the left edge is what `capture_from`
@@ -424,7 +424,15 @@ def do_challenge(a, rid, on_status):
     # overall + checks tau against its retained packets, runs prove+verify, then replies.
     rc, sc = parse_cert(ub(e["request_cert"])), parse_cert(ub(e["response_cert"]))
     cdat = lambda c: b"\x00" * CANON_HDR + c["m"] + c["tau"]   # canonical 224B cert DATA
-    body = rid.to_bytes(8, "big") + cdat(rc) + cdat(sc)
+    # Verifier-chosen challenge seed. It selects which (token, layer) a subsampled
+    # prover must open, so it MUST be unpredictable to the prover. The old default
+    # derived the pick from the request/response bytes -- and the prover chooses the
+    # response, so it could grind until the pick landed on a transition it had
+    # computed honestly, driving detection from 1/N to ~0. Drawn here, after the
+    # response and both certs are already fixed, it cannot be steered. Appended
+    # last, so a server that length-checks with >= still parses an older body.
+    seed = os.urandom(16)
+    body = rid.to_bytes(8, "big") + cdat(rc) + cdat(sc) + seed
     header = b"CHL\x00" + rid.to_bytes(4, "big") + b"\x00" * 8
     payload = MAGIC + bytes([T_CHALLENGE]) + len(body).to_bytes(2, "big") + body
 

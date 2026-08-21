@@ -81,7 +81,7 @@ def generate(in_ids):
     return new_ids
 
 
-def challenge(conn, req_ids, rsp_ids, tq, crypto=None):
+def challenge(conn, req_ids, rsp_ids, tq, crypto=None, seed=None):
     """Prove + verify, streaming progress lines back as they appear.
 
     `crypto` (when the wire ran encrypted) carries the key-binding inputs:
@@ -100,6 +100,10 @@ def challenge(conn, req_ids, rsp_ids, tq, crypto=None):
     if crypto:
         args += ["--nonce", crypto["nonce"], "--key-commit", crypto["key_commit"],
                  "--ct-in", crypto["ct_in"], "--ct-out", crypto["ct_out"]]
+    # The seed is public (it is the challenge), so argv is fine for it -- unlike
+    # the key material above, which is deliberately kept off the process table.
+    if seed:
+        args += ["--seed", seed]
     print("[backend] challenge: req=%d rsp=%d tq=%s%s"
           % (len(req_ids), len(rsp_ids), tq,
              " +key-binding" if crypto else ""), flush=True)
@@ -229,7 +233,7 @@ def handle(conn):
             send(conn, {"ids": generate(req["ids"])})
         elif req["op"] == "challenge":
             challenge(conn, req["req"], req["rsp"], req.get("tq", "80"),
-                      crypto=req.get("crypto"))
+                      crypto=req.get("crypto"), seed=req.get("seed"))
         else:
             send(conn, {"error": "unknown op %r" % req.get("op")})
     except Exception as e:                       # never take the backend down

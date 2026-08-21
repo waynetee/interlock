@@ -6,8 +6,10 @@ Cert frame on the wire (port-0 egress):
         || num_buckets[4] || overall_req[32] || overall_rsp[32] || nonce[16] || tau[32]
   all big-endian.  request cert => overall_rsp==0 ; response cert => overall_req==0.
 
-Verification uses the TEST build's known parameters:
-  key   = 0x000..0002   (cert_build .key(2))
+Verification uses the gateware's hardcoded HMAC key. Prod ties cert_build
+.key(256'd99) (fabric_bridge.sv, recomp_ilock_core.sv); the old bring-up build
+used 2. Override with ILK_CERT_KEY=<int> if you are looking at an older capture.
+  key   = 0x000..0063   (cert_build .key(99))
   m     = DATA[16:116]   (version .. nonce)
   tau  ?= HMAC-SHA256(key, m)
   overall(packet) = SHA256( be16(datalen) || SHA256( header[16] || SHA256(payload) ) )
@@ -15,12 +17,13 @@ Verification uses the TEST build's known parameters:
 
 usage: cert_parse.py <pcap> [datalen]      (datalen of the test data packets, default 32)
 """
+import os
 import sys
 import struct
 import hashlib
 import hmac
 
-KEY = (2).to_bytes(32, "big")
+KEY = int(os.environ.get("ILK_CERT_KEY", "99")).to_bytes(32, "big")
 SRC_CERT = bytes.fromhex("020000000002")
 
 

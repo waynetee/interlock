@@ -26,7 +26,7 @@ DEST="${DEST:-fpe}"
 # The client half, and only it. infcli drives the wire; canon_tx is the
 # bucket-timed port; commit recomputes the certificate hierarchy; ilk_crypto
 # seals and opens; tok owns the text layer.
-FILES=(infcli.py canon_tx.py commit.py ilk_crypto.py tok.py)
+FILES=(infcli.py canon_tx.py commit.py ilk_crypto.py tok.py pi_agent.py)
 # The cipher the circuit is composed against -- one implementation, or the wire
 # and the proof drift apart.
 REFS=(token_recorder.py poseidon_gl.py)

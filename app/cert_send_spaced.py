@@ -9,7 +9,7 @@ frames is ~1000x the HMAC latency, so every packet should yield a cert.
 
 DATA = 16-byte header + payload. We keep DATA length != 148 so the forwarded copies
 (which carry the original length) are trivially distinguishable from the 148-byte
-cert frames that get muxed onto port 0.
+cert frames that get muxed onto the client port (port 1 / J30).
 
 usage: cert_send_spaced.py <iface> [count] [gap_ms] [plen]
 """

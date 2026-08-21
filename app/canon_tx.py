@@ -24,7 +24,7 @@ reset per bucket, so the server can use a fixed low id.
 
 Typical use:
 
-    port = CanonPort("eth0", req=True)      # client side (port 0)
+    port = CanonPort("eth0", req=True)      # client side (port 1 / J30)
     port.lock(); port.bootstrap()
     port.send(payload)
     data = port.recv(timeout=5.0)           # payload of the next non-sync frame

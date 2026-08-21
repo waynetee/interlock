@@ -43,6 +43,20 @@ now() { date +%s.%N; }
 since() { awk -v a="$(now)" -v b="$1" 'BEGIN{printf "%.1f", a-b}'; }
 port_up() { timeout 3 python3 -c "import socket;socket.create_connection(('127.0.0.1',9917),2)" 2>/dev/null; }
 
+# run_demo drives the Pi over ssh with infcli, which opens the canonical port and
+# runs its own flywheel. pi_agent (the web demo) holds that port for its whole
+# life. Both at once puts two senders on the same wire, and two packets landing in
+# one 1 ms bucket makes commit.bucket_hash raise -- the audit does not degrade, it
+# throws. They are alternatives, never concurrent, so say so instead of producing
+# a confusing failure deep in the run.
+if timeout 10 ssh -o BatchMode=yes -o ConnectTimeout=6 2a-rpi \
+       "pgrep -f '[p]i_agent\.py' >/dev/null" 2>/dev/null; then
+  echo "  REFUSING: pi_agent is running on the Pi and holds the canonical port."
+  echo "            run_demo.sh and the web demo are alternatives, not concurrent."
+  echo "            Stop it first:  ./demo_up.sh stop"
+  exit 1
+fi
+
 T0=$(now)
 hr
 echo "  INTERLOCK DEMO   mode=$MODE  tq=$TQ"
@@ -70,7 +84,12 @@ else
   echo "  backend   : already in mode=$MODE"
 fi
 
-if ! docker logs ilk_server 2>&1 | grep -q "locked: bucket="; then
+# NB: capture first, do not pipe. `grep -q` exits on the first match, docker
+# logs then takes SIGPIPE, and `set -o pipefail` turns that into rc=141 -- a
+# false "board is dead" that only appears once the log is long enough that
+# docker is still writing when grep quits.
+ILK_LOG=$(docker logs ilk_server 2>&1 || true)
+if ! grep -qa "locked: bucket=" <<<"$ILK_LOG"; then
   echo "  FAIL  no bucket lock: the board is not emitting sync."
   echo "        Power-cycle the interlock (a reflash does not restart it);"
   echo "        it goes quiet ~4h after each power-up."
@@ -124,10 +143,18 @@ if echo "$OUT" | grep -q "RESULT: PASS"; then
   # footer would then describe the wrong run. Under-claiming is harmless;
   # over-claiming -- printing a full-proof footer over a spot check -- is not.
   # `mode=subsample` rides the raw CHALLENGE_RESULT line, which demo_e2e parses
-  # into the panel rather than echoing -- so match on what actually reaches the
-  # output: the weld line the subsampled prover forces to "n/a (spot-check mode)".
-  # NOWELD is equivalent to subsample: only that path skips the weld.
-  if echo "$OUT" | grep -qE "spot-check mode|sampled forward pass"; then
+  # into the panel rather than echoing, so it is not in $OUT. This used to sniff
+  # the weld line instead -- the subsampled prover forced it to "n/a (spot-check
+  # mode)" -- but that was a proxy for the mode, not the mode, and it broke the
+  # moment the subsampled path learned to weld: a real spot check then printed a
+  # full-proof footer, which is exactly the over-claim this block exists to stop.
+  # Read the prover's own name out of the backend log instead. The worker logs
+  # the script it warmed, so this says which prover ran rather than inferring it
+  # from how the verdict happened to be worded.
+  ACTUAL=$(grep -a "\[worker\] warm" /tmp/interlock-logs/backend.log 2>/dev/null \
+           | tail -1 | grep -oE "[a-z_]+_challenge\.py")
+  if [ "${ACTUAL:-}" = "subsample_challenge.py" ] \
+     || { [ -z "${ACTUAL:-}" ] && echo "$OUT" | grep -qE "spot-check mode|sampled forward pass"; }; then
     echo "  (spot check -- not a proof)"
     [ "$MODE" = sound ] && echo "  !! asked for sound, but the backend ran the SUBSAMPLED prover."
   else

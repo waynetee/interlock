@@ -50,6 +50,12 @@ streams, and a shared (key, IV) under CTR would reuse keystream and leak the
 XOR of the request and response token streams. HKDF makes them distinct with
 overwhelming probability; `derive()` asserts it anyway.
 """
+# PORT NUMBERING (2026-08-20): the gateware binds the CLIENT role to CORETSE_1
+# (RJ45 J30 / port 1) and the COMPUTE role to CORETSE_0 (J15 / port 0). Nothing
+# in this file keys off the port number -- roles are carried by the forced MACs
+# 02:00:00:00:00:01 (client) and ...:02 (server) -- so the swap changed cabling
+# and comments only. Pi -> J30, Spark -> J15.
+
 import hashlib
 import hmac
 import os
