@@ -39,12 +39,35 @@ sd_create_scalar_port -sd_name ${sd_name} -port_name {RX_P_1} -port_direction {I
 sd_create_scalar_port -sd_name ${sd_name} -port_name {TX_N_1} -port_direction {OUT} -port_is_pad {1}
 sd_create_scalar_port -sd_name ${sd_name} -port_name {TX_P_1} -port_direction {OUT} -port_is_pad {1}
 
-# Two packet-counter heartbeats, one per port -- see pkt_counter.sv.
-#   PKT_LED   (LED_5 / B26): bit-0 of accepted frames on Port 0 (Pi side)
-#   PKT_LED_1 (LED_4 / F22): bit-0 of accepted frames on Port 1 (Spark side)
-# The Sub-PR #5 debug LEDs were removed 2026-08-20: LED_10's sticky
+# Two packet-counter heartbeats, one per port -- see pkt_counter.sv. The
+# counters follow the PHYSICAL ports, so they did not move when the roles
+# were swapped below; the hosts behind them did.
+#   PKT_LED   (LED_5 / B26): accepted frames on Port 0 / J15 (Spark side)
+#   PKT_LED_1 (LED_4 / F22): accepted frames on Port 1 / J30 (Pi side)
+# The Sub-PR #5 debug LEDs were retired 2026-08-20: LED_10's sticky
 # RCG_ERROR latches during initial link-up, so it reads red on every
 # power cycle regardless of health and cannot distinguish the two.
+#
+# They are HELD LOW here rather than deleted. Dropping the ports left the
+# pins Unassigned (confirmed in top_pinrpt_number.rpt), and an unassigned
+# PolarFire I/O does not turn its LED off -- on silicon all six stayed lit,
+# which reads worse than the debug display we were trying to remove. These
+# LEDs are active high (RCG_ERROR asserting is what made LED_10 red), so
+# GND is off. Keeping the ports also keeps the pins named and fixed, so a
+# later change cannot silently reuse them.
+
+sd_create_scalar_port -sd_name ${sd_name} -port_name {LED_OFF_D25} -port_direction {OUT}
+sd_create_scalar_port -sd_name ${sd_name} -port_name {LED_OFF_C26} -port_direction {OUT}
+sd_create_scalar_port -sd_name ${sd_name} -port_name {LED_OFF_C27} -port_direction {OUT}
+sd_create_scalar_port -sd_name ${sd_name} -port_name {LED_OFF_F23} -port_direction {OUT}
+sd_create_scalar_port -sd_name ${sd_name} -port_name {LED_OFF_H22} -port_direction {OUT}
+sd_create_scalar_port -sd_name ${sd_name} -port_name {LED_OFF_H21} -port_direction {OUT}
+sd_connect_pins_to_constant -sd_name ${sd_name} -pin_names {LED_OFF_D25} -value {GND}
+sd_connect_pins_to_constant -sd_name ${sd_name} -pin_names {LED_OFF_C26} -value {GND}
+sd_connect_pins_to_constant -sd_name ${sd_name} -pin_names {LED_OFF_C27} -value {GND}
+sd_connect_pins_to_constant -sd_name ${sd_name} -pin_names {LED_OFF_F23} -value {GND}
+sd_connect_pins_to_constant -sd_name ${sd_name} -pin_names {LED_OFF_H22} -value {GND}
+sd_connect_pins_to_constant -sd_name ${sd_name} -pin_names {LED_OFF_H21} -value {GND}
 
 sd_create_scalar_port -sd_name ${sd_name} -port_name {PHY_MDIO} -port_direction {INOUT} -port_is_pad {1}
 
@@ -281,6 +304,25 @@ sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {SSDetect} -hdl_f
 sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {tse1_loopback} -hdl_file {hdl\tse1_loopback.sv} -instance_name {tse1_loopback_0}
 
 # fabric_bridge — routes BOTH MAC directions through the fabric.
+#
+# PORT ROLES ARE SWAPPED RELATIVE TO THE RTL'S NAMING (2026-08-20).
+# fabric_bridge's tse0 bundle is the CLIENT side -- reframe_rsp forces
+# DST=MAC_CLIENT and the certificates egress there -- and tse1 is the SERVER
+# side. Wiring below binds CORETSE_1 (J30) to tse0 and CORETSE_0 (J15) to
+# tse1, so the certified client link comes out of J30 and the compute link
+# out of J15:
+#
+#   J30 / Port 1 / CORETSE_1  ->  tse0 (client) ->  Raspberry Pi, sees certs
+#   J15 / Port 0 / CORETSE_0  ->  tse1 (server) ->  Spark, quarantined compute
+#
+# Done here rather than in the PDC on purpose: the two SGMII pairs use
+# opposite RX polarity conventions and Libero enforces PDCPF-13 differently
+# on each (see io_constraints.pdc), and the PF_IOD_CDR instances are bound to
+# specific transceiver lanes. Swapping the MAC bundles leaves every pin,
+# polarity and CDR binding exactly as it was.
+#
+# THE CABLES MUST MATCH: Pi -> J30, Spark -> J15. Swapping one without the
+# other puts the verifier on the compute link and no certificates reach it.
 sd_instantiate_hdl_module -sd_name ${sd_name} -hdl_module_name {fabric_bridge} -hdl_file {hdl\fabric_bridge.sv} -instance_name {fabric_bridge_0}
 
 
@@ -335,18 +377,18 @@ sd_connect_pins -sd_name ${sd_name} -pin_names {"PF_IOD_CDR_C0_0:STREAM_START" "
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:RXCLK" "CORETSE_0:TBI_RX_CLK" "PF_IOD_CDR_C0_0:RX_CLK_R" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:RCG" "PF_IOD_CDR_C0_0:RX_DATA" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:TCG" "PF_IOD_CDR_C0_0:TX_DATA" "SSDetect_0:rx_data" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXRDY"       "fabric_bridge_0:tse0_mrx_rdy" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXSOF"       "fabric_bridge_0:tse0_mrx_sof" "pkt_counter_0:frame_sof" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXEOF"       "fabric_bridge_0:tse0_mrx_eof" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXDAT"       "fabric_bridge_0:tse0_mrx_dat" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXBYTEVALID" "fabric_bridge_0:tse0_mrx_bytevalid" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXACPT"      "fabric_bridge_0:tse0_mrx_acpt" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MTXRDY"       "fabric_bridge_0:tse0_mtx_rdy" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MTXSOF"       "fabric_bridge_0:tse0_mtx_sof" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MTXEOF"       "fabric_bridge_0:tse0_mtx_eof" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MTXDAT"       "fabric_bridge_0:tse0_mtx_dat" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MTXBYTEVALID" "fabric_bridge_0:tse0_mtx_bytevalid" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MTXACPT"      "fabric_bridge_0:tse0_mtx_acpt" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXRDY"       "fabric_bridge_0:tse1_mrx_rdy" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXSOF"       "fabric_bridge_0:tse1_mrx_sof" "pkt_counter_0:frame_sof" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXEOF"       "fabric_bridge_0:tse1_mrx_eof" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXDAT"       "fabric_bridge_0:tse1_mrx_dat" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXBYTEVALID" "fabric_bridge_0:tse1_mrx_bytevalid" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MRXACPT"      "fabric_bridge_0:tse1_mrx_acpt" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MTXRDY"       "fabric_bridge_0:tse1_mtx_rdy" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MTXSOF"       "fabric_bridge_0:tse1_mtx_sof" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MTXEOF"       "fabric_bridge_0:tse1_mtx_eof" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MTXDAT"       "fabric_bridge_0:tse1_mtx_dat" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MTXBYTEVALID" "fabric_bridge_0:tse1_mtx_bytevalid" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_0:MTXACPT"      "fabric_bridge_0:tse1_mtx_acpt" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:D" "CORETSE_0:MDO" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:E" "CORETSE_0:MDOEN" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"BIBUF_0:Y" "CORETSE_0:MDI" }
@@ -365,18 +407,18 @@ sd_connect_pins -sd_name ${sd_name} -pin_names {"PF_IOD_CDR_C1_0:STREAM_START" "
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:RXCLK" "CORETSE_1:TBI_RX_CLK" "PF_IOD_CDR_C1_0:RX_CLK_R" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:RCG" "PF_IOD_CDR_C1_0:RX_DATA" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:TCG" "PF_IOD_CDR_C1_0:TX_DATA" "SSDetect_1:rx_data" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXRDY"       "fabric_bridge_0:tse1_mrx_rdy" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXSOF"       "fabric_bridge_0:tse1_mrx_sof" "pkt_counter_1:frame_sof" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXEOF"       "fabric_bridge_0:tse1_mrx_eof" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXDAT"       "fabric_bridge_0:tse1_mrx_dat" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXBYTEVALID" "fabric_bridge_0:tse1_mrx_bytevalid" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXACPT"      "fabric_bridge_0:tse1_mrx_acpt" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MTXRDY"       "fabric_bridge_0:tse1_mtx_rdy" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MTXSOF"       "fabric_bridge_0:tse1_mtx_sof" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MTXEOF"       "fabric_bridge_0:tse1_mtx_eof" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MTXDAT"       "fabric_bridge_0:tse1_mtx_dat" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MTXBYTEVALID" "fabric_bridge_0:tse1_mtx_bytevalid" }
-sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MTXACPT"      "fabric_bridge_0:tse1_mtx_acpt" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXRDY"       "fabric_bridge_0:tse0_mrx_rdy" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXSOF"       "fabric_bridge_0:tse0_mrx_sof" "pkt_counter_1:frame_sof" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXEOF"       "fabric_bridge_0:tse0_mrx_eof" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXDAT"       "fabric_bridge_0:tse0_mrx_dat" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXBYTEVALID" "fabric_bridge_0:tse0_mrx_bytevalid" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MRXACPT"      "fabric_bridge_0:tse0_mrx_acpt" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MTXRDY"       "fabric_bridge_0:tse0_mtx_rdy" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MTXSOF"       "fabric_bridge_0:tse0_mtx_sof" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MTXEOF"       "fabric_bridge_0:tse0_mtx_eof" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MTXDAT"       "fabric_bridge_0:tse0_mtx_dat" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MTXBYTEVALID" "fabric_bridge_0:tse0_mtx_bytevalid" }
+sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MTXACPT"      "fabric_bridge_0:tse0_mtx_acpt" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MDO"   "tse1_loopback_0:mdo" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MDOEN" "tse1_loopback_0:mdoen" }
 sd_connect_pins -sd_name ${sd_name} -pin_names {"CORETSE_1:MDI"   "tse1_loopback_0:mdi" }
