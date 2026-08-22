@@ -43,6 +43,26 @@ MODEL_DIR=${MODEL_DIR:-$VERINF/models/TinyLlama-1.1B-Chat-v1.0}
 mkdir -p "$LOGDIR"
 
 echo "== 1/3  GPU back-end (host venv, needs the CUDA install) =="
+# DEMO_SELF_POLICY: verify_proof fail-closes without an enrolled weight root and a
+# trusted statement digest, and is right to -- with neither, the prover picks what
+# it proves. This demo has no second party to hold them: the Spark is prover AND
+# verifier, so they are self-supplied from the proof's own dump and those two
+# checks verify nothing. Every CRYPTOGRAPHIC check is unaffected, which is why a
+# tampered run still fails (U 0.1478 -> 4976.8383, keybind OK -> FAIL).
+# Default 1 because this script IS the demo runbook and a cold start otherwise
+# comes up red. Set DEMO_SELF_POLICY=0 anywhere the verifier is a separate party.
+# ENROLL_DIR holds one WeightCommitment handle per layer plus model_policy.json
+# (a Merkle tree over the per-layer roots). When present the weight root passed to
+# verify_proof is the ENROLLED one -- committed before the run, its membership in
+# MODEL_ROOT checked -- so that check is independent and catches a swapped model.
+# Build it with: analysis/enroll_tree.py $VERINF/.enroll
+if [ -f "${ENROLL_DIR:-$VERINF/.enroll}/model_policy.json" ]; then
+    echo "   model enrolled: $(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["model_root"][:16])' "${ENROLL_DIR:-$VERINF/.enroll}/model_policy.json" 2>/dev/null)... (weight root is pinned)"
+fi
+if [ "${DEMO_SELF_POLICY:-1}" = "1" ]; then
+    echo "   note: policy self-supplied (verifier co-located) -- enrolled-root and"
+    echo "         statement-digest checks are NOT independent in this mode"
+fi
 # Liveness is the PORT, not a process-name match. `pgrep -f model_backend.py`
 # matches ANY command line containing that string -- including the shell that
 # invokes this script, and any ssh command that mentions it -- so it reported
@@ -56,6 +76,8 @@ else
     VERINF="$VERINF" \
     MODEL_DIR="$MODEL_DIR" \
     PRELOAD_MODEL=1 \
+    DEMO_SELF_POLICY="${DEMO_SELF_POLICY:-1}" \
+    ENROLL_DIR="${ENROLL_DIR:-$VERINF/.enroll}" \
     nohup "$VERINF/venv/bin/python" -u model_backend.py \
         > "$LOGDIR/backend.log" 2>&1 &
     echo "   started -> $LOGDIR/backend.log"

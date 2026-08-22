@@ -7,11 +7,13 @@
 	 * FPGA that fingerprints every packet in both directions. Every value rendered
 	 * here arrived over that wire. The only thing this file invents is the pacing.
 	 */
+	import FingerprintRegister from '$lib/components/fingerprint-register.svelte';
 	import { cn } from '$lib/utils';
 	import { io, type Socket } from 'socket.io-client';
 	import { onDestroy, onMount } from 'svelte';
 
 	type Verdict = { verdict: string; U: string; verify: string; keybind: string };
+	type FpStage = 'hidden' | 'stacked' | 'register' | 'resolved' | 'clash';
 
 	let socket: Socket;
 	let connected = $state(false);
@@ -238,6 +240,20 @@
 		setTimeout(() => socket.emit(tamper ? 'demo:tamper' : 'demo:run', {}), 250);
 	}
 
+	// The register decks a grid as each digest lands, slides them together when the
+	// proof is in flight, and only resolves once the server has ruled.
+	const fpStage = $derived(
+		(verdict
+			? verdict.verdict === 'PASS'
+				? 'resolved'
+				: 'clash'
+			: converge
+				? 'register'
+				: reqFp
+					? 'stacked'
+					: 'hidden') as FpStage
+	);
+
 	const lamps = $derived([
 		{ k: 'LINK', on: connected, colour: 'bg-verified' },
 		{ k: 'WIRE', on: wireOk, colour: 'bg-verified' },
@@ -316,21 +332,21 @@
 		</div>
 
 		<!-- scope -->
-		<section class="relative h-[420px] overflow-hidden border border-border bg-card">
+		<section class="relative h-[280px] overflow-hidden border border-border bg-card">
 			<div
 				class="pointer-events-none absolute inset-0 opacity-[0.55]"
 				style="background-image:linear-gradient(to right,var(--grid) 1px,transparent 1px),linear-gradient(to bottom,var(--grid) 1px,transparent 1px);background-size:34px 34px"
 			></div>
 
-			<div class="absolute inset-x-[4%] top-[176px] h-px bg-border"></div>
-			<div class="absolute inset-x-[4%] top-[176px] flex justify-between">
+			<div class="absolute inset-x-[4%] top-[140px] h-px bg-border"></div>
+			<div class="absolute inset-x-[4%] top-[140px] flex justify-between">
 				{#each Array(29) as _, i (i)}<span class="h-1.5 w-px bg-border/70"></span>{/each}
 			</div>
 
 			<!-- certifier -->
 			<div
 				class={cn(
-					'absolute top-[108px] left-[38%] flex h-[136px] w-[196px] -translate-x-1/2 flex-col items-center justify-center gap-2 border bg-background transition-all duration-300',
+					'absolute top-[72px] left-[38%] flex h-[136px] w-[196px] -translate-x-1/2 flex-col items-center justify-center gap-2 border bg-background transition-all duration-300',
 					hotFpga ? 'border-signal shadow-[0_0_26px_-4px_var(--signal)]' : 'border-border'
 				)}
 			>
@@ -351,7 +367,7 @@
 			<!-- datacenter -->
 			<div
 				class={cn(
-					'absolute top-[108px] left-[79%] flex h-[136px] w-[196px] -translate-x-1/2 flex-col items-center justify-center gap-2 border bg-background transition-all duration-300',
+					'absolute top-[72px] left-[79%] flex h-[136px] w-[196px] -translate-x-1/2 flex-col items-center justify-center gap-2 border bg-background transition-all duration-300',
 					verdict
 						? verdict.verdict === 'PASS'
 							? 'border-verified shadow-[0_0_30px_-4px_var(--verified)]'
@@ -401,7 +417,7 @@
 			<!-- the one thing allowed to use the accent: traffic actually on the cable -->
 			<div
 				class={cn(
-					'absolute top-[176px] -translate-x-1/2 -translate-y-1/2 border px-3 py-1.5 font-mono text-[10px] tracking-[0.12em] whitespace-nowrap transition-all duration-[900ms] ease-in-out',
+					'absolute top-[140px] -translate-x-1/2 -translate-y-1/2 border px-3 py-1.5 font-mono text-[10px] tracking-[0.12em] whitespace-nowrap transition-all duration-[900ms] ease-in-out',
 					pktEnc
 						? 'border-border bg-muted text-muted-foreground'
 						: 'border-signal bg-signal/15 text-signal shadow-[0_0_18px_-3px_var(--signal)]',
@@ -412,25 +428,14 @@
 				{pktLabel}
 			</div>
 
-			<!-- fingerprints drop out of the certifier, then converge into the datacenter -->
-			{#each [{ v: reqFp, y: 268, tag: 'REQ', show: !!reqFp, x: 38 }, { v: rspFp, y: 320, tag: 'RSP', show: !!rspFp, x: 38 }, { v: modelFp, y: 268, tag: 'MODEL', show: !!modelFp && (phase === 'prove' || phase === 'done'), x: 79 }] as f (f.tag)}
-				{#if f.show}
-					<div
-						class={cn(
-							'tabular absolute -translate-x-1/2 -translate-y-1/2 border px-3 py-1.5 font-mono text-[10px] tracking-[0.1em] transition-all duration-[900ms] ease-in-out',
-							f.tag === 'MODEL'
-								? 'border-caution/60 text-caution'
-								: 'border-verified/60 text-verified',
-							converge ? 'scale-50 opacity-0' : 'opacity-100'
-						)}
-						style="left:{converge ? 79 : f.x}%; top:{converge ? 176 : f.y}px"
-					>
-						{f.tag}
-						{short(f.v, 12)}
-					</div>
-				{/if}
-			{/each}
 		</section>
+
+		<FingerprintRegister
+			req={reqFp}
+			rsp={rspFp}
+			model={phase === 'done' ? modelFp : null}
+			stage={fpStage}
+		/>
 
 		<!-- readout -->
 		<div class="grid gap-4 lg:grid-cols-[1.3fr_1fr]">

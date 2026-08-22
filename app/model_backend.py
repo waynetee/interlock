@@ -28,6 +28,7 @@ import json
 import os
 import socket
 import struct
+import re
 import subprocess
 import sys
 import threading
@@ -121,8 +122,31 @@ def challenge(conn, req_ids, rsp_ids, tq, crypto=None, seed=None):
                 k, _, v = kv.partition("=")
                 result[k] = v
         elif line.strip():
+            # A failing prover is otherwise invisible. model_server throttles status
+            # lines to one every few seconds, so a traceback is dropped on the floor
+            # and the demo reports a bare verify=ERROR with the cause recorded
+            # nowhere -- which cost an hour of bisecting after a reboot. The backend's
+            # own log is not throttled, so keep error-shaped lines here too.
+            if _ERR_RE.search(line):
+                print("[backend] prover: %s" % line[:200], flush=True)
+            _prover_log(line)
             send(conn, {"status": line[:120]})
     send(conn, {"result": result or {"verdict": "FAIL", "verify": "ERROR"}})
+
+
+_ERR_RE = re.compile(r"traceback|error|exception|assert|no such file|not found", re.I)
+# The prover's full transcript, unthrottled. model_server samples status lines for
+# the wire (one every few seconds) and the UI shows fewer still, so the only record
+# of WHY a proof rejected was previously nowhere at all.
+_PROVER_LOG = os.environ.get("PROVER_LOG", "/tmp/interlock-logs/prover.log")
+
+
+def _prover_log(line):
+    try:
+        with open(_PROVER_LOG, "a") as fh:
+            fh.write(line + "\n")
+    except OSError:
+        pass
 
 
 # ---------------------------------------------------------------- prover worker

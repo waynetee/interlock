@@ -4,6 +4,7 @@
 # and because `pkill -f demo_server.py` matches the ssh command line that
 # invokes it, so the naive restart kills its own session.
 APP=/home/spark/v2/interlock/app
+VERINF_DIR="${VERINF:-$(cd "$APP/../.." && pwd)/VerInf}"
 PY=/home/spark/v2/VerInf/venv/bin/python
 
 # The Pi joins the Spark's own AP (SSID 2a-spark, NetworkManager ipv4.method=shared),
@@ -62,7 +63,23 @@ case "${1:-start}" in
     else
         echo "no servo reading yet; re-run in a few seconds"; ok=0
     fi
-    echo "--- orchestrator ---"; tail -4 /tmp/demo_server.log ;;
+    echo "--- orchestrator ---"; tail -4 /tmp/demo_server.log
+    # First run only: mint the per-layer weight commitments and the enrolment tree,
+    # so the weight root the verifier is handed is one committed BEFORE the run
+    # rather than one read back out of the proof. Skipped once enrolled (a file
+    # check, no cost), and skipped when the board is quiet -- enrolment proves once
+    # per layer over the wire and would just fail 22 times.
+    if [ ! -f "${ENROLL_DIR:-$VERINF_DIR/.enroll}/model_policy.json" ]; then
+        if [ "${ok:-1}" = "1" ]; then
+            echo "--- first run: enrolling the model (~1 proof per layer) ---"
+            if ! ./enroll.sh; then
+                echo "  enrolment incomplete -- the demo still runs, but the weight"
+                echo "  root is NOT pinned until ./enroll.sh succeeds"
+            fi
+        else
+            echo "--- model not enrolled; run ./enroll.sh once the board is live ---"
+        fi
+    fi ;;
   stop)
     stop_server; ./tunnel.sh stop >/dev/null 2>&1
     # Match on process shape, not on the string -- `pkill -f pi_agent.py` also

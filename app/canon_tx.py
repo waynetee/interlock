@@ -82,6 +82,13 @@ PERIOD_REFIT_BUCKETS = 5000  # ~5 s baseline per re-fit
 PERIOD_GAIN = 0.25           # how much of each re-fit to adopt
 PERIOD_SANE_FRAC = 0.01      # reject a re-fit that disagrees by more than this
 CORR_LOG_S = 30.0            # throttle for the servo-state log line
+# Re-lock, the second tier of recover(). Zeroing the servo correction only helps if the
+# correction was the fault; if the period estimate itself has drifted, placement stays
+# wrong at ANY correction and the re-bootstrap fails too. Re-measuring is then the only
+# thing left short of a restart -- which is what an operator ends up doing by hand.
+RELOCK_WINDOW_S = 2.5        # baseline for the re-measurement, same as lock()
+RELOCK_MIN_OBS = 30          # refuse to re-derive a period from fewer samples
+RELOCK_SANE_FRAC = 0.10      # reject a re-measure this far from the period in use
 
 
 class CanonPort:
@@ -112,6 +119,9 @@ class CanonPort:
         self._per_ref = None          # (bucket, t) baseline for the slow period re-fit
         self._last_corr_log_ns = 0
         self._recoveries = 0
+        self._relock = None           # armed re-measurement, serviced by the flywheel
+        self._period_at_lock = None   # anchor for sanity-checking a re-measure
+        self._relocks = 0
         # Everything we put on the wire, indexed by declared bucket. The certificate
         # commits a whole period, so auditing one of our packets means accounting for
         # ALL our traffic in that period -- bootstrap probes included.
@@ -168,6 +178,25 @@ class CanonPort:
             return None
         return bucket, first_arr
 
+    def _apply_lock(self, obs):
+        """Adopt period, phase and everything derived from (bucket, arrival_ns) samples.
+
+        Shared by lock() and relock() so the two can never derive the flywheel's
+        constants differently -- a re-lock that disagreed with the original in some
+        small way would be its own bug, and an invisible one."""
+        span_bkt = obs[-1][0] - obs[0][0]
+        if span_bkt <= 0:
+            raise RuntimeError("sync bucket counter did not advance on %s" % self.iface)
+        self.period_ns = (obs[-1][1] - obs[0][1]) / span_bkt
+        self.cur_bkt = obs[-1][0] + 1
+        self.last_edge_ns = obs[-1][1]
+        self.spin_ns = int(min(1_500_000, max(50_000, self.period_ns / 16)))
+        self.lead_ns = self.spin_ns + 50_000
+        self.resid_sane_ns = min(1.5e6, self.period_ns / 3)
+        # Intended in-bucket landing point, in FIRST_ARR's fabric-clock ticks.
+        self.intended_ticks = int(SEND_FRAC * self.period_ns * FCLK_HZ / 1e9)
+        self._per_ref = (obs[-1][0], obs[-1][1])
+
     def lock(self, window_s=2.5):
         """Measure the bucket period over a window of sync frames. Period comes
         from total-span / total-buckets, where endpoint jitter amortizes away."""
@@ -182,18 +211,11 @@ class CanonPort:
             if (time.monotonic_ns() - t0) > (window_s + 8) * 1e9:
                 raise RuntimeError("no sync stream on %s -- wrong port, dead link, "
                                    "or the board is not running prod-1ms" % self.iface)
-        span_bkt = obs[-1][0] - obs[0][0]
-        if span_bkt <= 0:
-            raise RuntimeError("sync bucket counter did not advance on %s" % self.iface)
-        self.period_ns = (obs[-1][1] - obs[0][1]) / span_bkt
-        self.cur_bkt = obs[-1][0] + 1
-        self.last_edge_ns = obs[-1][1]
-        self.spin_ns = int(min(1_500_000, max(50_000, self.period_ns / 16)))
-        self.lead_ns = self.spin_ns + 50_000
-        self.resid_sane_ns = min(1.5e6, self.period_ns / 3)
-        # Intended in-bucket landing point, in FIRST_ARR's fabric-clock ticks.
-        self.intended_ticks = int(SEND_FRAC * self.period_ns * FCLK_HZ / 1e9)
-        self._per_ref = (obs[-1][0], obs[-1][1])
+        self._apply_lock(obs)
+        # Deliberately NOT refreshed by relock(): this is the period measured when the
+        # port was known good -- bootstrap() succeeds against it moments later -- so it
+        # stays the fixed anchor a later re-measure is judged against.
+        self._period_at_lock = self.period_ns
         self._log("locked: bucket=%d period=%.4f ms" % (self.cur_bkt, self.period_ns / 1e6))
 
     # ------------------------------------------------------------ flywheel
@@ -208,6 +230,7 @@ class CanonPort:
         if abs(resid) < self.resid_sane_ns:
             self.last_edge_ns += K_EDGE * resid          # weak arrival coupling
         self._refit_period(closed, t)
+        self._service_relock(closed, t)
         if first_arr != NOARR and closed in self._probe_pending:
             self._probe_pending.pop(closed)
             self._probe_hits += 1
@@ -273,6 +296,81 @@ class CanonPort:
         self.period_ns += PERIOD_GAIN * (meas - self.period_ns)
         # intended_ticks is the landing point in FABRIC ticks, so it follows the period.
         self.intended_ticks = int(SEND_FRAC * self.period_ns * FCLK_HZ / 1e9)
+
+    def _service_relock(self, closed, t):
+        """Collect for an armed relock() and, once the window is full, adopt it.
+
+        Caller holds self._lock and has just applied this sync to the flywheel, so
+        obs[-1] IS the sample the flywheel is currently sitting on -- which is why
+        _apply_lock's phase (cur_bkt, last_edge_ns) stays consistent when it lands
+        here rather than being spliced in from another thread."""
+        rl = self._relock
+        if rl is None or rl["done"] is not None:
+            return
+        rl["obs"].append((closed, t))
+        if t < rl["until"] or len(rl["obs"]) < RELOCK_MIN_OBS:
+            return
+        old = self.period_ns
+        span = rl["obs"][-1][0] - rl["obs"][0][0]
+        cand = (rl["obs"][-1][1] - rl["obs"][0][1]) / span if span > 0 else None
+        # A re-measure is only worth adopting if it is a correction and not a fresh
+        # fault -- garbage here would replace a drifting period with a wrong one, and
+        # there is no third tier to catch that. Judge it against the period measured at
+        # lock(), NOT the one in use: the one in use is the value under suspicion, and
+        # letting it set the bounds would let a badly drifted period veto its own fix.
+        ref = self._period_at_lock or old
+        if cand is None or abs(cand - ref) > ref * RELOCK_SANE_FRAC:
+            rl["reject"] = cand
+            rl["done"] = False
+            return
+        try:
+            self._apply_lock(rl["obs"])
+        except RuntimeError:
+            rl["done"] = False
+            return
+        rl["old"] = old
+        rl["done"] = True
+
+    def relock(self, window_s=RELOCK_WINDOW_S, timeout_s=None):
+        """Re-measure period and phase without touching the rx socket.
+
+        lock() reads self.rx directly, which is fine before start() and wrong after:
+        from then on the flywheel thread owns that socket, and two consumers on one
+        socket steal frames from each other -- the flywheel would miss the syncs it
+        needs to hold phase while lock() built its window from whatever was left. So
+        this arms the flywheel to collect its own arrivals and re-derive the constants
+        in place, under the lock it already updates them with.
+
+        Sending stays paused throughout: the only caller is recover(), which gets here
+        after a failed bootstrap() has already set decl_shift = None, which is what the
+        keep-alive checks before trickling a probe."""
+        if timeout_s is None:
+            timeout_s = window_s + 6.0
+        box = {"obs": [], "until": time.monotonic_ns() + int(window_s * 1e9),
+               "done": None}
+        with self._lock:
+            self._relock = box
+        deadline = time.monotonic_ns() + int(timeout_s * 1e9)
+        while time.monotonic_ns() < deadline:
+            with self._lock:
+                if box["done"] is not None:
+                    break
+            time.sleep(0.02)
+        with self._lock:
+            self._relock = None
+            done, obs_n = box["done"], len(box["obs"])
+        if done is None:
+            raise RuntimeError("relock: only %d syncs in %.1fs on %s -- the flywheel is "
+                               "not being fed" % (obs_n, timeout_s, self.iface))
+        if done is False:
+            ref = self._period_at_lock or self.period_ns
+            raise RuntimeError("relock: re-measured period %s disagrees with the %.4f ms "
+                               "measured at lock by more than %.0f%% -- kept the old one"
+                               % ("%.4f ms" % (box["reject"] / 1e6) if box.get("reject")
+                                  else "(unusable)", ref / 1e6, 100 * RELOCK_SANE_FRAC))
+        self._relocks += 1
+        self._log("relock #%d: period %.4f -> %.4f ms, phase re-acquired from %d syncs"
+                  % (self._relocks, box["old"] / 1e6, self.period_ns / 1e6, obs_n))
 
     def _log_servo(self, t):
         """Caller holds self._lock. Periodic servo state -- this is the signal that
@@ -515,8 +613,20 @@ class CanonPort:
         point, which is where bootstrap() succeeded from in the first place; the servo
         then re-converges from a state that is known to get frames accepted.
 
-        Deliberately does NOT re-run lock(): the flywheel thread owns the rx socket, and
-        the phase/period it maintains are not what failed. Only the correction is reset."""
+        Two tiers, because there are two things that can be wrong and only one of them
+        is the correction:
+
+          1. Zero corr_ns and re-bootstrap. Nominal mid-bucket placement is where
+             bootstrap() succeeded originally, so if the wound-up correction was the
+             whole fault, frames start landing again immediately.
+          2. If the re-bootstrap ALSO fails, the correction was not the fault: placement
+             is wrong at every correction, which points at the period estimate the
+             flywheel is running on. Re-measure it (relock()) and bootstrap once more.
+
+        Tier 2 exists because tier 1 was observed to fail in exactly that way -- the
+        port stayed deaf through a recover(), and restarting the process fixed it in
+        four seconds. The only material difference between the two is that a restart
+        re-runs lock(). This does that in place instead."""
         with self._lock:
             was = self.corr_ns
             self.corr_ns = 0.0
@@ -525,6 +635,15 @@ class CanonPort:
             self._recoveries += 1
         self._log("recover #%d: dropping servo correction (was %+.1fus), re-bootstrapping"
                   % (self._recoveries, was / 1e3))
+        try:
+            return self.bootstrap()
+        except RuntimeError as e:
+            self._log("recover: still rejected at nominal placement (%s)" % e)
+        self.relock()
+        with self._lock:
+            self.corr_ns = 0.0          # the re-measure moved the phase under it
+            self._probe_pending = {}
+            self._probe_hits = 0
         return self.bootstrap()
 
     def audit_snapshot(self):

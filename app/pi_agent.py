@@ -81,6 +81,13 @@ class Agent:
         # packet on the wire so each lands alone in its 1 ms bucket. Two
         # concurrent prompts would not race a little, they would throw.
         self.lock = threading.Lock()
+        # Warming must be serialised. infcli.canon_port() caches the port, but the
+        # check is not atomic: two concurrent warms both see an empty cache, both
+        # open a port on the same wire, and the interlock -- which tolerates exactly
+        # one packet in flight -- rejects the probes of both. The loser then nulls
+        # the cache on its way out and takes the good port with it. Serialising
+        # makes the second caller find the first one's port and simply re-report it.
+        self.warm_lock = threading.Lock()
         self._wire(args)
 
     @staticmethod
@@ -102,6 +109,17 @@ class Agent:
         def connect():
             print("[agent] connected to %s" % args.spark, flush=True)
             sio.emit("agent:hello", {"iface": args.iface}, namespace=NS)
+            # Re-assert the wire's state on every (re)connect, because emitting it
+            # once is not enough. The port is warmed as soon as the agent starts,
+            # which can finish BEFORE the socket is up -- then ev:warm goes into a
+            # namespace that is not connected yet ("emit ev:warm failed: /agent is
+            # not a connected namespace"), is dropped, and the server shows a
+            # perfectly healthy wire as faulted with Run disabled until someone
+            # restarts the agent. Observed after a Spark reboot, which is exactly
+            # when the server is slowest to come up. Warming again is cheap (both
+            # the port and the tokenizer are cached) and genuinely retries when the
+            # first attempt failed, so this doubles as the recovery path.
+            threading.Thread(target=_warm, daemon=True).start()
 
         @sio.event(namespace=NS)
         def disconnect():
@@ -121,8 +139,9 @@ class Agent:
             wire shows as faulted before anyone can press anything."""
             t0 = time.time()
             try:
-                infcli.canon_port(self.a)
-                tok.tokenizer()
+                with self.warm_lock:
+                    infcli.canon_port(self.a)
+                    tok.tokenizer()
             except Exception as e:
                 # Drop the cached half-open port so the next warm genuinely retries
                 # rather than handing back a dead object.
