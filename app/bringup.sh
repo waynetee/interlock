@@ -56,7 +56,14 @@ echo "== 1/3  GPU back-end (host venv, needs the CUDA install) =="
 # verify_proof is the ENROLLED one -- committed before the run, its membership in
 # MODEL_ROOT checked -- so that check is independent and catches a swapped model.
 # Build it with: analysis/enroll_tree.py $VERINF/.enroll
+# ENROLL_LEDGER=0: do not accumulate the opening ledger -- every run counts as the
+# first. Each proof opens tq columns of the same padded weight rows, and the pad
+# rations the CUMULATIVE union; tracking it means an enrolment eventually refuses to
+# prove until it is refreshed. At tq=1 that is ~1058 proofs per layer, but a demo
+# should never stop mid-show for bookkeeping, and these weights are public anyway.
+# Set ENROLL_LEDGER=1 on a private model, where that union is exactly the leak.
 if [ -f "${ENROLL_DIR:-$VERINF/.enroll}/model_policy.json" ]; then
+    [ "${ENROLL_LEDGER:-0}" = "0" ] && echo "   note: opening ledger off -- pad budget not tracked (public weights)"
     echo "   model enrolled: $(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["model_root"][:16])' "${ENROLL_DIR:-$VERINF/.enroll}/model_policy.json" 2>/dev/null)... (weight root is pinned)"
 fi
 if [ "${DEMO_SELF_POLICY:-1}" = "1" ]; then
@@ -78,6 +85,7 @@ else
     PRELOAD_MODEL=1 \
     DEMO_SELF_POLICY="${DEMO_SELF_POLICY:-1}" \
     ENROLL_DIR="${ENROLL_DIR:-$VERINF/.enroll}" \
+    ENROLL_LEDGER="${ENROLL_LEDGER:-0}" \
     nohup "$VERINF/venv/bin/python" -u model_backend.py \
         > "$LOGDIR/backend.log" 2>&1 &
     echo "   started -> $LOGDIR/backend.log"
