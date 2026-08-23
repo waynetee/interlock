@@ -89,8 +89,15 @@
 	// Same three as the bench, so /lab and the demo are talking about one picture.
 	const HUES = ['#b6e04c', '#3fd2ea', '#c98cf6'];
 	const NAMES = ['A', 'B', 'C'];
-	const ROLES = ['Input fingerprint', 'Output fingerprint', 'Model fingerprint'];
-	const SUBS = ['certified inbound', 'certified outbound', 'committed in advance'];
+	// Named for the audience, not for the protocol. Someone seeing this for the first
+	// time needs to know which of the three things on the wire each sheet came from;
+	// "certified inbound" tells them nothing they can act on.
+	const ROLES = ['THE QUESTION', 'THE ANSWER', 'THE MODEL'];
+	const SUBS = [
+		'fingerprinted on the way in',
+		'fingerprinted on the way out',
+		'fixed before anything ran'
+	];
 	/** the one colour a registered pile is read in */
 	const LAMP = '#35e08b';
 	/** and the black the letters are left in */
@@ -121,15 +128,39 @@
 	// the one fit the other, measured off the column rather than assumed: this sits
 	// under a scope that is already as wide as the page allows.
 	const GAP = 1;
+	/**
+	 * The box the pile may use. Both dimensions are measured rather than assumed,
+	 * because this has to hold on a panel in the lid of a case as well as on a
+	 * projector: the pitch is whatever makes the grid fit the TIGHTER of the two.
+	 * The canvas is positioned absolutely inside the measured box, so sizing it
+	 * cannot feed back into the measurement.
+	 */
 	let boxW = $state(0);
-	const fit = (avail: number, cap: number) =>
-		Math.max(3, Math.min(cap, Math.floor((Math.max(320, avail) + GAP) / grid.cols)));
-	const PITCH = $derived(fit(boxW || 1152, 16));
+	let boxH = $state(0);
+	const PAD = 12;
+	const PITCH = $derived(
+		Math.max(
+			3,
+			Math.min(
+				22,
+				Math.floor((Math.max(320, boxW || 1152) - PAD + GAP) / grid.cols),
+				Math.floor((Math.max(90, boxH || 260) - PAD + GAP) / st.pile)
+			)
+		)
+	);
 	const CELL = $derived(PITCH - GAP);
 	const W = $derived(grid.cols * PITCH - GAP);
 	const H = $derived(st.pile * PITCH - GAP);
-	// the three previews sit side by side under the pile, so each gets a third
-	const SP = $derived(fit(((boxW || 1152) - 2 * 12) / 3, 7));
+	/**
+	 * The three previews sit side by side under the pile, so each gets a third of the
+	 * width. Capped hard and low, and driven by WIDTH ONLY: the pile's own pitch is
+	 * set by the height left over after this row, so sizing this row off that height
+	 * would be a loop -- fatter previews, shorter pile, thinner previews, and so on.
+	 * They are the secondary graphic; the pile gets the room.
+	 */
+	const SP = $derived(
+		Math.max(2, Math.min(4, Math.floor(((boxW || 1152) / 3 - 16 + GAP) / grid.cols)))
+	);
 	const SW = $derived(grid.cols * SP - GAP);
 	const SH = $derived(st.pile * SP - GAP);
 
@@ -272,18 +303,39 @@
 	 */
 	const GLOW = [0, 0, 0.45, 0.8];
 
-	/** the empty panel: a dim checker, so a register with no film in it still reads */
+	/**
+	 * The empty panel: a dim checker, so a register with no sheets in it still reads
+	 * as a grid waiting rather than as a hole. A slow band travels across it, because
+	 * a case left open on a table between demos should not look switched off.
+	 */
 	const DIM = ['#0f141b', '#131922'];
+	let shimmer = $state(0);
 	function ghost(ctx: CanvasRenderingContext2D, pitch: number) {
-		ctx.globalAlpha = 0.55;
+		const head = shimmer * (grid.cols + 36) - 18;
 		for (let r = 0; r < st.pile; r++) {
 			for (let c = 0; c < grid.cols; c++) {
+				const lift = Math.max(0, 1 - Math.abs(c - head) / 13);
+				ctx.globalAlpha = 0.5 + 0.75 * lift * lift;
 				ctx.fillStyle = DIM[(r + c) & 1];
 				ctx.fillRect(c * pitch, r * pitch, pitch - GAP, pitch - GAP);
 			}
 		}
 		ctx.globalAlpha = 1;
 	}
+
+	// Reads `stage` and writes `shimmer`, never the other way round, so the frame it
+	// schedules cannot re-enter the effect that scheduled it.
+	$effect(() => {
+		if (stage !== 'idle' || frozen()) return;
+		let h = 0;
+		const t0 = performance.now();
+		const step = (now: number) => {
+			shimmer = ((now - t0) / 3000) % 1;
+			h = requestAnimationFrame(step);
+		};
+		h = requestAnimationFrame(step);
+		return () => cancelAnimationFrame(h);
+	});
 
 	function surface(cv: HTMLCanvasElement, w: number, h: number) {
 		const dpr = window.devicePixelRatio || 1;
@@ -360,11 +412,11 @@
 	let stripCv = $state<(HTMLCanvasElement | null)[]>([null, null, null]);
 
 	$effect(() => {
-		void [view, blend, sel, pass, PITCH];
+		void [view, blend, sel, pass, PITCH, shimmer];
 		paintPile(pileCv);
 	});
 	$effect(() => {
-		void [st, shift, shown, pass, SP];
+		void [st, shift, shown, pass, SP, shimmer];
 		for (let i = 0; i < 3; i++) paintStrip(stripCv[i], i);
 	});
 
@@ -374,26 +426,26 @@
 	const note = $derived(
 		stage === 'pass'
 			? registered
-				? 'in register — three thirds of one ground, and the word left black'
-				: 'seating the strips'
+				? 'lined up — the word comes through'
+				: 'lining them up'
 			: stage === 'fail'
-				? 'registered, but B was not the strip that was dealt — red is where it landed'
+				? "the answer's sheet does not fit — that is the red"
 				: stage === 'searching'
-					? 'proof in flight — the strips are hunting for the seat'
+					? 'lining them up'
 					: sel.length
-						? 'dealt — three films on the table, out of register'
-						: 'no request on the wire'
+						? 'three sheets, out of line'
+						: 'waiting'
 	);
 </script>
 
-<section class="border border-border bg-card">
-	<div class="flex flex-wrap items-baseline justify-between gap-3 border-b border-border px-4 py-2">
-		<span class="font-mono text-[10px] tracking-[0.16em] text-muted-foreground uppercase">
-			Fingerprint register · A + B + C, nothing cropped
-		</span>
+<section class="flex min-h-0 flex-1 flex-col border border-border bg-card">
+	<div
+		class="flex shrink-0 flex-wrap items-baseline justify-between gap-3 border-b border-border px-4 py-1.5"
+	>
+		<span class="t-tag font-mono text-muted-foreground uppercase">The three fingerprints</span>
 		<span
 			class={cn(
-				'font-mono text-[10px] tracking-[0.12em]',
+				't-body font-mono',
 				stage === 'fail'
 					? 'text-fault'
 					: stage === 'pass'
@@ -405,58 +457,58 @@
 		</span>
 	</div>
 
-	<div class="flex flex-col items-center gap-3 overflow-x-auto p-4" bind:clientWidth={boxW}>
+	<!-- The pile takes whatever height is left; the canvas floats inside the measured
+	     box so its own size cannot feed back into the measurement. -->
+	<div class="relative min-h-0 flex-1" bind:clientWidth={boxW} bind:clientHeight={boxH}>
 		<div
-			class="relative shrink-0"
+			class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2"
 			style="width:{W}px;height:{H}px"
 			role="img"
-			aria-label="fingerprint register — {note}"
+			aria-label="the three fingerprints, stacked — {note}"
 		>
 			<div
-				class="pointer-events-none absolute -inset-6 transition-opacity duration-700"
+				class="pointer-events-none absolute -inset-8 transition-opacity duration-700"
 				style="opacity:{stage === 'pass'
 					? 1
-					: 0};background:radial-gradient(ellipse at center,color-mix(in oklab,var(--verified) 16%,transparent),transparent 70%)"
+					: 0};background:radial-gradient(ellipse at center,color-mix(in oklab,var(--verified) 18%,transparent),transparent 70%)"
 			></div>
 			<div
-				class="pointer-events-none absolute -inset-6 transition-opacity duration-700"
+				class="pointer-events-none absolute -inset-8 transition-opacity duration-700"
 				style="opacity:{stage === 'fail'
 					? 1
-					: 0};background:radial-gradient(ellipse at center,color-mix(in oklab,var(--fault) 15%,transparent),transparent 68%)"
+					: 0};background:radial-gradient(ellipse at center,color-mix(in oklab,var(--fault) 16%,transparent),transparent 68%)"
 			></div>
 			<canvas bind:this={pileCv} class="absolute top-0 left-0" aria-hidden="true"></canvas>
 		</div>
+	</div>
 
-		<div class="grid w-full shrink-0 grid-cols-3 gap-3" style="width:{W}px">
-			{#each NAMES as name, i (name)}
-				<div
-					class={cn(
-						'flex flex-col gap-1.5 transition-opacity duration-500',
-						shown[i] ? 'opacity-100' : 'opacity-30'
-					)}
-				>
-					<div class="flex items-baseline gap-2">
-						<span
-							class="size-2 shrink-0 self-center"
-							style="background:{i === ROGUE && !pass ? FAULT : HUES[i]}"
-						></span>
-						<span class="font-mono text-[11px] font-semibold" style="color:{HUES[i]}">{name}</span>
-						<span class="font-mono text-[9px] tracking-[0.14em] text-muted-foreground uppercase">
-							{ROLES[i]}
-						</span>
-					</div>
-					<div
-						class="tabular font-mono text-[13px] leading-none font-semibold"
-						style="color:{i === ROGUE && !pass ? FAULT : HUES[i]}"
-					>
-						{fmt(digests[i])}
-					</div>
-					<div class="font-mono text-[9px] tracking-[0.12em] text-muted-foreground/70 uppercase">
-						{SUBS[i]}{i === st.backing ? ' · backing, does not move' : ''}
-					</div>
-					<canvas bind:this={stripCv[i]} class="mt-0.5" aria-hidden="true"></canvas>
+	<div class="grid shrink-0 grid-cols-3 gap-4 px-4 pt-1 pb-2">
+		{#each NAMES as name, i (name)}
+			<div
+				class={cn(
+					'flex flex-col gap-1 transition-opacity duration-500',
+					shown[i] ? 'opacity-100' : 'opacity-30'
+				)}
+			>
+				<div class="flex items-baseline gap-x-2">
+					<span
+						class="size-[0.7em] shrink-0 self-center"
+						style="background:{i === ROGUE && !pass ? FAULT : HUES[i]}"
+					></span>
+					<span class="t-body font-mono font-semibold" style="color:{HUES[i]}">{name}</span>
+					<span class="t-body font-mono tracking-[0.1em]">{ROLES[i]}</span>
 				</div>
-			{/each}
-		</div>
+				<!-- On its own line: sat on the same line as the role it read as the NEXT
+				     column's digest, which is the one misreading that matters here. -->
+				<div
+					class="tabular t-body font-mono leading-none font-semibold"
+					style="color:{i === ROGUE && !pass ? FAULT : HUES[i]}"
+				>
+					{fmt(digests[i])}
+				</div>
+				<div class="t-tag font-mono text-muted-foreground/70">{SUBS[i]}</div>
+				<canvas bind:this={stripCv[i]} class="fp-strip" aria-hidden="true"></canvas>
+			</div>
+		{/each}
 	</div>
 </section>

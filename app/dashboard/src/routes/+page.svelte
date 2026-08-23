@@ -1,6 +1,6 @@
 <script lang="ts">
 	/**
-	 * Interlock — hardware-attested inference.
+	 * Interlock — the case.
 	 *
 	 * Driven by demo_server.py (interlock/app), which orchestrates a Raspberry Pi
 	 * holding the certified wire and a Spark running the model behind a PolarFire
@@ -8,9 +8,16 @@
 	 * here arrived over that wire. The only thing this file invents is the pacing.
 	 *
 	 * ...unless the board is off, in which case it invents everything — see
-	 * `simulate()`. That path exists so the demo survives a dead board, and it is
-	 * labelled on the front panel, in the mode strip and in the trace, because a
-	 * rehearsal that cannot be told apart from a run is worse than no rehearsal.
+	 * `simulate()`. That path exists so the demo survives a dead board, and it says
+	 * so on screen in the one strip that is never dismissible, because a rehearsal
+	 * that cannot be told apart from a run is worse than no rehearsal.
+	 *
+	 * WHO IS READING THIS. A panel in the lid of a case, seen standing up from a few
+	 * feet by someone who has not been briefed. That sets every rule below: one
+	 * screen and no scroll, type sized off the viewport, one sentence at a time, and
+	 * no term that would need a footnote. The numbers an engineer wants — the byte
+	 * audits, the soundness bound, the prover's own status lines — are not gone; they
+	 * are on the console and in /lab. They are just not on the lid.
 	 */
 	import FingerprintRegister, { type Stage } from '$lib/components/fingerprint-register.svelte';
 	import { cn } from '$lib/utils';
@@ -25,8 +32,8 @@
 	let agentUp = $state(false);
 	let wireOk = $state(false);
 	let wireFault = $state('');
-	let modelName = $state('');
-	let modeText = $state('1 token-layer of ~460 · not a proof of the forward pass');
+	/** the server's own mode label, kept verbatim for the console and the tooltip */
+	let modeRaw = $state('spot check');
 	let busy = $state(false);
 
 	/** the tamper switch: sticky, and only the operator flips it */
@@ -38,15 +45,16 @@
 	/** whether the run being shown came out of `simulate()` rather than the wire */
 	let simRun = $state(false);
 
-	let caption = $state('Idle.');
-	let detail = $state('Press PROMPT to send a request across the certified link.');
+	let caption = $state('Ready — press PROMPT to send a question.');
 	let phase = $state<'idle' | 'req' | 'gen' | 'rsp' | 'prove' | 'done'>('idle');
 	let hotFpga = $state(false);
 	let hotSpark = $state(false);
 
-	let pktX = $state(6);
-	let pktLabel = $state('PROMPT');
-	let pktEnc = $state(false);
+	/** where the packet is, across the cable: your machine, the checker, the far end */
+	const STOP = [16, 50, 84];
+	let pktX = $state(STOP[0]);
+	let pktLabel = $state('QUESTION');
+	let pktSealed = $state(false);
 	let pktShown = $state(false);
 
 	let reqFp = $state<string | null>(null);
@@ -58,16 +66,15 @@
 	let answer = $state('');
 	let verdict = $state<Verdict | null>(null);
 	let elapsed = $state('');
-	let trace = $state<string[]>([]);
 
 	const short = (h: string | null, n = 8) => (h ? h.slice(0, n).toUpperCase() : '—');
-	let tape = $state<HTMLDivElement | null>(null);
-	// The trace box is four lines tall and a run writes a dozen, so without this the
-	// newest line -- which is the one being talked about -- sits below the fold.
-	const log = (s: string) => {
-		trace = [...trace.slice(-40), s];
-		queueMicrotask(() => tape?.scrollTo({ top: tape.scrollHeight }));
-	};
+	/**
+	 * The run's narration, on the console rather than on the lid. The status tape
+	 * this used to paint was the densest thing on the screen and the least legible
+	 * from three feet; an operator who wants it can open devtools, and /lab has the
+	 * measurements in full.
+	 */
+	const log = (s: string) => console.debug('[interlock]', s);
 
 	let pending: Record<string, any> = {};
 	let chain: Promise<unknown> = Promise.resolve();
@@ -83,18 +90,16 @@
 	/** Everything a run puts on the screen. The switches are not part of a run. */
 	function clearRun() {
 		phase = 'idle';
-		caption = 'Idle.';
-		detail = 'Press PROMPT to send a request across the certified link.';
+		caption = 'Ready — press PROMPT to send a question.';
 		hotFpga = hotSpark = false;
-		pktShown = pktEnc = false;
-		pktX = 6;
+		pktShown = pktSealed = false;
+		pktX = STOP[0];
 		reqFp = rspFp = null;
 		proving = false;
 		promptText = '';
 		answer = '';
 		verdict = null;
 		elapsed = '';
-		trace = [];
 		tampered = false;
 		simRun = false;
 		busy = false;
@@ -111,31 +116,28 @@
 
 	async function runRequest(d: any, gen: number) {
 		phase = 'req';
-		pktLabel = 'PROMPT';
-		pktEnc = false;
-		pktX = 6;
+		pktLabel = 'QUESTION';
+		pktSealed = false;
+		pktX = STOP[0];
 		pktShown = true;
-		caption = 'A request arrives.';
-		detail = '';
+		caption = 'A question leaves your machine.';
 		if (!(await step(750, gen))) return;
 
-		pktEnc = true;
-		pktLabel = 'CIPHERTEXT';
-		caption = 'Sealed before it reaches the cable.';
-		detail = `${d.n_tokens} tokens → ${(d.ct_in ?? '').length / 2} bytes · AES-128-GCM`;
+		pktSealed = true;
+		pktLabel = 'SEALED';
+		caption = 'It is locked before it touches the cable.';
 		log(`SEAL   ${d.n_tokens} tok → ${(d.ct_in ?? '').length / 2}B`);
 		if (!(await step(900, gen))) return;
 
-		pktX = 38;
+		pktX = STOP[1];
 		hotFpga = true;
 		if (!(await step(950, gen))) return;
 		reqFp = d.request_digest ?? null;
-		caption = 'The certifier fingerprints it in passing.';
-		detail = `inbound byte-audit ${d.request_audit ? 'PASS' : 'FAIL'}`;
-		log(`CERT   inbound  ${short(reqFp, 16)}`);
-		if (!(await step(850, gen))) return;
+		caption = 'The checker takes its fingerprint on the way past.';
+		log(`CERT   inbound  ${short(reqFp, 16)} audit=${d.request_audit ? 'PASS' : 'FAIL'}`);
+		if (!(await step(950, gen))) return;
 
-		pktX = 79;
+		pktX = STOP[2];
 		hotFpga = false;
 		hotSpark = true;
 		if (!(await step(950, gen))) return;
@@ -144,34 +146,31 @@
 
 	async function runResponse(d: any, text: string, gen: number) {
 		phase = 'gen';
-		caption = 'The datacenter runs the model and seals the answer.';
-		detail = '';
-		if (!(await step(800, gen))) return;
+		caption = 'The datacenter runs the model and locks the answer.';
+		if (!(await step(1100, gen))) return;
 
 		phase = 'rsp';
-		pktLabel = 'CIPHERTEXT';
-		pktEnc = true;
-		pktX = 79;
+		pktLabel = 'SEALED';
+		pktSealed = true;
+		pktX = STOP[2];
 		pktShown = true;
 		if (!(await step(550, gen))) return;
-		pktX = 38;
+		pktX = STOP[1];
 		hotSpark = false;
 		hotFpga = true;
 		if (!(await step(950, gen))) return;
 
 		rspFp = d.response_digest ?? null;
-		caption = 'The output is fingerprinted too.';
-		detail = `outbound byte-audit ${d.response_audit ? 'PASS' : 'FAIL'}`;
-		log(`CERT   outbound ${short(rspFp, 16)}`);
-		if (!(await step(850, gen))) return;
+		caption = 'The answer is fingerprinted too.';
+		log(`CERT   outbound ${short(rspFp, 16)} audit=${d.response_audit ? 'PASS' : 'FAIL'}`);
+		if (!(await step(950, gen))) return;
 
-		pktX = 6;
+		pktX = STOP[0];
 		hotFpga = false;
 		if (!(await step(950, gen))) return;
-		pktEnc = false;
-		pktLabel = 'PLAINTEXT';
-		caption = 'Only the key holder can open it.';
-		detail = '';
+		pktSealed = false;
+		pktLabel = 'ANSWER';
+		caption = 'Only your machine holds the key that opens it.';
 		if (!(await step(850, gen))) return;
 		pktShown = false;
 		answer = text;
@@ -185,8 +184,7 @@
 		// the verdict lands however long that takes -- the animation is paced by the
 		// prover, not by a timer that guesses at it.
 		proving = true;
-		caption = 'The datacenter proves the fingerprints came from the approved model.';
-		detail = 'zero-knowledge — weights, prompt and answer all stay private';
+		caption = 'Now the datacenter has to prove those fingerprints came from the promised model.';
 		if (!(await step(1100, gen))) return;
 	}
 
@@ -200,10 +198,9 @@
 		proving = false;
 		hotSpark = false;
 		const ok = verdict?.verdict === 'PASS';
-		caption = ok ? 'The fingerprints match the model.' : 'The fingerprints do not match.';
-		detail = ok
-			? 'the certified ciphertext opens, under a pre-committed key, to the proven tokens'
-			: 'the datacenter claimed an output the certifier never fingerprinted';
+		caption = ok
+			? 'It did. The three fingerprints line up.'
+			: 'It could not. That answer never went past the checker.';
 		log(`PROOF  ${verdict?.verdict}  verify=${verdict?.verify}  binding=${verdict?.keybind}`);
 		busy = false;
 	}
@@ -215,8 +212,7 @@
 		socket.on('hello', (d: any) => {
 			agentUp = !!d.agent;
 			wireOk = !!d.wire;
-			modelName = d.model ?? '';
-			if (d.mode) modeText = d.mode;
+			if (d.mode) modeRaw = d.mode;
 			if (d.model_fp) modelFp = d.model_fp;
 		});
 		socket.on('wire:agent', (d: any) => {
@@ -226,19 +222,14 @@
 		socket.on('wire:ready', () => {
 			wireOk = true;
 			wireFault = '';
-			if (phase === 'idle') detail = 'Press PROMPT to send a request across the certified link.';
 		});
-		// The board goes quiet a few hours after power-up. Say so on screen rather
-		// than letting someone press PROMPT and find out twelve seconds later -- and
-		// point at the simulator, which is the way out that does not need the board.
+		// The board goes quiet a few hours after power-up. The strip says so, and the
+		// simulator picks itself up, so nobody presses PROMPT and finds out twelve
+		// seconds later in front of an audience.
 		socket.on('wire:fault', (d: any) => {
 			wireOk = false;
 			wireFault = d?.error ?? 'no sync stream';
-			if (busy) return;
-			caption = 'Wire fault.';
-			detail =
-				'the interlock is not emitting sync — power-cycle it; this re-arms automatically, ' +
-				'and PROMPT runs the simulator in the meantime';
+			log(`FAULT  ${wireFault}`);
 		});
 		socket.on('beat:armed', () => (tampered = true));
 		socket.on('beat:reset', clearRun);
@@ -256,7 +247,7 @@
 			queue(async () => {
 				if (gen !== generation) return;
 				await runRequest(pending, gen);
-				await runResponse(pending, d.ok ? d.text : 'could not decrypt', gen);
+				await runResponse(pending, d.ok ? d.text : 'could not open it', gen);
 				await runProve(gen);
 			});
 		});
@@ -265,25 +256,17 @@
 			const gen = generation;
 			queue(() => runVerdict(d, gen));
 		});
-		socket.on('beat:proof_status', (d: any) => {
-			const m = String(d.line)
-				.replace(/^\s*\[status\]\s*/, '')
-				.trim();
-			if (m) log(`PROVE  ${m.slice(0, 58)}`);
-		});
+		socket.on('beat:proof_status', (d: any) => log(`PROVE  ${String(d.line).trim()}`));
 		socket.on('beat:error', (d: any) => {
-			caption = 'Fault.';
-			detail = d.error ?? '';
+			caption = 'Something went wrong. Press RESET and try again.';
+			log(`ERROR  ${d.error ?? ''}`);
 			proving = false;
 			busy = false;
 			// A halt that did not take leaves the machine up, so the panel comes back
 			// rather than sitting behind a "powering off" curtain that will never lift.
 			goingDown = false;
 		});
-		socket.on('beat:shutdown', (d: any) => {
-			goingDown = true;
-			log(`HALT   ${d?.what ?? 'power off'}`);
-		});
+		socket.on('beat:shutdown', () => (goingDown = true));
 	});
 	onDestroy(() => socket?.disconnect());
 
@@ -307,14 +290,11 @@
 	 * A run with no hardware in it.
 	 *
 	 * The board goes quiet a few hours after power-up and the Pi has to be on the
-	 * Spark's AP, so there are plenty of ways to arrive at a demo with nothing on the
-	 * wire. This drives the same four beat functions the socket drives, on the same
-	 * pacing, so what is rehearsed is what will run -- and it fabricates its digests
-	 * rather than replaying a captured pair, because a recording of a real run is
-	 * exactly the thing that could be passed off as one.
-	 *
-	 * It is never silent about itself: the SIM lamp, the mode strip, the trace's first
-	 * line and the verdict's own footnote all say so, and none of them is dismissible.
+	 * Spark's AP, so there are plenty of ways to open the case and find nothing on
+	 * the wire. This drives the same four beat functions the socket drives, on the
+	 * same pacing, so what is rehearsed is what will run -- and it fabricates its
+	 * digests rather than replaying a captured pair, because a recording of a real
+	 * run is exactly the thing that could be passed off as one.
 	 */
 	const SIM_PROMPT = 'Question: What is the capital of France?\nAnswer:';
 	const SIM_ANSWER = 'Paris';
@@ -391,7 +371,6 @@
 				},
 				gen
 			);
-			log('SIM    end of simulated run');
 		});
 	}
 
@@ -399,7 +378,7 @@
 	/**
 	 * Two presses, and the second one only counts inside four seconds. This kills the
 	 * Pi and then the Spark -- including the server that is serving this page, so
-	 * there is no undo and no way back except walking over to the hardware.
+	 * there is no undo and no way back except opening the case.
 	 */
 	let armDown = $state(false);
 	let downTimer = 0;
@@ -421,9 +400,9 @@
 	}
 
 	// ── the register ───────────────────────────────────────────────────────────
-	// Three films: the two the certifier printed on the way past, and the model
-	// commitment, which is known before anything is sent. They land as the run does,
-	// hunt for their seat while the proof is in flight, and settle when it rules.
+	// Three sheets: the two the checker printed on the way past, and the model's own,
+	// which is fixed before anything is sent. They land as the run does, hunt for
+	// their seat while the proof is in flight, and settle when it rules.
 	const fpStage = $derived(
 		(verdict
 			? verdict.verdict === 'PASS'
@@ -436,13 +415,55 @@
 					: 'idle') as Stage
 	);
 
-	const lamps = $derived([
-		{ k: 'LINK', on: connected, colour: 'bg-verified' },
-		{ k: 'WIRE', on: wireOk, colour: 'bg-verified' },
-		{ k: 'SIM', on: simMode, colour: 'bg-caution' },
-		{ k: 'BUSY', on: busy, colour: 'bg-signal' },
-		{ k: 'FAULT', on: verdict?.verdict === 'FAIL' || !!wireFault, colour: 'bg-fault' }
-	]);
+	// ── the one strip that is never dismissible ────────────────────────────────
+	/**
+	 * What an audience has a right to know before they believe the screen, in plain
+	 * words and at reading size. The simulator outranks the tamper because "none of
+	 * this happened" is the more important of the two.
+	 *
+	 * The mode line is DERIVED from the server's own label rather than written here,
+	 * so a server that switches out of the subsampled prover cannot leave the lid
+	 * claiming a spot check -- or, worse, leave a spot check unlabelled. The raw
+	 * label rides along as the strip's tooltip for whoever is running the demo.
+	 */
+	const banner = $derived(
+		simRun || simMode
+			? {
+					tag: 'Simulated',
+					tone: 'caution' as const,
+					say: `no hardware connected — everything on this screen is made up by the browser${armed ? ', with the tamper switch on' : ''}`
+				}
+			: tampered
+				? {
+						tag: 'Tampered',
+						tone: 'fault' as const,
+						say: 'the datacenter is claiming an answer the checker never saw — this fails every time'
+					}
+				: /spot check/i.test(modeRaw)
+					? {
+							tag: 'Spot check',
+							tone: 'caution' as const,
+							say: 'one slice of the answer is proved, not the whole run'
+						}
+					: { tag: 'Live', tone: 'ok' as const, say: modeRaw }
+	);
+
+	/** the prompt without its scaffolding, so the payoff reads as a question */
+	const asked = $derived(
+		promptText
+			.replace(/^\s*Question:\s*/i, '')
+			.replace(/\s*Answer:\s*$/i, '')
+			.trim()
+	);
+	/** the far end is doing something you cannot see: say so with a sweep, not a word */
+	const working = $derived(phase === 'gen' || phase === 'prove');
+	/** and your own machine lights up for the two moments the key is in use */
+	const hotHome = $derived(pktShown && pktX === STOP[0]);
+	const TONE = {
+		ok: { bar: 'border-l-verified', text: 'text-verified' },
+		caution: { bar: 'border-l-caution', text: 'text-caution' },
+		fault: { bar: 'border-l-fault', text: 'text-fault' }
+	};
 </script>
 
 {#snippet toggle(on: boolean, label: string, tone: 'fault' | 'caution', click: () => void)}
@@ -457,7 +478,7 @@
 	>
 		<span
 			class={cn(
-				'relative h-4 w-8 border transition-colors duration-200',
+				'relative h-[1.5em] w-[2.9em] border text-[clamp(0.7rem,0.85vw,1rem)] transition-colors duration-200',
 				on
 					? tone === 'fault'
 						? 'border-fault bg-fault/20'
@@ -467,16 +488,16 @@
 		>
 			<span
 				class={cn(
-					'absolute top-[1px] size-[12px] transition-all duration-200',
+					'absolute top-[0.13em] size-[1.2em] transition-all duration-200',
 					on
-						? `left-[17px] ${tone === 'fault' ? 'bg-fault' : 'bg-caution'}`
-						: 'left-[1px] bg-muted-foreground/70'
+						? `left-[1.57em] ${tone === 'fault' ? 'bg-fault' : 'bg-caution'}`
+						: 'left-[0.13em] bg-muted-foreground/70'
 				)}
 			></span>
 		</span>
 		<span
 			class={cn(
-				'font-mono text-[11px] tracking-[0.14em] uppercase transition-colors',
+				't-tag font-mono uppercase transition-colors',
 				on
 					? tone === 'fault'
 						? 'text-fault'
@@ -489,189 +510,154 @@
 	</button>
 {/snippet}
 
-<div class="min-h-svh bg-background text-foreground">
+{#snippet station(left: number, name: string, sub: string, hot: boolean)}
+	<div
+		class={cn(
+			'absolute top-[6%] flex h-[56%] w-[clamp(140px,16vw,260px)] -translate-x-1/2 flex-col items-center justify-center gap-1 overflow-hidden border bg-background transition-all duration-300',
+			hot ? 'border-signal shadow-[0_0_30px_-4px_var(--signal)]' : 'border-border'
+		)}
+		style="left:{left}%"
+	>
+		<div class="t-body font-mono font-semibold tracking-[0.05em]">{name}</div>
+		<div class="t-tag px-2 text-center font-mono leading-tight text-muted-foreground uppercase">
+			{sub}
+		</div>
+	</div>
+{/snippet}
+
+<div class="flex h-svh flex-col overflow-hidden bg-background text-foreground">
 	<!-- front panel -->
-	<header class="border-b border-border">
-		<div class="mx-auto flex max-w-7xl flex-wrap items-center justify-between gap-4 px-6 py-3">
-			<div class="flex items-baseline gap-4">
-				<span class="font-mono text-sm font-semibold tracking-[0.22em] text-foreground"
-					>INTERLOCK</span
-				>
-				<span class="font-mono text-[10px] tracking-[0.16em] text-muted-foreground uppercase">
-					network certifier · {modelName || 'no model'}
-				</span>
-				<a
-					href={resolve('/lab')}
-					class="font-mono text-[10px] tracking-[0.16em] text-muted-foreground/70 uppercase underline-offset-4 hover:text-foreground hover:underline"
-				>
-					share bench →
-				</a>
-			</div>
-			<div class="flex items-center gap-5">
-				{#each lamps as l (l.k)}
-					<div class="flex items-center gap-1.5">
-						<span
-							class={cn(
-								'size-1.5 rounded-full transition-all duration-300',
-								l.on ? `${l.colour} shadow-[0_0_7px_currentColor]` : 'bg-border'
-							)}
-						></span>
-						<span
-							class={cn(
-								'font-mono text-[9px] tracking-[0.14em]',
-								l.on ? 'text-foreground' : 'text-muted-foreground/60'
-							)}>{l.k}</span
-						>
-					</div>
-				{/each}
-				<button
-					class={cn(
-						'border px-3 py-1 font-mono text-[9px] tracking-[0.14em] uppercase transition-colors',
-						armDown
-							? 'border-fault bg-fault/20 text-fault'
-							: 'border-border text-muted-foreground/70 hover:border-fault hover:text-fault'
-					)}
-					disabled={goingDown}
-					onclick={shutdown}
-				>
-					{armDown ? 'confirm · powers off both' : 'shut down'}
-				</button>
-			</div>
+	<header class="flex shrink-0 items-center justify-between gap-4 border-b border-border px-6 py-2">
+		<span class="t-body font-mono font-semibold tracking-[0.24em]">INTERLOCK</span>
+		<div class="flex items-center gap-4">
+			<a
+				href={resolve('/lab')}
+				class="font-mono text-[10px] tracking-[0.16em] text-muted-foreground/40 uppercase hover:text-foreground"
+				>bench</a
+			>
+			<button
+				class={cn(
+					't-tag border px-3 py-1 font-mono uppercase transition-colors',
+					armDown
+						? 'border-fault bg-fault/20 text-fault'
+						: 'border-border text-muted-foreground/60 hover:border-fault hover:text-fault'
+				)}
+				disabled={goingDown}
+				onclick={shutdown}
+			>
+				{armDown ? 'press again to power off' : 'shut down'}
+			</button>
 		</div>
 	</header>
 
-	<main class="mx-auto flex max-w-7xl flex-col gap-4 px-6 py-6">
-		<div class="flex flex-wrap items-end justify-between gap-4">
-			<h1 class="max-w-2xl text-2xl leading-tight font-medium tracking-tight text-balance">
-				Is the datacenter running the correct model?
+	<main class="flex min-h-0 flex-1 flex-col gap-[clamp(0.5rem,1.4vh,1.1rem)] px-6 py-[1.2vh]">
+		<!-- the question, and the controls -->
+		<div class="flex shrink-0 flex-wrap items-center justify-between gap-x-8 gap-y-3">
+			<h1 class="t-hero max-w-[22ch] font-medium tracking-tight text-balance">
+				Is the datacenter really running the model it promised?
 			</h1>
-			<div class="flex flex-wrap items-center gap-5">
+			<div class="flex flex-wrap items-center gap-x-6 gap-y-3">
 				{@render toggle(armed, 'Tamper', 'fault', () => (armed = !armed))}
 				{@render toggle(simForce || !liveWire, 'Simulate', 'caution', () => {
 					// off is only offerable when there is a wire to fall back to
 					if (liveWire) simForce = !simForce;
 				})}
 				<button
-					class="border border-border px-4 py-2 font-mono text-[11px] tracking-[0.14em] text-muted-foreground uppercase transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
+					class="t-tag border border-border px-4 py-2 font-mono text-muted-foreground uppercase transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
 					disabled={goingDown}
 					onclick={resetAll}>Reset</button
 				>
 				<button
-					class="border border-signal bg-signal/10 px-6 py-2 font-mono text-[11px] tracking-[0.14em] text-signal uppercase transition-colors hover:bg-signal/20 disabled:pointer-events-none disabled:opacity-35"
+					class={cn(
+						't-lead border border-signal bg-signal/10 px-8 py-2 font-mono tracking-[0.14em] text-signal uppercase transition-colors hover:bg-signal/20 disabled:pointer-events-none disabled:opacity-35',
+						!busy && !goingDown && phase !== 'done' && 'ilk-breathe'
+					)}
 					disabled={busy || goingDown}
 					onclick={start}>Prompt</button
 				>
 			</div>
 		</div>
 
-		<!-- mode strip: never dismissible. Neither fast mode nor the simulator may be
-		     allowed to read as a proof, and the simulator outranks the tamper here
-		     because "none of this happened" is the more important of the two. -->
+		<!-- never dismissible: nothing here may read as a proof that it is not -->
 		<div
 			class={cn(
-				'flex items-baseline gap-3 border-l-2 bg-card/60 px-4 py-2 font-mono text-[11px]',
-				simRun || simMode
-					? 'border-l-caution text-caution'
-					: tampered
-						? 'border-l-fault text-fault'
-						: 'border-l-caution text-muted-foreground'
+				't-body flex shrink-0 flex-wrap items-baseline gap-x-3 border-l-4 bg-card/60 px-4 py-2 font-mono',
+				TONE[banner.tone].bar
 			)}
+			title={modeRaw}
 		>
-			<span class="shrink-0 tracking-[0.16em] uppercase">
-				{simRun || simMode ? 'Simulated' : tampered ? 'Tampered' : 'Spot check'}
-			</span>
-			<span class="text-muted-foreground">
-				{#if simRun || simMode}
-					no hardware in the loop — the digests, the answer and the verdict on this screen are
-					fabricated by the browser{armed ? ', with the tamper switch armed' : ''}. Nothing here was
-					certified, and nothing here was proven.
-				{:else if tampered}
-					proving an output the certifier never fingerprinted — the key binding is full strength in
-					every mode, so this fails every time
-				{:else}
-					{modeText}
-				{/if}
-			</span>
+			<span class={cn('shrink-0 tracking-[0.16em] uppercase', TONE[banner.tone].text)}
+				>{banner.tag}</span
+			>
+			<span class="text-muted-foreground">{banner.say}</span>
 		</div>
 
-		<!-- scope -->
-		<section class="relative h-[280px] overflow-hidden border border-border bg-card">
+		<!--
+			Two bands: the three machines along the top, the cable underneath them. They
+			used to share one line, which put the packet on top of whichever station it
+			had reached and covered the label -- exactly at the moment the label matters.
+		-->
+		<section
+			class="relative h-[clamp(118px,18vh,230px)] shrink-0 overflow-hidden border border-border bg-card"
+		>
 			<div
-				class="pointer-events-none absolute inset-0 opacity-[0.55]"
-				style="background-image:linear-gradient(to right,var(--grid) 1px,transparent 1px),linear-gradient(to bottom,var(--grid) 1px,transparent 1px);background-size:34px 34px"
+				class="pointer-events-none absolute inset-0 opacity-50"
+				style="background-image:linear-gradient(to right,var(--grid) 1px,transparent 1px),linear-gradient(to bottom,var(--grid) 1px,transparent 1px);background-size:44px 44px"
 			></div>
 
-			<div class="absolute inset-x-[4%] top-[140px] h-px bg-border"></div>
-			<div class="absolute inset-x-[4%] top-[140px] flex justify-between">
-				{#each Array(29) as _, i (i)}<span class="h-1.5 w-px bg-border/70"></span>{/each}
-			</div>
+			<!-- a drop from each machine down to the cable it is spliced into -->
+			{#each STOP as x (x)}
+				<div class="absolute top-[62%] h-[20%] w-px bg-border" style="left:{x}%"></div>
+			{/each}
 
-			<!-- certifier -->
+			<!-- the cable itself, and the flow it carries only while there is traffic -->
+			<div class="absolute inset-x-[8%] top-[82%] h-px bg-border"></div>
 			<div
 				class={cn(
-					'absolute top-[72px] left-[38%] flex h-[136px] w-[196px] -translate-x-1/2 flex-col items-center justify-center gap-2 border bg-background transition-all duration-300',
-					hotFpga ? 'border-signal shadow-[0_0_26px_-4px_var(--signal)]' : 'border-border'
+					'absolute inset-x-[8%] top-[82%] h-[2px] transition-opacity duration-500',
+					pktShown ? 'ilk-flow opacity-80' : 'opacity-0'
 				)}
-			>
-				<div
-					class={cn(
-						'font-mono text-[10px] tracking-[0.16em] transition-colors',
-						hotFpga ? 'text-signal' : 'text-muted-foreground'
-					)}
-				>
-					FPGA
-				</div>
-				<div class="font-mono text-[15px] font-semibold tracking-[0.06em]">CERTIFIER</div>
-				<div class="font-mono text-[9px] tracking-[0.12em] text-muted-foreground uppercase">
-					bump in the wire
-				</div>
-			</div>
+			></div>
 
-			<!-- datacenter -->
+			{@render station(STOP[0], 'YOUR MACHINE', 'holds the key', hotHome)}
+			{@render station(STOP[1], 'THE CHECKER', 'a chip in the cable', hotFpga)}
+
+			<!-- the far end, which becomes the verdict once there is one -->
 			<div
 				class={cn(
-					'absolute top-[72px] left-[79%] flex h-[136px] w-[196px] -translate-x-1/2 flex-col items-center justify-center gap-2 border bg-background transition-all duration-300',
+					'absolute top-[6%] flex h-[56%] -translate-x-1/2 flex-col items-center justify-center gap-1 overflow-hidden border bg-background transition-all duration-500',
+					verdict ? 'w-[clamp(180px,21vw,340px)]' : 'w-[clamp(140px,16vw,260px)]',
 					verdict
 						? verdict.verdict === 'PASS'
-							? 'border-verified shadow-[0_0_30px_-4px_var(--verified)]'
-							: 'border-fault shadow-[0_0_30px_-4px_var(--fault)]'
+							? 'border-verified shadow-[0_0_40px_-4px_var(--verified)]'
+							: 'border-fault shadow-[0_0_40px_-4px_var(--fault)]'
 						: hotSpark
-							? 'border-signal shadow-[0_0_26px_-4px_var(--signal)]'
+							? 'border-signal shadow-[0_0_30px_-4px_var(--signal)]'
 							: 'border-border'
 				)}
+				style="left:{STOP[2]}%"
 			>
 				{#if verdict}
 					{@const ok = verdict.verdict === 'PASS'}
 					<div
 						class={cn(
-							'font-mono text-[10px] tracking-[0.16em]',
-							ok ? 'text-verified' : 'text-fault'
-						)}
-					>
-						{ok ? 'PROOF ACCEPTED' : 'PROOF REJECTED'}
-					</div>
-					<div
-						class={cn(
-							'font-mono text-[19px] font-bold tracking-[0.1em]',
+							'ilk-bloom font-mono text-[clamp(1.15rem,2vw,2.3rem)] leading-none font-bold tracking-[0.08em]',
 							ok ? 'text-verified' : 'text-fault'
 						)}
 					>
 						{ok ? 'VERIFIED' : 'REJECTED'}
 					</div>
-					<div class="tabular font-mono text-[9px] tracking-[0.1em] text-muted-foreground">
-						U {verdict.U} · {elapsed}{simRun ? ' · simulated' : ''}
-					</div>
+					{#if elapsed}
+						<div class="tabular t-tag font-mono text-muted-foreground">proved in {elapsed}</div>
+					{/if}
 				{:else}
+					{#if working}
+						<div class="ilk-sweep pointer-events-none absolute inset-x-0 h-1/3 bg-signal/15"></div>
+					{/if}
+					<div class="t-body font-mono font-semibold tracking-[0.05em]">THE DATACENTER</div>
 					<div
-						class={cn(
-							'font-mono text-[10px] tracking-[0.16em] transition-colors',
-							hotSpark ? 'text-signal' : 'text-muted-foreground'
-						)}
+						class="t-tag px-2 text-center font-mono leading-tight text-muted-foreground uppercase"
 					>
-						GPU
-					</div>
-					<div class="font-mono text-[15px] font-semibold tracking-[0.06em]">DATACENTER</div>
-					<div class="font-mono text-[9px] tracking-[0.12em] text-muted-foreground uppercase">
 						runs the model
 					</div>
 				{/if}
@@ -680,57 +666,57 @@
 			<!-- the one thing allowed to use the accent: traffic actually on the cable -->
 			<div
 				class={cn(
-					'absolute top-[140px] -translate-x-1/2 -translate-y-1/2 border px-3 py-1.5 font-mono text-[10px] tracking-[0.12em] whitespace-nowrap transition-all duration-[900ms] ease-in-out',
-					pktEnc
+					't-tag absolute top-[82%] z-10 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 border px-3 py-1 font-mono whitespace-nowrap transition-all duration-[900ms] ease-in-out',
+					pktSealed
 						? 'border-border bg-muted text-muted-foreground'
-						: 'border-signal bg-signal/15 text-signal shadow-[0_0_18px_-3px_var(--signal)]',
+						: 'border-signal bg-signal/15 text-signal shadow-[0_0_22px_-3px_var(--signal)]',
 					pktShown ? 'opacity-100' : 'opacity-0'
 				)}
 				style="left:{pktX}%"
 			>
+				<svg
+					viewBox="0 0 24 24"
+					class="size-[1.15em]"
+					fill="none"
+					stroke="currentColor"
+					stroke-width="2.4"
+					aria-hidden="true"
+				>
+					<rect x="4" y="11" width="16" height="10" rx="1.5" />
+					{#if pktSealed}
+						<path d="M8 11V7a4 4 0 0 1 8 0v4" />
+					{:else}
+						<path d="M8 11V7a4 4 0 0 1 7.4-2" />
+					{/if}
+				</svg>
 				{pktLabel}
 			</div>
 		</section>
 
+		<!-- the three fingerprints, which is the thing worth watching -->
 		<FingerprintRegister req={reqFp} rsp={rspFp} model={modelFp} stage={fpStage} />
 
-		<!-- readout -->
-		<div class="grid gap-4 lg:grid-cols-[1.3fr_1fr]">
-			<div class="flex flex-col gap-2">
-				<p class="text-[17px] leading-snug text-balance">{caption}</p>
-				{#if detail}<p class="font-mono text-[11px] text-muted-foreground">{detail}</p>{/if}
-				{#if promptText}
-					<div
-						class="mt-1 border-l-2 border-border bg-card px-4 py-2.5 font-mono text-[12px] whitespace-pre-line text-muted-foreground"
-					>
-						{promptText}
-					</div>
-				{/if}
-				{#if answer}
-					<div class="border-l-2 border-signal/50 bg-card px-4 py-2.5 font-mono text-[13px]">
-						{answer}
-					</div>
-				{/if}
-			</div>
-			<div
-				bind:this={tape}
-				class="tabular h-[132px] overflow-y-auto border border-border bg-card px-3 py-2 font-mono text-[10px] leading-[1.7] text-muted-foreground"
-			>
-				{#each trace as t, i (i)}<div>{t}</div>{:else}<div class="opacity-45">
-						— no traffic —
-					</div>{/each}
-			</div>
+		<!-- one sentence, and the answer -->
+		<div class="flex shrink-0 items-end justify-between gap-8">
+			<p class="t-lead max-w-[52ch] text-balance">{caption}</p>
+			{#if answer}
+				<div class="ilk-bloom flex shrink-0 flex-col items-end gap-1">
+					{#if asked}
+						<span class="t-body text-muted-foreground">{asked}</span>
+					{/if}
+					<span class="t-big font-mono font-semibold text-signal">{answer}</span>
+				</div>
+			{/if}
 		</div>
 	</main>
 
 	{#if goingDown}
 		<div
-			class="fixed inset-0 z-50 flex flex-col items-center justify-center gap-3 bg-background/95 backdrop-blur-sm"
+			class="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-background/95 backdrop-blur-sm"
 		>
-			<span class="font-mono text-[11px] tracking-[0.2em] text-fault uppercase">Powering off</span>
-			<p class="max-w-md text-center text-sm text-muted-foreground">
-				The Pi and the Spark are halting. This page is served by the Spark, so it will stop
-				answering — bring both back up at the hardware.
+			<span class="t-big font-mono tracking-[0.14em] text-fault uppercase">Powering off</span>
+			<p class="t-lead max-w-[34ch] text-center text-muted-foreground">
+				Both machines are halting. This screen is served by one of them, so it will go dark.
 			</p>
 		</div>
 	{/if}

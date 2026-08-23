@@ -936,17 +936,22 @@
 				<span class="font-mono text-[10px] tracking-[0.16em] text-muted-foreground uppercase">
 					Sequence preview — the register as the demo page drives it
 				</span>
-				<FingerprintRegister
-					req={on[0] ? req : null}
-					rsp={on[1] ? rsp : null}
-					model={on[2] ? model : null}
-					stage={count === 3 ? (pass ? 'pass' : 'fail') : 'dealing'}
-					{word}
-					face={{ size, weight }}
-					{grid}
-					{slack}
-					split={split / 100}
-				/>
+				<!-- The register sizes its pile to the height it is GIVEN, which on the demo
+				     page is whatever the flex column has left. Here there is no such column,
+				     so give it one explicitly rather than letting it collapse to nothing. -->
+				<div class="flex h-[380px] flex-col">
+					<FingerprintRegister
+						req={on[0] ? req : null}
+						rsp={on[1] ? rsp : null}
+						model={on[2] ? model : null}
+						stage={count === 3 ? (pass ? 'pass' : 'fail') : 'dealing'}
+						{word}
+						face={{ size, weight }}
+						{grid}
+						{slack}
+						split={split / 100}
+					/>
+				</div>
 			</section>
 		{/if}
 	</main>
