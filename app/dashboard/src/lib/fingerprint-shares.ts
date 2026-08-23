@@ -1,208 +1,637 @@
 /**
- * Fingerprint shares — three sheets of light that tile the ground.
+ * Fingerprint shares — one shuffle, cut in three, with the word punched out.
  *
- * The three fingerprint grids are not three pictures that get swapped for a fourth
- * at the end. Each carries a third of the lit cells, and the picture is what they
- * add up to when you lay them over one another. Stacking them is the reveal; nothing
- * downstream of `build()` knows the message.
+ * ── the construction, in full ───────────────────────────────────────────────────
  *
- * ── the construction ────────────────────────────────────────────────────────────
+ *   1. mark the cells the word covers
+ *   2. deal every OTHER cell out round-robin to A, B and C
  *
- * One cell per message pixel — no subcell expansion, no threshold, no read. What you
- * see stacked is literally the union of the three sheets, cell for cell.
+ * That is the whole thing. Each sheet holds exactly a third of the ground and not one
+ * cell of the word, so laying the three over one another fills the ground completely
+ * and leaves the word black. The stack is the union, cell for cell — no subcells, no
+ * threshold, no second resolution. What is on screen is what the sheets are.
  *
- *   LETTER cell   no sheet lights it. Ever. It is black on all three sheets and it
- *                 is black in the stack, which is the point.
- *   GROUND cell   dealt to exactly one of the three sheets. Every ground cell is
- *                 owned by somebody, so the three together leave none of it dark.
+ * The three are interchangeable. Same size, same statistics, none of them special:
+ * whichever one you take away, a third of the ground goes dark with it.
  *
- * Lay the sheets down and the ground fills completely while the letters stay black.
- * There is nothing between those two states because there is nothing to threshold:
- * a cell was lit by somebody or it was not.
+ * ── where the digests actually come in ──────────────────────────────────────────
  *
- * Sheets are then topped up to a third of the WHOLE panel. Owning a third of the
- * ground is a third of the panel minus a third of the letters, so each sheet also
- * lights a few cells another sheet already owns. That costs nothing — a cell lit
- * twice looks the same in the stack as a cell lit once — and it buys a density that
- * is the same 33% on every sheet however big the word is.
+ * Less far than the panel's labels suggest, and it is worth being exact about it.
+ *
+ * The shuffle is seeded by the REQUEST digest, and it has to be seeded by something
+ * that exists before any sheet is drawn — the register puts sheet A on the table
+ * while the response is still being generated, so the deal is already settled by
+ * then. It cannot depend on digests that have not happened yet.
+ *
+ * So: the request digest fixes the deal. Each digest then sets its own sheet's
+ * brightness texture. And the model digest decides the one thing the verdict turns
+ * on — whether sheet C is the third it was dealt, or a random handful that fits
+ * nothing. What no digest does is choose its own cells independently of the others:
+ * three sets chosen independently would not tile anything.
  *
  * ── what this costs, stated plainly ─────────────────────────────────────────────
  *
- * A single sheet is 33% dense over the ground and 0% dense over the letters, so the
- * word is faintly there in each one, as an absence. That is not a bug to be fixed
- * later; it is forced. A stack that is COMPLETELY black over the letters means no
- * sheet lit a letter cell, and a sheet that never lights a letter cell has a hole in
- * it shaped like the word.
+ * A single sheet is a third dense over the ground and empty over the word, so the
+ * word is faintly there in each one, as an absence. That is forced, not sloppy. A
+ * stack that is COMPLETELY black over the letters means no sheet lit a letter cell,
+ * and a sheet that never lights a letter cell has a hole shaped like the word.
  *
- * Hiding that hole is what pixel expansion buys, and it costs the thing that was
+ * Hiding that hole is what subcell expansion buys, and it costs the thing that was
  * wanted more: with expansion the letters can only ever be a third lit rather than
- * black, and getting them to black again needs a threshold pass over the subcells.
- * This file takes the other side of that trade on purpose — a true black word in a
- * true solid ground, read straight off the cells, at the price of a legible ghost in
- * each sheet.
- *
- * ── what this is NOT ────────────────────────────────────────────────────────────
- *
- * The sheets are not three independent functions of three independent digests. They
- * cannot be — no three hashes chosen by the world tile a word chosen by us. The
- * request digest deals the ground out; each sheet's own digest picks its top-up; the
- * model digest is the sheet that either fits the deal or does not. The honest claim
- * is the one the panel makes: the picture is genuinely the union of the three, and it
- * is only whole when the third sheet is the one that was dealt.
+ * black, and getting them back to black needs a threshold pass. This file takes the
+ * other side of that trade — a true black word in a true solid ground, read straight
+ * off the cells, at the price of a legible ghost in each sheet.
  */
 
-export const ROWS = 29; // 21 for the face, four rows of margin above and below
-export const COLS = 91; // 5 glyphs x 13 wide + 4 gaps x 4 + 5 margin each side
-export const N = ROWS * COLS;
-/** what every sheet lights, as a fraction of the whole panel */
-export const DENSITY = 1 / 3;
+export type Grid = { rows: number; cols: number };
+export const GRID_LIMITS = { rows: [7, 55], cols: [15, 165] } as const;
+export const DEFAULT_GRID: Grid = { rows: 33, cols: 105 };
+
+export type Face = {
+	/** glyph height in cells */
+	size: number;
+	/** stroke thickness in cells */
+	weight: number;
+};
+export const FACE_LIMITS = { size: [5, 31], weight: [1, 5] } as const;
+export const DEFAULT_FACE: Face = { size: 21, weight: 1 };
+
+export const DEFAULT_WORD = 'VALID';
+
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(v)));
 
 /**
- * 13x21 face, every stroke ONE cell wide.
+ * The face is drawn rather than tabulated, because size, weight and the word itself
+ * are all things you want a control on.
  *
- * A hairline is affordable because a cell is either lit or it is not — there is no
- * dither for a thin stroke to get lost in. The face is drawn large in cells rather
- * than large on screen for the reason a typeface is: at 7x11 a one-cell stroke is a
- * seventh of the letter and the diagonals climb in four visible steps; at 13x21 it is
- * a thirteenth, and the V descends in twenty-one.
+ * Each glyph is a handful of polylines in a unit box, rasterised at one cell thick
+ * and then dilated to the requested weight — so a heavier letter is the same letter
+ * with a fatter pen, not a different drawing. Curves are polylines too; at nine cells
+ * tall an arc and a five-segment approximation of one are the same picture.
  */
-const GLYPHS: Record<string, string[]> = {
-	V: [
-		'#...........#',
-		'#...........#',
-		'.#.........#.',
-		'.#.........#.',
-		'.#.........#.',
-		'..#.......#..',
-		'..#.......#..',
-		'..#.......#..',
-		'..#.......#..',
-		'...#.....#...',
-		'...#.....#...',
-		'...#.....#...',
-		'....#...#....',
-		'....#...#....',
-		'....#...#....',
-		'....#...#....',
-		'.....#.#.....',
-		'.....#.#.....',
-		'.....#.#.....',
-		'......#......',
-		'......#......'
-	],
+const PEN: Record<string, number[][][]> = {
 	A: [
-		'......#......',
-		'......#......',
-		'.....#.#.....',
-		'.....#.#.....',
-		'.....#.#.....',
-		'....#...#....',
-		'....#...#....',
-		'....#...#....',
-		'....#...#....',
-		'...#.....#...',
-		'...#.....#...',
-		'...#.....#...',
-		'..#.......#..',
-		'..#.......#..',
-		'..#########..',
-		'..#.......#..',
-		'.#.........#.',
-		'.#.........#.',
-		'.#.........#.',
-		'#...........#',
-		'#...........#'
+		[
+			[0, 1],
+			[0.5, 0],
+			[1, 1]
+		],
+		[
+			[0.16, 0.66],
+			[0.84, 0.66]
+		]
 	],
-	L: [
-		'#............',
-		'#............',
-		'#............',
-		'#............',
-		'#............',
-		'#............',
-		'#............',
-		'#............',
-		'#............',
-		'#............',
-		'#............',
-		'#............',
-		'#............',
-		'#............',
-		'#............',
-		'#............',
-		'#............',
-		'#............',
-		'#............',
-		'#............',
-		'#############'
+	B: [
+		[
+			[0, 0],
+			[0, 1]
+		],
+		[
+			[0, 0],
+			[0.62, 0],
+			[0.9, 0.16],
+			[0.62, 0.46],
+			[0, 0.46]
+		],
+		[
+			[0, 0.46],
+			[0.68, 0.46],
+			[0.96, 0.72],
+			[0.68, 1],
+			[0, 1]
+		]
 	],
-	I: [
-		'#############',
-		'......#......',
-		'......#......',
-		'......#......',
-		'......#......',
-		'......#......',
-		'......#......',
-		'......#......',
-		'......#......',
-		'......#......',
-		'......#......',
-		'......#......',
-		'......#......',
-		'......#......',
-		'......#......',
-		'......#......',
-		'......#......',
-		'......#......',
-		'......#......',
-		'......#......',
-		'#############'
+	C: [
+		[
+			[0.96, 0.2],
+			[0.68, 0],
+			[0.32, 0],
+			[0.04, 0.28],
+			[0.04, 0.72],
+			[0.32, 1],
+			[0.68, 1],
+			[0.96, 0.8]
+		]
 	],
 	D: [
-		'###########..',
-		'#..........#.',
-		'#...........#',
-		'#...........#',
-		'#...........#',
-		'#...........#',
-		'#...........#',
-		'#...........#',
-		'#...........#',
-		'#...........#',
-		'#...........#',
-		'#...........#',
-		'#...........#',
-		'#...........#',
-		'#...........#',
-		'#...........#',
-		'#...........#',
-		'#...........#',
-		'#...........#',
-		'#..........#.',
-		'###########..'
-	]
+		[
+			[0, 0],
+			[0.56, 0],
+			[0.92, 0.26],
+			[0.92, 0.74],
+			[0.56, 1],
+			[0, 1],
+			[0, 0]
+		]
+	],
+	E: [
+		[
+			[1, 0],
+			[0, 0],
+			[0, 1],
+			[1, 1]
+		],
+		[
+			[0, 0.48],
+			[0.78, 0.48]
+		]
+	],
+	F: [
+		[
+			[1, 0],
+			[0, 0],
+			[0, 1]
+		],
+		[
+			[0, 0.48],
+			[0.78, 0.48]
+		]
+	],
+	G: [
+		[
+			[0.96, 0.2],
+			[0.68, 0],
+			[0.32, 0],
+			[0.04, 0.28],
+			[0.04, 0.72],
+			[0.32, 1],
+			[0.7, 1],
+			[0.96, 0.78],
+			[0.96, 0.54],
+			[0.56, 0.54]
+		]
+	],
+	H: [
+		[
+			[0, 0],
+			[0, 1]
+		],
+		[
+			[1, 0],
+			[1, 1]
+		],
+		[
+			[0, 0.5],
+			[1, 0.5]
+		]
+	],
+	I: [
+		[
+			[0.08, 0],
+			[0.92, 0]
+		],
+		[
+			[0.5, 0],
+			[0.5, 1]
+		],
+		[
+			[0.08, 1],
+			[0.92, 1]
+		]
+	],
+	J: [
+		[
+			[1, 0],
+			[1, 0.74],
+			[0.7, 1],
+			[0.3, 1],
+			[0.02, 0.76]
+		]
+	],
+	K: [
+		[
+			[0, 0],
+			[0, 1]
+		],
+		[
+			[1, 0],
+			[0, 0.56]
+		],
+		[
+			[0.34, 0.38],
+			[1, 1]
+		]
+	],
+	L: [
+		[
+			[0, 0],
+			[0, 1],
+			[1, 1]
+		]
+	],
+	M: [
+		[
+			[0, 1],
+			[0, 0],
+			[0.5, 0.56],
+			[1, 0],
+			[1, 1]
+		]
+	],
+	N: [
+		[
+			[0, 1],
+			[0, 0],
+			[1, 1],
+			[1, 0]
+		]
+	],
+	O: [
+		[
+			[0.5, 0],
+			[0.86, 0.2],
+			[1, 0.5],
+			[0.86, 0.8],
+			[0.5, 1],
+			[0.14, 0.8],
+			[0, 0.5],
+			[0.14, 0.2],
+			[0.5, 0]
+		]
+	],
+	P: [
+		[
+			[0, 1],
+			[0, 0],
+			[0.62, 0],
+			[0.94, 0.26],
+			[0.62, 0.52],
+			[0, 0.52]
+		]
+	],
+	Q: [
+		[
+			[0.5, 0],
+			[0.86, 0.2],
+			[1, 0.5],
+			[0.86, 0.8],
+			[0.5, 1],
+			[0.14, 0.8],
+			[0, 0.5],
+			[0.14, 0.2],
+			[0.5, 0]
+		],
+		[
+			[0.6, 0.7],
+			[1, 1]
+		]
+	],
+	R: [
+		[
+			[0, 1],
+			[0, 0],
+			[0.62, 0],
+			[0.94, 0.26],
+			[0.62, 0.52],
+			[0, 0.52]
+		],
+		[
+			[0.46, 0.52],
+			[1, 1]
+		]
+	],
+	S: [
+		[
+			[0.96, 0.18],
+			[0.66, 0],
+			[0.3, 0],
+			[0.04, 0.2],
+			[0.3, 0.44],
+			[0.7, 0.56],
+			[0.96, 0.78],
+			[0.7, 1],
+			[0.3, 1],
+			[0.04, 0.82]
+		]
+	],
+	T: [
+		[
+			[0, 0],
+			[1, 0]
+		],
+		[
+			[0.5, 0],
+			[0.5, 1]
+		]
+	],
+	U: [
+		[
+			[0, 0],
+			[0, 0.72],
+			[0.3, 1],
+			[0.7, 1],
+			[1, 0.72],
+			[1, 0]
+		]
+	],
+	V: [
+		[
+			[0, 0],
+			[0.5, 1],
+			[1, 0]
+		]
+	],
+	W: [
+		[
+			[0, 0],
+			[0.22, 1],
+			[0.5, 0.42],
+			[0.78, 1],
+			[1, 0]
+		]
+	],
+	X: [
+		[
+			[0, 0],
+			[1, 1]
+		],
+		[
+			[1, 0],
+			[0, 1]
+		]
+	],
+	Y: [
+		[
+			[0, 0],
+			[0.5, 0.52],
+			[1, 0]
+		],
+		[
+			[0.5, 0.52],
+			[0.5, 1]
+		]
+	],
+	Z: [
+		[
+			[0, 0],
+			[1, 0],
+			[0, 1],
+			[1, 1]
+		]
+	],
+	'0': [
+		[
+			[0.5, 0],
+			[0.86, 0.2],
+			[1, 0.5],
+			[0.86, 0.8],
+			[0.5, 1],
+			[0.14, 0.8],
+			[0, 0.5],
+			[0.14, 0.2],
+			[0.5, 0]
+		],
+		[
+			[0.76, 0.26],
+			[0.24, 0.74]
+		]
+	],
+	'1': [
+		[
+			[0.22, 0.2],
+			[0.5, 0],
+			[0.5, 1]
+		],
+		[
+			[0.18, 1],
+			[0.82, 1]
+		]
+	],
+	'2': [
+		[
+			[0.04, 0.22],
+			[0.32, 0],
+			[0.7, 0],
+			[0.96, 0.24],
+			[0.04, 1],
+			[1, 1]
+		]
+	],
+	'3': [
+		[
+			[0.04, 0.2],
+			[0.32, 0],
+			[0.7, 0],
+			[0.94, 0.24],
+			[0.6, 0.48],
+			[0.94, 0.74],
+			[0.7, 1],
+			[0.3, 1],
+			[0.04, 0.8]
+		]
+	],
+	'4': [
+		[
+			[0.74, 1],
+			[0.74, 0],
+			[0, 0.7],
+			[1, 0.7]
+		]
+	],
+	'5': [
+		[
+			[1, 0],
+			[0.14, 0],
+			[0.06, 0.44],
+			[0.6, 0.42],
+			[0.94, 0.68],
+			[0.7, 1],
+			[0.3, 1],
+			[0.04, 0.84]
+		]
+	],
+	'6': [
+		[
+			[0.84, 0.1],
+			[0.5, 0],
+			[0.16, 0.3],
+			[0.06, 0.7],
+			[0.3, 1],
+			[0.7, 1],
+			[0.94, 0.74],
+			[0.68, 0.5],
+			[0.3, 0.5],
+			[0.06, 0.7]
+		]
+	],
+	'7': [
+		[
+			[0, 0],
+			[1, 0],
+			[0.34, 1]
+		]
+	],
+	'8': [
+		[
+			[0.5, 0],
+			[0.84, 0.16],
+			[0.6, 0.44],
+			[0.94, 0.7],
+			[0.7, 1],
+			[0.3, 1],
+			[0.06, 0.7],
+			[0.4, 0.44],
+			[0.16, 0.16],
+			[0.5, 0]
+		]
+	],
+	'9': [
+		[
+			[0.16, 0.9],
+			[0.5, 1],
+			[0.84, 0.7],
+			[0.94, 0.3],
+			[0.7, 0],
+			[0.3, 0],
+			[0.06, 0.26],
+			[0.32, 0.5],
+			[0.7, 0.5],
+			[0.94, 0.3]
+		]
+	],
+	'-': [
+		[
+			[0.1, 0.5],
+			[0.9, 0.5]
+		]
+	],
+	'.': [
+		[
+			[0.42, 0.98],
+			[0.58, 0.98]
+		]
+	],
+	'!': [
+		[
+			[0.5, 0],
+			[0.5, 0.66]
+		],
+		[
+			[0.5, 0.96],
+			[0.5, 1]
+		]
+	],
+	'?': [
+		[
+			[0.06, 0.22],
+			[0.3, 0],
+			[0.68, 0],
+			[0.94, 0.24],
+			[0.5, 0.56],
+			[0.5, 0.68]
+		],
+		[
+			[0.5, 0.96],
+			[0.5, 1]
+		]
+	],
+	' ': []
 };
-const GW = 13;
-const GK = 4;
 
-export function stencil(word: string) {
-	const mask = new Uint8Array(N);
-	const gh = GLYPHS[word[0]].length;
-	const x0 = Math.floor((COLS - (word.length * (GW + GK) - GK)) / 2);
-	const y0 = Math.floor((ROWS - gh) / 2);
+/** Everything the face can draw. Anything else is rendered as a space. */
+export const ALPHABET = Object.keys(PEN)
+	.filter((k) => k !== ' ')
+	.join('');
+
+/** Glyph box and spacing for a face. Width is odd so stems and apexes can centre. */
+export function metrics(face: Face) {
+	const h = clamp(face.size, FACE_LIMITS.size[0], FACE_LIMITS.size[1]);
+	const w = 2 * Math.round((h * 0.62 - 1) / 2) + 1;
+	// a stroke cannot be thicker than the counter it has to leave behind
+	const t = clamp(
+		face.weight,
+		FACE_LIMITS.weight[0],
+		Math.max(1, Math.min(FACE_LIMITS.weight[1], w - 2))
+	);
+	const gap = Math.max(2, Math.round(w * 0.32));
+	return { w, h, t, gap };
+}
+
+/** Bresenham, one cell thick. */
+function line(g: Uint8Array, w: number, h: number, x0: number, y0: number, x1: number, y1: number) {
+	const dx = Math.abs(x1 - x0);
+	const dy = -Math.abs(y1 - y0);
+	const sx = x0 < x1 ? 1 : -1;
+	const sy = y0 < y1 ? 1 : -1;
+	let err = dx + dy;
+	for (;;) {
+		if (x0 >= 0 && x0 < w && y0 >= 0 && y0 < h) g[y0 * w + x0] = 1;
+		if (x0 === x1 && y0 === y1) break;
+		const e2 = 2 * err;
+		if (e2 >= dy) {
+			err += dy;
+			x0 += sx;
+		}
+		if (e2 <= dx) {
+			err += dx;
+			y0 += sy;
+		}
+	}
+}
+
+/** One glyph at one cell thick, in a w x h box. */
+function skeleton(ch: string, w: number, h: number) {
+	const g = new Uint8Array(w * h);
+	const pen = PEN[ch] ?? PEN[' '];
+	const X = (u: number) => Math.round(u * (w - 1));
+	const Y = (v: number) => Math.round(v * (h - 1));
+	for (const poly of pen) {
+		if (poly.length === 1) {
+			line(g, w, h, X(poly[0][0]), Y(poly[0][1]), X(poly[0][0]), Y(poly[0][1]));
+			continue;
+		}
+		for (let i = 1; i < poly.length; i++) {
+			line(g, w, h, X(poly[i - 1][0]), Y(poly[i - 1][1]), X(poly[i][0]), Y(poly[i][1]));
+		}
+	}
+	return g;
+}
+
+/** Fatten by t: every set cell becomes a t x t block, growing the box by t - 1. */
+function dilate(g: Uint8Array, w: number, h: number, t: number) {
+	if (t <= 1) return g;
+	const W = w + t - 1;
+	const out = new Uint8Array(W * (h + t - 1));
+	for (let r = 0; r < h; r++) {
+		for (let c = 0; c < w; c++) {
+			if (!g[r * w + c]) continue;
+			for (let dr = 0; dr < t; dr++) for (let dc = 0; dc < t; dc++) out[(r + dr) * W + c + dc] = 1;
+		}
+	}
+	return out;
+}
+
+/** How the word sits on the grid, and whether it fits at all. */
+export function layout(word: string, face: Face = DEFAULT_FACE, grid: Grid = DEFAULT_GRID) {
+	const m = metrics(face);
+	const n = Math.max(1, word.length);
+	const span = n * m.w + (n - 1) * m.gap;
+	return { ...m, span, fits: span <= grid.cols && m.h <= grid.rows };
+}
+
+/**
+ * The word, centred on the grid: one byte per cell, 1 where a letter is. A word too
+ * big for the grid is drawn from the left rather than silently cropped in the middle,
+ * and `layout().fits` says so before it happens.
+ */
+export function stencil(word: string, face: Face = DEFAULT_FACE, grid: Grid = DEFAULT_GRID) {
+	const { w, h, t, gap, span } = layout(word, face, grid);
+	const mask = new Uint8Array(grid.rows * grid.cols);
+	const x0 = Math.max(0, Math.floor((grid.cols - span) / 2));
+	const y0 = Math.max(0, Math.floor((grid.rows - h) / 2));
 	for (let li = 0; li < word.length; li++) {
-		const g = GLYPHS[word[li]];
-		for (let r = 0; r < gh; r++) {
-			for (let c = 0; c < GW; c++) {
-				if (g[r][c] === '#') mask[(y0 + r) * COLS + x0 + li * (GW + GK) + c] = 1;
+		const g = dilate(skeleton(word[li], w - t + 1, h - t + 1), w - t + 1, h - t + 1, t);
+		for (let r = 0; r < h; r++) {
+			for (let c = 0; c < w; c++) {
+				if (!g[r * w + c]) continue;
+				const rr = y0 + r;
+				const cc = x0 + li * (w + gap) + c;
+				if (rr < grid.rows && cc < grid.cols) mask[rr * grid.cols + cc] = 1;
 			}
 		}
 	}
 	return mask;
 }
-
-export const MASK = stencil('VALID');
 
 /** FNV-1a over the hex, then xorshift32. Tagged so one digest can drive two streams. */
 function stream(hex: string, tag: number) {
@@ -235,13 +664,6 @@ function pick(pool: number[], k: number, next: () => number) {
 	return a.slice(0, n);
 }
 
-/**
- * There is no polarity switch here, and that is a consequence rather than an
- * omission. Inverting it would make the LETTERS the side that fills — 8.5% of the
- * panel — and three sheets at a third of the panel each cannot fit inside 8.5% of
- * it. A solid ground with a black word is the only way round this construction goes.
- */
-
 export type Shares = {
 	/** per cell: 0 = unlit, 1..4 = brightness (texture only, never read as data) */
 	a: Uint8Array;
@@ -250,85 +672,68 @@ export type Shares = {
 };
 
 /**
- * Build the three sheets. `pass` decides sheet C only — A and B are byte-identical
- * either way, so the deck gives nothing away before the verdict lands.
+ * Punch the word out, deal the rest three ways. `pass` decides sheet C only — A and
+ * B are byte-identical either way, so the deck gives nothing away before the verdict.
  */
-export function build(req: string, rsp: string, model: string, pass: boolean): Shares {
-	const nDeal = stream(req, 1); // how the ground is dealt out
-	const tops = [stream(req, 5), stream(rsp, 6), stream(model, 7)]; // each sheet's top-up
-	const nMiss = stream(model, 9); // sheet C when it does not fit the deal
+export function build(
+	req: string,
+	rsp: string,
+	model: string,
+	pass: boolean,
+	mask: Uint8Array
+): Shares {
+	const N = mask.length;
+	const nDeal = stream(req, 1);
+	const nMiss = stream(model, 9);
 	const lvl = [stream(req, 17), stream(rsp, 18), stream(model, 19)];
 
-	// the cells that must stay dark on every sheet
+	// 1. the word is punched out first: these cells belong to nobody
 	const ground: number[] = [];
-	for (let i = 0; i < N; i++) if (!MASK[i]) ground.push(i);
+	for (let i = 0; i < N; i++) if (!mask[i]) ground.push(i);
 
-	// Deal every ground cell to exactly one sheet. This is the whole trick: the union
-	// covers the ground because the ground was partitioned, not because it happened to
-	// come out that way.
+	// 2. and everything left is dealt round-robin, a third each
 	const dealt = pick(ground, ground.length, nDeal);
-	const own: number[][] = [[], [], []];
-	for (let k = 0; k < dealt.length; k++) own[k % 3].push(dealt[k]);
-
-	const target = Math.round(N * DENSITY);
-	const sets = own.map((mine, s) => {
-		if (mine.length >= target) return pick(mine, target, tops[s]);
-		// top up from ground somebody else already owns — invisible in the stack,
-		// and it is what makes every sheet the same density as every other
-		const taken = new Set(mine);
-		const spare = ground.filter((i) => !taken.has(i));
-		return mine.concat(pick(spare, target - mine.length, tops[s]));
-	});
+	const sets: number[][] = [[], [], []];
+	for (let k = 0; k < dealt.length; k++) sets[k % 3].push(dealt[k]);
 
 	if (!pass) {
-		// A sheet that does not fit the deal: the same count of cells, drawn from the
-		// whole panel with no regard for the deal or for the word. Same density, so C
-		// alone is indistinguishable — it just no longer completes anything.
+		// A sheet that was not the one dealt: the same number of cells, drawn from the
+		// whole grid with no regard for the deal or for the word. Same density, so C
+		// alone is indistinguishable — it just no longer fits.
 		const all = Array.from({ length: N }, (_, i) => i);
-		sets[2] = pick(all, target, nMiss);
+		sets[2] = pick(all, sets[2].length, nMiss);
 	}
 
 	const out = [new Uint8Array(N), new Uint8Array(N), new Uint8Array(N)];
-	for (let s = 0; s < 3; s++) {
-		for (const i of sets[s]) out[s][i] = 1 + (lvl[s]() % 4);
-	}
+	for (let s = 0; s < 3; s++) for (const i of sets[s]) out[s][i] = 1 + (lvl[s]() % 4);
 	return { a: out[0], b: out[1], c: out[2] };
 }
 
 /**
  * The stack: a cell is lit if any sheet handed in lit it. That is the entire read —
- * there is no threshold and no second resolution, which is why what you see is what
- * the sheets are. No MASK below this line.
+ * no threshold and no second resolution, which is why what you see is what the
+ * sheets are. No mask below this line.
  */
-export function union(layers: Uint8Array[]): Uint8Array {
-	const out = new Uint8Array(N);
-	for (let i = 0; i < N; i++) out[i] = layers.some((l) => l[i]) ? 1 : 0;
-	return out;
-}
-
-/** How many of the handed-in sheets lit each cell — what the stack is coloured by. */
-export function depth(layers: Uint8Array[]): Uint8Array {
-	const out = new Uint8Array(N);
-	for (let i = 0; i < N; i++) {
-		let n = 0;
-		for (const l of layers) if (l[i]) n++;
-		out[i] = n;
-	}
+export function union(layers: Uint8Array[], n: number) {
+	const out = new Uint8Array(n);
+	for (let i = 0; i < n; i++) out[i] = layers.some((l) => l[i]) ? 1 : 0;
 	return out;
 }
 
 /** Measured, not asserted — /lab prints these so the scheme can be checked by eye. */
-export function stats(s: Partial<Shares>) {
+export function stats(s: Partial<Shares>, mask: Uint8Array) {
+	const N = mask.length;
 	const layers = [s.a, s.b, s.c].filter(Boolean) as Uint8Array[];
-	const density = layers.map((l) => l.reduce((n, v) => n + (v ? 1 : 0), 0) / N);
+	const groundN = mask.reduce((n, v) => n + (v ? 0 : 1), 0);
+	const lit = layers.map((l) => l.reduce((n, v) => n + (v ? 1 : 0), 0));
 
-	const u = union(layers);
+	const u = union(layers, N);
 	let litL = 0;
 	let litF = 0;
 	let nL = 0;
 	let nF = 0;
 	for (let i = 0; i < N; i++) {
-		if (MASK[i]) {
+		if (mask[i]) {
 			nL++;
 			if (u[i]) litL++;
 		} else {
@@ -337,12 +742,12 @@ export function stats(s: Partial<Shares>) {
 		}
 	}
 
-	// how much of each single sheet falls inside the letters — the ghost, measured
+	// how much of each single sheet falls inside the word — the ghost, measured
 	const ghost = layers.map((l) => {
 		let n = 0;
 		let t = 0;
 		for (let i = 0; i < N; i++)
-			if (MASK[i]) {
+			if (mask[i]) {
 				t++;
 				if (l[i]) n++;
 			}
@@ -350,8 +755,12 @@ export function stats(s: Partial<Shares>) {
 	});
 
 	return {
-		density,
+		lit,
+		density: lit.map((n) => n / N),
+		ofGround: lit.map((n) => (groundN ? n / groundN : 0)),
 		ghost,
+		ground: groundN,
+		word: N - groundN,
 		stacked: { letters: nL ? litL / nL : 0, field: nF ? litF / nF : 0 },
 		layers: layers.length
 	};

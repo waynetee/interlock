@@ -1,25 +1,27 @@
 /**
- * Properties of the tiled-ground scheme, measured rather than asserted.
+ * Properties of the deal, measured rather than asserted.
  *
  *   pnpm check:shares
  *
  * Nothing here is a claim about the construction -- every line reads the sheets
  * `build()` actually produced and counts. Check 2 is the one the whole thing exists
- * for: the stack is the stencil exactly, with no threshold in between.
+ * for: the stack is the stencil exactly, with no threshold in between. Check 3 is
+ * the symmetry: three thirds, none of them special.
  *
  * Check 6 is different in kind. It measures the gap the construction is KNOWN to
  * have -- the word is faintly visible in a single sheet -- so the cost shows up as a
  * number in the output rather than a footnote nobody reads.
+ *
+ * Every knob the bench exposes is swept, because a bigger word on a smaller grid
+ * leaves less ground for the three sheets to divide.
  */
 import {
 	build,
 	union,
 	stats,
-	MASK,
-	N,
-	ROWS,
-	COLS,
-	DENSITY
+	stencil,
+	layout,
+	DEFAULT_FACE
 } from '../src/lib/fingerprint-shares.ts';
 
 const hex = (s) =>
@@ -31,99 +33,121 @@ const fail = (m) => {
 	bad++;
 };
 
-const letters = MASK.reduce((n, v) => n + v, 0);
-const target = Math.round(N * DENSITY);
-console.log(`grid    ${ROWS} x ${COLS} = ${N} cells, one per message pixel, no expansion`);
-console.log(`sheets  ${target} lit cells each = ${((target / N) * 100).toFixed(2)}% of the panel`);
-console.log(`stencil ${letters} of ${N} cells are letter (${((letters / N) * 100).toFixed(1)}%)\n`);
+const CASES = [
+	{ word: 'VALID', face: { size: 21, weight: 1 }, grid: { rows: 33, cols: 105 } },
+	{ word: 'VALID', face: { size: 7, weight: 1 }, grid: { rows: 33, cols: 105 } },
+	{ word: 'VALID', face: { size: 31, weight: 5 }, grid: { rows: 55, cols: 165 } },
+	{ word: 'OK', face: { size: 21, weight: 3 }, grid: { rows: 33, cols: 105 } },
+	{ word: 'INTERLOCK', face: { size: 15, weight: 1 }, grid: { rows: 25, cols: 145 } },
+	{ word: 'A', face: { size: 13, weight: 2 }, grid: { rows: 15, cols: 45 } },
+	{ word: 'PROVEN 2026', face: { size: 17, weight: 2 }, grid: { rows: 45, cols: 165 } },
+	// the far end of every slider, where the word no longer fits the grid at all
+	{ word: 'VALID', face: { size: 5, weight: 1 }, grid: { rows: 7, cols: 15 } },
+	{ word: 'X', face: { size: 5, weight: 5 }, grid: { rows: 7, cols: 15 } }
+];
 
 let ghostAcc = 0;
 let dropAcc = 0;
-let failGround = 0;
-let failLetters = 0;
-const runs = 200;
+let dropN = 0;
+let cases = 0;
 
-for (let t = 0; t < runs; t++) {
-	const [r, s, m] = [hex(t * 7 + 1), hex(t * 13 + 5), hex(t * 29 + 11)];
-	const tag = `t${t}`;
+for (const { word, face, grid } of CASES) {
+	const mask = stencil(word, face, grid);
+	const N = mask.length;
+	const L = layout(word, face, grid);
+	const wordCells = mask.reduce((n, v) => n + v, 0);
+	const ground = N - wordCells;
+	let worstGhost = 0;
+	let spread = 0;
 
-	const p = build(r, s, m, true);
-	const L = [p.a, p.b, p.c];
-	const st = stats(p);
+	for (let t = 0; t < 40; t++) {
+		cases++;
+		const [r, s, mo] = [hex(t * 7 + 1), hex(t * 13 + 5), hex(t * 29 + 11)];
+		const tag = `"${word}" ${face.size}/${face.weight} ${grid.rows}x${grid.cols} t${t}`;
 
-	// 1. every sheet lights the same number of cells, whatever the digests are
-	for (const [i, d] of st.density.entries()) {
-		if (Math.round(d * N) !== target)
-			fail(`${tag} sheet ${i} lit ${Math.round(d * N)}, want ${target}`);
-	}
+		const p = build(r, s, mo, true, mask);
+		const layers = [p.a, p.b, p.c];
+		const st = stats(p, mask);
 
-	// 2. the stack IS the stencil, cell for cell. No threshold, no second resolution.
-	const u = union(L);
-	for (let i = 0; i < N; i++) {
-		const want = MASK[i] ? 0 : 1;
-		if (u[i] !== want) {
-			fail(`${tag} stacked cell ${i}: ${u[i]} want ${want}`);
-			break;
+		// 1. the three sheets are the same size to within the rounding of a third,
+		//    and between them they hold every ground cell exactly once
+		const total = st.lit.reduce((a, b) => a + b, 0);
+		if (total !== ground) fail(`${tag} sheets hold ${total} cells, ground is ${ground}`);
+		const hi = Math.max(...st.lit);
+		const lo = Math.min(...st.lit);
+		if (hi - lo > 1) fail(`${tag} thirds differ by ${hi - lo}: ${st.lit}`);
+		spread = Math.max(spread, hi - lo);
+		// no cell is held twice -- the deal is a partition, not a covering
+		for (let i = 0; i < N; i++) {
+			const n = layers.reduce((k, l) => k + (l[i] ? 1 : 0), 0);
+			if (n > 1) {
+				fail(`${tag} cell ${i} is held by ${n} sheets`);
+				break;
+			}
 		}
+
+		// 2. the stack IS the stencil, cell for cell. No threshold, no second pass.
+		const u = union(layers, N);
+		for (let i = 0; i < N; i++) {
+			if (u[i] !== (mask[i] ? 0 : 1)) {
+				fail(`${tag} stacked cell ${i}: ${u[i]} want ${mask[i] ? 0 : 1}`);
+				break;
+			}
+		}
+		if (st.stacked.letters !== 0 || st.stacked.field !== 1) {
+			fail(`${tag} stacked letters=${st.stacked.letters} field=${st.stacked.field}`);
+		}
+
+		// 3. symmetry: drop ANY one of the three and the ground loses about a third.
+		//    No sheet is more load bearing than the others.
+		for (const drop of [0, 1, 2]) {
+			const two = stats(
+				{
+					a: drop === 0 ? undefined : layers[0],
+					b: drop === 1 ? undefined : layers[1],
+					c: drop === 2 ? undefined : layers[2]
+				},
+				mask
+			);
+			if (two.stacked.field >= 1) fail(`${tag} the ground fills without sheet ${drop}`);
+			dropAcc += two.stacked.field;
+			dropN++;
+		}
+
+		// 4. nothing on the table lights nothing
+		if (union([], N).some((v) => v !== 0)) fail(`${tag} the empty stack is not black`);
+
+		// 5. A and B are byte-identical pass or fail; C keeps its size either way
+		const f = build(r, s, mo, false, mask);
+		if (!p.a.every((v, i) => v === f.a[i])) fail(`${tag} sheet A differs pass/fail`);
+		if (!p.b.every((v, i) => v === f.b[i])) fail(`${tag} sheet B differs pass/fail`);
+		const sf = stats(f, mask);
+		if (sf.lit[2] !== st.lit[2]) fail(`${tag} fail sheet C holds ${sf.lit[2]} not ${st.lit[2]}`);
+		if (sf.stacked.field >= 0.999) fail(`${tag} a non-fitting C still filled the ground`);
+		if (wordCells && sf.stacked.letters <= 0.001)
+			fail(`${tag} a non-fitting C left the word clean`);
+
+		worstGhost = Math.max(worstGhost, ...st.ghost);
+		ghostAcc += st.ghost.reduce((a, b) => a + b, 0) / 3;
 	}
-	if (st.stacked.letters !== 0 || st.stacked.field !== 1) {
-		fail(`${tag} stacked letters=${st.stacked.letters} field=${st.stacked.field}`);
-	}
 
-	// 3. nothing on the table lights nothing
-	if (union([]).some((v) => v !== 0)) fail(`${tag} the empty stack is not black`);
-
-	// 4. drop any one sheet and the ground no longer fills -- every sheet is load
-	//    bearing, because the ground was partitioned between them
-	for (const [i, j] of [
-		[0, 1],
-		[0, 2],
-		[1, 2]
-	]) {
-		const two = stats(
-			Object.fromEntries([
-				['a', i === 0 || j === 0 ? L[0] : undefined],
-				['b', i === 1 || j === 1 ? L[1] : undefined],
-				['c', i === 2 || j === 2 ? L[2] : undefined]
-			])
-		);
-		const filled = two.stacked.field;
-		if (filled >= 1) fail(`${tag} sheets ${i}+${j} already fill the ground`);
-		dropAcc += filled;
-	}
-
-	// 5. A and B are byte-identical pass or fail; C keeps its density either way
-	const f = build(r, s, m, false);
-	if (!p.a.every((v, i) => v === f.a[i])) fail(`${tag} sheet A differs pass/fail`);
-	if (!p.b.every((v, i) => v === f.b[i])) fail(`${tag} sheet B differs pass/fail`);
-	const sf = stats(f);
-	if (Math.round(sf.density[2] * N) !== target)
-		fail(`${tag} fail sheet C lit ${sf.density[2] * N}`);
-	// a C that does not fit leaves the ground holed AND puts light in the letters
-	const fg = sf.stacked.field;
-	const fl = sf.stacked.letters;
-	failGround += fg;
-	failLetters += fl;
-	if (fg >= 0.999) fail(`${tag} a non-completing C still filled the ground`);
-	if (fl <= 0.001) fail(`${tag} a non-completing C left the letters clean`);
-
-	ghostAcc += st.ghost.reduce((a, b) => a + b, 0) / 3;
+	console.log(
+		`${('"' + word + '"').padEnd(14)} ${String(face.size).padStart(2)}/${face.weight}  ` +
+			`${String(grid.rows).padStart(2)}x${String(grid.cols).padStart(3)}=${String(N).padStart(5)}  ` +
+			`glyph ${L.w}x${L.h}${L.fits ? '' : ' OVERFLOWS'}  ` +
+			`word ${String(wordCells).padStart(4)}  ground ${String(ground).padStart(5)}  ` +
+			`thirds differ by ${spread}  ${worstGhost === 0 ? 'word untouched' : 'GHOST ' + worstGhost}`
+	);
+	if (worstGhost !== 0) fail(`"${word}" ${face.size}/${face.weight}: sheets lit word cells`);
 }
 
-// 6. THE KNOWN GAP, measured. A stack that is completely black over the letters means
-//    no sheet lit a letter cell, so every sheet has a hole shaped like the word. This
-//    is how big that hole is, and it is 0 by construction rather than by accident.
+// 6. THE KNOWN GAP, measured.
 console.log(
-	`single sheet: ${((ghostAcc / runs) * 100).toFixed(1)}% of its lit cells fall inside the letters`
-);
-console.log(`              (33.3% everywhere else, so the word is there as an absence)`);
-console.log(
-	`two sheets:   ground ${((dropAcc / (runs * 3)) * 100).toFixed(1)}% filled -- visibly holed, not blank`
+	`\nsingle sheet: ${((ghostAcc / cases) * 100).toFixed(1)}% of its light falls inside the word ` +
+		`-- the word is there as an absence, in every sheet`
 );
 console.log(
-	`non-fitting C: ground ${((failGround / runs) * 100).toFixed(1)}% filled, letters ${((failLetters / runs) * 100).toFixed(1)}% lit`
+	`two sheets:   ground ${((dropAcc / dropN) * 100).toFixed(1)}% filled -- holed by the missing third`
 );
-
-if (ghostAcc / runs !== 0) fail(`sheets are lighting letter cells: ${ghostAcc / runs}`);
 
 console.log(bad ? `\n${bad} FAILURES` : '\nall checks pass');

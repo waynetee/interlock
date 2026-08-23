@@ -20,7 +20,17 @@
 	 * Drop a sheet and the word goes; that is the only thing holding it up.
 	 */
 	import { untrack } from 'svelte';
-	import { build, union, COLS, N, ROWS, type Shares } from '$lib/fingerprint-shares';
+	import {
+		build,
+		union,
+		stencil,
+		DEFAULT_FACE,
+		DEFAULT_GRID,
+		DEFAULT_WORD,
+		type Face,
+		type Grid,
+		type Shares
+	} from '$lib/fingerprint-shares';
 	import { cn } from '$lib/utils';
 
 	type Stage = 'hidden' | 'stacked' | 'register' | 'resolved' | 'clash';
@@ -30,7 +40,10 @@
 		rsp = null,
 		model = null,
 		stage = 'hidden',
-		only = null
+		only = null,
+		word = DEFAULT_WORD,
+		face = DEFAULT_FACE,
+		grid = DEFAULT_GRID
 	}: {
 		req?: string | null;
 		rsp?: string | null;
@@ -38,22 +51,34 @@
 		stage?: Stage;
 		/** testbed only: show a single sheet */
 		only?: number | null;
+		/** the word the three sheets add up to */
+		word?: string;
+		/** letter size and stroke weight, both in cells */
+		face?: Face;
+		/** the panel in cells; the pixel pitch is derived to fit the column */
+		grid?: Grid;
 	} = $props();
 
-	// 91 cells across, one per message pixel: at a 9 px pitch that is 818, the widest
-	// the demo page's column takes without scrolling.
-	const CELL = 8;
+	/**
+	 * The grid is in cells and the panel is in pixels, so the pitch is whatever makes
+	 * the one fit the other: a coarse grid gets fat cells, a fine one gets small ones,
+	 * and the panel is the same width either way. 839 is the widest the demo page's
+	 * column takes without scrolling.
+	 */
+	const MAX_W = 839;
 	const GAP = 1;
-	const PITCH = CELL + GAP;
-	const W = COLS * PITCH - GAP; // 818
-	const H = ROWS * PITCH - GAP; // 260
+	const PITCH = $derived(Math.max(2, Math.min(12, Math.floor((MAX_W + GAP) / grid.cols))));
+	const CELL = $derived(PITCH - GAP);
+	const W = $derived(grid.cols * PITCH - GAP);
+	const H = $derived(grid.rows * PITCH - GAP);
+	const N = $derived(grid.rows * grid.cols);
 	// Decked, the three sit side by side across the width they will occupy stacked, so
 	// the slide is a convergence rather than a jump.
 	const DECK_GAP = 18;
-	const DECK_W = (W - 2 * DECK_GAP) / 3;
-	const DECK = DECK_W / W;
-	const BOX = H;
-	const INK = [0, 0.45, 0.62, 0.82, 1]; // a sheet's own four ink levels
+	const DECK_W = $derived((W - 2 * DECK_GAP) / 3);
+	const DECK = $derived(DECK_W / W);
+	const BOX = $derived(H);
+	const INK = [0, 0.45, 0.62, 0.82, 1]; // a sheet's own four brightness levels
 
 	const decoded = $derived(stage === 'resolved' || stage === 'clash');
 	/**
@@ -66,12 +91,12 @@
 	const converging = $derived(decoded);
 	/** how long the completed deck is held before it slides, so the third sheet reads */
 	const DEAL_HOLD = 550;
-	const EMPTY = new Uint8Array(N);
 
 	// Sheet C is the only one the outcome touches; A and B are byte-identical either
 	// way, so the deck cannot be read ahead of the verdict.
+	const mask = $derived(stencil(word, face, grid));
 	const shares = $derived<Shares | null>(
-		req ? build(req, rsp ?? '', model ?? '', stage !== 'clash') : null
+		req ? build(req, rsp ?? '', model ?? '', stage !== 'clash', mask) : null
 	);
 
 	const cards = $derived([
@@ -152,9 +177,9 @@
 	function bake(lv: Uint8Array, hue: string, mode: 'light' | 'ghost', faint: boolean) {
 		const { cv, ctx } = surface();
 		if (!ctx) return cv;
-		for (let r = 0; r < ROWS; r++) {
-			for (let c = 0; c < COLS; c++) {
-				const l = lv[r * COLS + c];
+		for (let r = 0; r < grid.rows; r++) {
+			for (let c = 0; c < grid.cols; c++) {
+				const l = lv[r * grid.cols + c];
 				if (mode !== 'ghost' && !l) continue;
 				ctx.globalAlpha = mode === 'ghost' ? 1 : INK[l];
 				ctx.fillStyle = faint ? ground : hue;
@@ -178,16 +203,16 @@
 		ctx.fillStyle = VOID;
 		ctx.fillRect(0, 0, W, H);
 		ctx.fillStyle = hue;
-		for (let r = 0; r < ROWS; r++) {
-			for (let c = 0; c < COLS; c++) {
-				if (u[r * COLS + c]) dot(ctx, r, c);
+		for (let r = 0; r < grid.rows; r++) {
+			for (let c = 0; c < grid.cols; c++) {
+				if (u[r * grid.cols + c]) dot(ctx, r, c);
 			}
 		}
 		return cv;
 	}
 
 	let sheets = $state<(HTMLCanvasElement | null)[]>([null, null, null]);
-	let ghost = $state<HTMLCanvasElement | null>(null);
+
 	let plate = $state<HTMLCanvasElement | null>(null);
 
 	// eased 0 -> 1 PER SHEET: 0 is that sheet out in its slot of the deck, 1 is it in
@@ -293,9 +318,13 @@
 		if (ready) return;
 		dpr = window.devicePixelRatio || 1;
 		readPalette();
-		ghost = bake(EMPTY, ground, 'ghost', true);
 		ready = true;
 	});
+
+	// Derived rather than latched with the palette read above: the ghost is grid-sized,
+	// so it has to be rebaked whenever the grid is. It reads `ready` so it waits for
+	// the palette, and nothing reads it back, so there is no loop to guard against.
+	const ghost = $derived(ready ? bake(new Uint8Array(N), ground, 'ghost', true) : null);
 
 	$effect(() => {
 		const unify = stage === 'resolved';
@@ -309,7 +338,13 @@
 		// honoured, which is how the testbed shows that one sheet decodes to a slab.
 		void ready;
 		plate = live.length
-			? bakeUnion(union(live.map((c) => c.lv as Uint8Array)), stage === 'clash' ? fault : hues[3])
+			? bakeUnion(
+					union(
+						live.map((c) => c.lv as Uint8Array),
+						N
+					),
+					stage === 'clash' ? fault : hues[3]
+				)
 			: null;
 	});
 
@@ -343,7 +378,7 @@
 
 	$effect(() => {
 		// touch everything a frame depends on
-		void [sheets, ghost, plate, prog[0], prog[1], prog[2], develop, only, stage, ready];
+		void [sheets, ghost, plate, prog[0], prog[1], prog[2], develop, only, stage, ready, W, H];
 		paint();
 	});
 
@@ -368,7 +403,7 @@
 			{:else if stage === 'register'}
 				proof in flight — the third sheet has not landed
 			{:else}
-				one sheet per digest · each lights a third of the panel
+				one sheet per digest · each holds a third of the ground
 			{/if}
 		</span>
 	</div>
