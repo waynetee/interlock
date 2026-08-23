@@ -397,7 +397,7 @@ async def demo_shutdown(sid, data=None):
 TAMPER_FLAG = os.path.join(HERE, ".tamper")
 
 PROMPT = os.environ.get("PROMPT",
-                        "Question: How many countries are there?\nAnswer:")
+                        "Question: What does IAEA stand for?\nAnswer:")
 
 
 def main():

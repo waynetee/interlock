@@ -304,8 +304,8 @@
 	 * environment, and the copy that drifts is the one on screen when the board is
 	 * dead -- which is exactly when nobody can check it against a real run.
 	 */
-	let SIM_PROMPT = $state('Question: How many countries are there?\nAnswer:');
-	const SIM_ANSWER = '195';
+	let SIM_PROMPT = $state('Question: What does IAEA stand for?\nAnswer:');
+	const SIM_ANSWER = 'The International Atomic Energy Agency';
 	const SIM_STATUS = [
 		'loading proving key',
 		'committing to the token layer',
@@ -462,6 +462,19 @@
 			.replace(/^\s*Question:\s*/i, '')
 			.replace(/\s*Answer:\s*$/i, '')
 			.trim()
+	);
+	/**
+	 * The answer is whatever the model said, and the model does not know it is being
+	 * projected. A one-word answer should be huge; a five-word expansion has to still
+	 * fit the corner it is sitting in, so the size steps down with length rather than
+	 * running off a page that deliberately cannot scroll.
+	 */
+	const answerSize = $derived(
+		answer.length <= 10
+			? 'clamp(1.6rem, 3.4vw, 3.4rem)'
+			: answer.length <= 24
+				? 'clamp(1.25rem, 2.3vw, 2.4rem)'
+				: 'clamp(1rem, 1.6vw, 1.75rem)'
 	);
 	/** the far end is doing something you cannot see: say so with a sweep, not a word */
 	const working = $derived(phase === 'gen' || phase === 'prove');
@@ -708,11 +721,14 @@
 		<div class="flex shrink-0 items-end justify-between gap-8">
 			<p class="t-lead max-w-[52ch] text-balance">{caption}</p>
 			{#if answer}
-				<div class="ilk-bloom flex shrink-0 flex-col items-end gap-1">
+				<div class="ilk-bloom flex max-w-[46ch] min-w-0 flex-col items-end gap-1">
 					{#if asked}
-						<span class="t-body text-muted-foreground">{asked}</span>
+						<span class="t-body text-right text-muted-foreground">{asked}</span>
 					{/if}
-					<span class="t-big font-mono font-semibold text-signal">{answer}</span>
+					<span
+						class="text-right font-mono leading-[1.06] font-semibold text-balance text-signal"
+						style="font-size:{answerSize}">{answer}</span
+					>
 				</div>
 			{/if}
 		</div>
