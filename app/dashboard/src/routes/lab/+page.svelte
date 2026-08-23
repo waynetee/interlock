@@ -940,10 +940,12 @@
 					req={on[0] ? req : null}
 					rsp={on[1] ? rsp : null}
 					model={on[2] ? model : null}
-					stage={count === 3 ? (pass ? 'resolved' : 'clash') : 'stacked'}
+					stage={count === 3 ? (pass ? 'pass' : 'fail') : 'dealing'}
 					{word}
 					face={{ size, weight }}
 					{grid}
+					{slack}
+					split={split / 100}
 				/>
 			</section>
 		{/if}

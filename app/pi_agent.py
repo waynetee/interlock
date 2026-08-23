@@ -26,6 +26,7 @@ Run:  sudo ./venv/bin/python -u pi_agent.py --iface eth0 --spark http://2a-spark
 """
 import argparse
 import os
+import subprocess
 import sys
 import threading
 import time
@@ -161,6 +162,42 @@ class Agent:
         def _challenge(data):
             threading.Thread(target=self._do_challenge, args=(data,),
                              daemon=True).start()
+
+        @sio.on("cmd:shutdown", namespace=NS)
+        def _shutdown(data=None):
+            """Halt the Pi, on the Spark's say-so.
+
+            The Spark is about to halt itself, and this socket is the Pi's only
+            route to a command from the front panel, so the two cannot be issued
+            in parallel -- the Spark sends this first and then waits. Do the halt
+            off the socket thread so the ack gets out before init starts tearing
+            the process down.
+
+            This already runs as root (AF_PACKET), so `shutdown` needs no sudo;
+            the sudo attempt is only there for a non-root run during development."""
+            if (data or {}).get("confirm") != "POWER OFF":
+                print("[agent] unconfirmed shutdown ignored", flush=True)
+                return
+            print("[agent] shutdown requested by the Spark", flush=True)
+
+            def _halt():
+                time.sleep(1)
+                for cmd in (["shutdown", "-h", "now"],
+                            ["sudo", "-n", "shutdown", "-h", "now"]):
+                    try:
+                        p = subprocess.run(cmd, capture_output=True, text=True,
+                                           timeout=15)
+                    except Exception as e:
+                        print("[agent] %s: %s" % (cmd[0], e), flush=True)
+                        continue
+                    if p.returncode == 0:
+                        return
+                    print("[agent] %s rc=%d %s" % (" ".join(cmd), p.returncode,
+                                                   (p.stderr or "").strip()),
+                          flush=True)
+                print("[agent] could not halt the Pi", flush=True)
+
+            threading.Thread(target=_halt, daemon=True).start()
 
     def emit(self, ev, payload):
         try:

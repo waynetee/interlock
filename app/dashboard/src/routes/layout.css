@@ -16,8 +16,14 @@
  * The subject is a device clamped onto a wire, measuring signals. So the page is
  * dressed as lab instrumentation rather than a dashboard: graphite ground, hairline
  * rules, tight 2px corners, tabular figures, and a single cyan reserved for the
- * live signal path. Nothing else is allowed to use the accent -- when the cyan
- * moves, that is real traffic on a real cable.
+ * live signal path. Nothing else in the chrome is allowed to use the accent --
+ * when the cyan moves, that is real traffic on a real cable.
+ *
+ * The one exception is the fingerprint register, which is a picture of three
+ * pieces of film rather than chrome. Its three have to stay tellable apart while
+ * they slide over each other, and three greens would be three greens, so it
+ * carries its own lime/cyan/violet -- the same three as /lab, so the bench and the
+ * demo are talking about one picture. See fingerprint-register.svelte.
  *
  * Deliberately single-theme. This runs on a projector in a dim room, and a light
  * variant of an instrument face is a different design, not a recolour. The values
@@ -54,12 +60,6 @@
 	--caution: oklch(0.83 0.14 82);
 	--fault: oklch(0.68 0.2 22);
 	--grid: oklch(0.245 0.019 258);
-
-	/* fingerprint grids -- three related greens so the three digests stay tellable
-	 * apart while they are decked, and the composite resolves to --verified. */
-	--fp-in: oklch(0.80 0.17 132);
-	--fp-out: oklch(0.82 0.17 158);
-	--fp-model: oklch(0.83 0.14 181);
 
 	--chart-1: var(--signal);
 	--chart-2: var(--verified);
@@ -98,9 +98,6 @@
 	--color-caution: var(--caution);
 	--color-fault: var(--fault);
 	--color-grid: var(--grid);
-	--color-fp-in: var(--fp-in);
-	--color-fp-out: var(--fp-out);
-	--color-fp-model: var(--fp-model);
 	--color-chart-5: var(--chart-5);
 	--color-chart-4: var(--chart-4);
 	--color-chart-3: var(--chart-3);

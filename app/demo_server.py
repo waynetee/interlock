@@ -27,6 +27,7 @@ import argparse
 import asyncio
 import hashlib
 import os
+import subprocess
 import time
 
 import socketio
@@ -314,6 +315,81 @@ async def demo_reset(sid, data=None):
         pass
     S.reset()
     await sio.emit("beat:reset", {}, namespace="/demo")
+
+
+# The word the UI has to send back before anything halts. This is not access
+# control -- anyone who can reach /demo can reach the rack -- it is there so a
+# stray or replayed `demo:shutdown` cannot power the demo off by itself, which on
+# a shared AP with a page open on three laptops is a real way to lose an evening.
+SHUTDOWN_TOKEN = "POWER OFF"
+
+
+def _halt():
+    """Halt this machine, by whichever route the box actually allows.
+
+    The Spark's `spark` account has no passwordless sudo and polkit wants an
+    interactive auth, so out of the box NONE of these work and the UI is told so
+    rather than being left to look like it did something. To enable it:
+
+        echo 'spark ALL=(root) NOPASSWD: /usr/sbin/poweroff' \
+          | sudo tee /etc/sudoers.d/interlock-poweroff
+        sudo chmod 440 /etc/sudoers.d/interlock-poweroff
+
+    The Pi already has blanket NOPASSWD, so its half needs nothing."""
+    tried = []
+    for cmd in (["systemctl", "poweroff"],
+                ["sudo", "-n", "/usr/sbin/poweroff"],
+                ["sudo", "-n", "shutdown", "-h", "now"]):
+        try:
+            p = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        except Exception as e:
+            tried.append("%s: %s" % (cmd[0], e))
+            continue
+        if p.returncode == 0:
+            return True, " ".join(cmd)
+        tried.append("%s: rc=%d %s" % (" ".join(cmd), p.returncode,
+                                       (p.stderr or "").strip()[:90]))
+    return False, " | ".join(tried)
+
+
+@sio.on("demo:shutdown", namespace="/demo")
+async def demo_shutdown(sid, data=None):
+    """Halt the Pi, then halt this machine.
+
+    Order matters and is not symmetric: the Pi's only route to a shutdown command
+    is the socket it holds to this process, so this process has to still be alive
+    to carry it. Send the Pi's first, give it a few seconds to land and for the Pi
+    to start halting, and only then take this host -- and with it the page that
+    asked -- down. There is no undo; both come back at the hardware.
+    """
+    if (data or {}).get("confirm") != SHUTDOWN_TOKEN:
+        await sio.emit("beat:error",
+                       {"error": "shutdown was not confirmed -- ignored"},
+                       namespace="/demo", to=sid)
+        return
+    if os.environ.get("ALLOW_SHUTDOWN", "1") == "0":
+        await sio.emit("beat:error",
+                       {"error": "shutdown is disabled on this server "
+                                 "(ALLOW_SHUTDOWN=0)"},
+                       namespace="/demo", to=sid)
+        return
+    print("[demo] shutdown requested from %s" % sid, flush=True)
+    await to_demo("beat:shutdown", {"what": "pi, then spark"})
+    if S.agent is not None:
+        await sio.emit("cmd:shutdown", {"confirm": SHUTDOWN_TOKEN},
+                       namespace="/agent", to=S.agent)
+    else:
+        print("[demo] no pi agent connected -- halting this host only", flush=True)
+    await asyncio.sleep(4)
+    ok, how = _halt()
+    print("[demo] halt %s: %s" % ("issued" if ok else "FAILED", how), flush=True)
+    if not ok:
+        # Still up, and the operator is entitled to know why. The Pi is already on
+        # its way down, so say that too rather than implying nothing happened.
+        await to_demo("beat:error", {
+            "error": "the Pi was told to halt, but this host would not: %s. "
+                     "Install the sudoers drop-in in demo_server._halt, or power "
+                     "the Spark down at the box." % how})
 
 
 # Shared with model_server through the container's /app bind mount.
