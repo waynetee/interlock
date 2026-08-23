@@ -32,7 +32,7 @@
 	let model = $state('6e6001da2106d4757498752a021df6c2bdc332c6');
 	let stage = $state<Stage>('resolved');
 	let only = $state<number | null>(null);
-	let polarity = $state<Polarity>('cutout');
+	let polarity = $state<Polarity>('solid');
 	let readout = $state<'ink' | 'light'>('ink');
 	let speed = $state(1);
 	let playing = $state(false);
@@ -44,10 +44,8 @@
 		model: stage === 'hidden' || stage === 'stacked' || stage === 'register' ? null : model
 	});
 
-	const measured = $derived.by(() => {
-		const s = build(req, rsp, model, stage !== 'clash', polarity);
-		return stats(s);
-	});
+	const measured = $derived.by(() => stats(build(req, rsp, model, stage !== 'clash', polarity)));
+	const contrast = $derived(Math.abs(measured.decoded.letters - measured.decoded.field));
 
 	let gen = 0;
 	async function hold(ms: number, g: number) {
@@ -119,7 +117,9 @@
 			<!-- controls -->
 			<div class="flex flex-col gap-4 border border-border bg-card p-4">
 				<div class="flex flex-wrap items-center gap-2">
-					<span class="w-24 font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">
+					<span
+						class="w-24 font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase"
+					>
 						Sequence
 					</span>
 					<button
@@ -139,7 +139,9 @@
 				</div>
 
 				<div class="flex flex-wrap items-center gap-2">
-					<span class="w-24 font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">
+					<span
+						class="w-24 font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase"
+					>
 						Stage
 					</span>
 					{#each STAGES as s (s)}
@@ -156,10 +158,12 @@
 				</div>
 
 				<div class="flex flex-wrap items-center gap-2">
-					<span class="w-24 font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">
+					<span
+						class="w-24 font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase"
+					>
 						Polarity
 					</span>
-					{#each [{ v: 'cutout', l: 'Word lit' }, { v: 'solid', l: 'Word dark' }] as o (o.v)}
+					{#each [{ v: 'solid', l: 'Word lit' }, { v: 'cutout', l: 'Word dark' }] as o (o.v)}
 						<button
 							class={cn(
 								'border px-3 py-1.5 font-mono text-[11px] tracking-[0.12em] uppercase transition-colors',
@@ -171,12 +175,14 @@
 						>
 					{/each}
 					<span class="font-mono text-[10px] text-muted-foreground/70">
-						whichever side is solid is the exact one; the other carries the texture
+						both sides decode hard — this only picks which one the light comes through
 					</span>
 				</div>
 
 				<div class="flex flex-wrap items-center gap-2">
-					<span class="w-24 font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">
+					<span
+						class="w-24 font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase"
+					>
 						Readout
 					</span>
 					{#each [{ v: 'ink', l: 'Through ink' }, { v: 'light', l: 'Emitted' }] as o (o.v)}
@@ -196,7 +202,9 @@
 				</div>
 
 				<div class="flex flex-wrap items-center gap-2">
-					<span class="w-24 font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">
+					<span
+						class="w-24 font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase"
+					>
 						Isolate
 					</span>
 					{#each ['all', 'input', 'output', 'model'] as label, i (label)}
@@ -211,7 +219,7 @@
 						>
 					{/each}
 					<span class="font-mono text-[10px] text-muted-foreground/70">
-						one share alone is uniform noise — that is the point
+						one sheet decodes to a slab. So do any two. That is the point.
 					</span>
 				</div>
 
@@ -264,25 +272,36 @@
 						</div>
 					{/each}
 					<div class="my-1 h-px bg-border"></div>
+					<div class="text-[10px] tracking-[0.14em] text-muted-foreground/70 uppercase">
+						raw subcell union
+					</div>
 					<div class="flex justify-between gap-6">
-						<dt class="text-muted-foreground">union · inside letters</dt>
-						<dd class={measured.letters > measured.field ? 'text-verified' : ''}>
-							{pct(measured.letters)}
+						<dt class="text-muted-foreground">clear · inside letters</dt>
+						<dd>{pct(measured.raw.letters)}</dd>
+					</div>
+					<div class="flex justify-between gap-6">
+						<dt class="text-muted-foreground">clear · outside letters</dt>
+						<dd>{pct(measured.raw.field)}</dd>
+					</div>
+					<div class="my-1 h-px bg-border"></div>
+					<div class="text-[10px] tracking-[0.14em] text-muted-foreground/70 uppercase">
+						read at message resolution
+					</div>
+					<div class="flex justify-between gap-6">
+						<dt class="text-muted-foreground">lit · inside letters</dt>
+						<dd class={measured.decoded.letters === 1 ? 'text-verified' : ''}>
+							{pct(measured.decoded.letters)}
 						</dd>
 					</div>
 					<div class="flex justify-between gap-6">
-						<dt class="text-muted-foreground">union · outside letters</dt>
-						<dd class={measured.field > measured.letters ? 'text-verified' : ''}>
-							{pct(measured.field)}
+						<dt class="text-muted-foreground">lit · outside letters</dt>
+						<dd class={measured.decoded.field === 0 ? 'text-verified' : ''}>
+							{pct(measured.decoded.field)}
 						</dd>
 					</div>
 					<div class="flex justify-between gap-6">
 						<dt class="text-muted-foreground">contrast</dt>
-						<dd
-							class={measured.field - measured.letters > 0.2 ? 'text-verified' : 'text-fault'}
-						>
-							{pct(Math.abs(measured.field - measured.letters))}
-						</dd>
+						<dd class={contrast === 1 ? 'text-verified' : 'text-fault'}>{pct(contrast)}</dd>
 					</div>
 					<div class="my-1 h-px bg-border"></div>
 					<div class="flex justify-between gap-6 text-muted-foreground/70">
@@ -294,13 +313,15 @@
 						<dd>{ROWS} × {COLS} ({BLK}× expansion)</dd>
 					</div>
 					<div class="flex justify-between gap-6 text-muted-foreground/70">
-						<dt>lit per block</dt>
+						<dt>inked per block</dt>
 						<dd>{LIT} of {PER}</dd>
 					</div>
 				</dl>
 				<p class="mt-3 leading-relaxed text-muted-foreground/70">
-					Every share is {pct(LIT / PER)} dense whatever the digests are. Change one above and
-					watch the texture change while the densities do not.
+					Every share is {pct(LIT / PER)} dense whatever the digests are, and so is every pair. Change
+					a digest above and watch the texture change while none of these numbers do. On a clash the read
+					goes to coin-flip speckle — about half lit on both sides of the stencil, which is a shape you
+					cannot see because there isn't one.
 				</p>
 			</div>
 		</div>

@@ -7,21 +7,35 @@
 	 * one share of a (3,3) visual secret sharing scheme — see $lib/fingerprint-shares.
 	 *
 	 * Each share is drawn as INK on a clear sheet, and the sheets are laid over one
-	 * another. Ink is opaque, so a cell survives bright only where none of the three
-	 * inked it: hold three inked transparencies up to a lamp and this is the picture
-	 * you get. That is still exactly the union — read in transmitted light rather than
-	 * emitted — and it is worth the inversion. The field is the side the three shares
-	 * ink disjointly, so it goes fully opaque: a ground with not one stray bright cell
-	 * in it, which is what gives the letterforms a clean edge. The word itself comes
-	 * through at 67%, and a 67% shape reads as a shape. The emitted-light reading
-	 * cannot get there; it puts the solid side and the textured side the other way up.
+	 * another. Ink is opaque, so a subcell survives bright only where none of the
+	 * three inked it: hold three inked transparencies up to a lamp and this is the
+	 * picture you get.
+	 *
+	 * That picture is one clear subcell in four — a 25% grey, faint. So once the
+	 * sheets are in register the stack is READ at message resolution, the resolution
+	 * the word was written at: a message pixel is lit if any light gets through its
+	 * 2x2 block. Solid word, solid ground, nothing dithered. It is the same threshold
+	 * a human eye applies to a physical stack whose subcells it cannot resolve, done
+	 * exactly rather than by squinting, and it is `resolve()` in the shares module —
+	 * which is handed the sheets and nothing else.
 	 *
 	 * Everything is composited into one canvas at the sheets' current positions, so
 	 * the slide is three sheets actually moving, not a dissolve between two pictures.
 	 * Nothing here knows the message — there is no mask lookup below this comment.
 	 * Drop a sheet and the word goes; that is the only thing holding it up.
 	 */
-	import { build, COLS, N, ROWS, type Polarity, type Shares } from '$lib/fingerprint-shares';
+	import { untrack } from 'svelte';
+	import {
+		build,
+		resolve,
+		BLK,
+		COLS,
+		MSG_COLS,
+		N,
+		ROWS,
+		type Polarity,
+		type Shares
+	} from '$lib/fingerprint-shares';
 	import { cn } from '$lib/utils';
 
 	type Stage = 'hidden' | 'stacked' | 'register' | 'resolved' | 'clash';
@@ -33,7 +47,7 @@
 		model = null,
 		stage = 'hidden',
 		only = null,
-		polarity = 'cutout',
+		polarity = 'solid',
 		readout = 'ink'
 	}: {
 		req?: string | null;
@@ -47,11 +61,11 @@
 		readout?: Readout;
 	} = $props();
 
-	const CELL = 6;
+	const CELL = 7;
 	const GAP = 1;
 	const PITCH = CELL + GAP;
-	const W = COLS * PITCH - GAP;
-	const H = ROWS * PITCH - GAP;
+	const W = COLS * PITCH - GAP; // 831
+	const H = ROWS * PITCH - GAP; // 207
 	// Decked, the three sit side by side across the width they will occupy stacked, so
 	// the slide is a convergence rather than a jump.
 	const DECK_GAP = 18;
@@ -61,6 +75,7 @@
 	const INK = [0, 0.45, 0.62, 0.82, 1]; // a sheet's own four ink levels
 
 	const registered = $derived(stage === 'register' || stage === 'resolved' || stage === 'clash');
+	const decoded = $derived(stage === 'resolved' || stage === 'clash');
 	const EMPTY = new Uint8Array(N);
 
 	// Sheet C is the only one the outcome touches; A and B are byte-identical either
@@ -70,13 +85,36 @@
 	);
 
 	const cards = $derived([
-		{ key: 'in', tag: 'Input fingerprint', sub: 'certified inbound', hex: req, lv: shares?.a ?? null },
-		{ key: 'out', tag: 'Output fingerprint', sub: 'certified outbound', hex: rsp, lv: rsp ? (shares?.b ?? null) : null },
-		{ key: 'model', tag: 'Model fingerprint', sub: 'committed in advance', hex: model, lv: model ? (shares?.c ?? null) : null }
+		{
+			key: 'in',
+			tag: 'Input fingerprint',
+			sub: 'certified inbound',
+			hex: req,
+			lv: shares?.a ?? null
+		},
+		{
+			key: 'out',
+			tag: 'Output fingerprint',
+			sub: 'certified outbound',
+			hex: rsp,
+			lv: rsp ? (shares?.b ?? null) : null
+		},
+		{
+			key: 'model',
+			tag: 'Model fingerprint',
+			sub: 'committed in advance',
+			hex: model,
+			lv: model ? (shares?.c ?? null) : null
+		}
 	]);
+
+	const live = $derived(
+		cards.map((c, i) => ({ i, lv: c.lv })).filter((c) => c.lv && (only === null || only === c.i))
+	);
 
 	let view = $state<HTMLCanvasElement | null>(null);
 	let hues = $state<string[]>(['#8fdc4a', '#4ae8a8', '#3fd8d0', '#4ae8a8']);
+	let fault = $state('#ff6b5e');
 	let ground = $state('#242c39');
 	let card = $state('#1a1f2b');
 	let dpr = 1;
@@ -94,9 +132,25 @@
 			v('--fp-model', '#3fd8d0'),
 			v('--verified', '#4ae8a8')
 		];
+		fault = v('--fault', '#ff6b5e');
 		ground = v('--grid', '#242c39');
 		card = v('--card', '#1a1f2b');
 	}
+
+	function surface() {
+		const cv = document.createElement('canvas');
+		cv.width = Math.round(W * dpr);
+		cv.height = Math.round(H * dpr);
+		const ctx = cv.getContext('2d');
+		ctx?.setTransform(dpr, 0, 0, dpr, 0, 0);
+		return { cv, ctx };
+	}
+
+	const dot = (ctx: CanvasRenderingContext2D, r: number, c: number) => {
+		ctx.beginPath();
+		ctx.roundRect(c * PITCH, r * PITCH, CELL, CELL, 1.5);
+		ctx.fill();
+	};
 
 	/**
 	 * One sheet, pre-rendered so a frame costs three drawImage calls instead of
@@ -105,12 +159,8 @@
 	 *   light the sheet's lit cells only, transparent elsewhere
 	 */
 	function bake(lv: Uint8Array, hue: string, mode: Readout | 'ghost', faint: boolean) {
-		const cv = document.createElement('canvas');
-		cv.width = Math.round(W * dpr);
-		cv.height = Math.round(H * dpr);
-		const ctx = cv.getContext('2d');
+		const { cv, ctx } = surface();
 		if (!ctx) return cv;
-		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		if (mode === 'ink') {
 			ctx.fillStyle = card;
 			ctx.fillRect(0, 0, W, H);
@@ -124,9 +174,28 @@
 				if (!on) continue;
 				ctx.globalAlpha = mode === 'light' ? INK[l] : 1;
 				ctx.fillStyle = faint ? ground : hue;
-				ctx.beginPath();
-				ctx.roundRect(c * PITCH, r * PITCH, CELL, CELL, 1.5);
-				ctx.fill();
+				dot(ctx, r, c);
+			}
+		}
+		return cv;
+	}
+
+	/**
+	 * The message-resolution read of whatever sheets are on the table. Opaque and
+	 * full-bleed, so it cross-fades over the raw stack cleanly. Every cell is drawn
+	 * either way — lit cells in the verdict hue, dark ones in the grid's own colour —
+	 * so the register keeps its texture while the word itself has no dither in it at
+	 * all: a block is on or it is off, and every cell in it agrees.
+	 */
+	function bakeDecoded(msg: Uint8Array, hue: string) {
+		const { cv, ctx } = surface();
+		if (!ctx) return cv;
+		ctx.fillStyle = card;
+		ctx.fillRect(0, 0, W, H);
+		for (let r = 0; r < ROWS; r++) {
+			for (let c = 0; c < COLS; c++) {
+				ctx.fillStyle = msg[Math.floor(r / BLK) * MSG_COLS + Math.floor(c / BLK)] ? hue : ground;
+				dot(ctx, r, c);
 			}
 		}
 		return cv;
@@ -134,32 +203,42 @@
 
 	let sheets = $state<(HTMLCanvasElement | null)[]>([null, null, null]);
 	let ghost = $state<HTMLCanvasElement | null>(null);
+	let plate = $state<HTMLCanvasElement | null>(null);
 
 	// eased 0 -> 1: 0 is three sheets abreast, 1 is all three in register
 	let progress = $state(0);
-	let raf = 0;
+	// eased 0 -> 1: 0 is the raw subcell union, 1 is the message-resolution read
+	let develop = $state(0);
+	let rafP = 0;
+	let rafD = 0;
 	const still = () =>
 		typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-	function tween(to: number) {
-		cancelAnimationFrame(raf);
-		const from = progress;
-		if (from === to) return;
+	function tween(
+		from: number,
+		to: number,
+		ms: number,
+		delay: number,
+		put: (v: number) => void,
+		cancel: number
+	) {
+		cancelAnimationFrame(cancel);
+		if (from === to) return 0;
 		// Honour reduced motion — and it doubles as the static path for screenshots,
 		// which never see a canvas whose last paint happened inside a rAF callback.
 		if (still()) {
-			progress = to;
-			return;
+			put(to);
+			return 0;
 		}
-		const t0 = performance.now();
-		const ms = 950;
+		const t0 = performance.now() + delay;
 		const step = (now: number) => {
-			const k = Math.min(1, (now - t0) / ms);
+			const k = Math.min(1, Math.max(0, (now - t0) / ms));
 			const e = 1 - Math.pow(1 - k, 3);
-			progress = from + (to - from) * e;
-			if (k < 1) raf = requestAnimationFrame(step);
+			put(from + (to - from) * e);
+			if (k < 1) h = requestAnimationFrame(step);
 		};
-		raf = requestAnimationFrame(step);
+		let h = requestAnimationFrame(step);
+		return h;
 	}
 
 	function paint() {
@@ -184,10 +263,6 @@
 			return { x: x0 * (1 - p), y: y0 * (1 - p), s };
 		};
 
-		const live = cards
-			.map((c, i) => ({ i, lv: c.lv }))
-			.filter((c) => c.lv && (only === null || only === c.i));
-
 		// sheets with no digest yet hold their slot open
 		if (ghost) {
 			for (let i = 0; i < 3; i++) {
@@ -209,7 +284,7 @@
 				ctx.save();
 				ctx.translate(x, y);
 				ctx.scale(k, k);
-				ctx.fillStyle = stage === 'resolved' ? hues[3] : hues[c.i];
+				ctx.fillStyle = decoded ? (stage === 'clash' ? fault : hues[3]) : hues[c.i];
 				ctx.fillRect(0, 0, W, H);
 				ctx.restore();
 			}
@@ -225,6 +300,14 @@
 			ctx.drawImage(sh, 0, 0, W, H);
 			ctx.restore();
 		}
+
+		// pass three: the same union, read at message resolution
+		if (plate && develop > 0) {
+			ctx.save();
+			ctx.globalAlpha = develop;
+			ctx.drawImage(plate, 0, 0, W, H);
+			ctx.restore();
+		}
 	}
 
 	$effect(() => {
@@ -238,16 +321,47 @@
 	$effect(() => {
 		const mode = readout;
 		const unify = stage === 'resolved';
-		sheets = cards.map((c, i) => (c.lv ? bake(c.lv, unify ? hues[3] : hues[i], mode, false) : null));
+		sheets = cards.map((c, i) =>
+			c.lv ? bake(c.lv, unify ? hues[3] : hues[i], mode, false) : null
+		);
 	});
 
 	$effect(() => {
-		tween(registered ? 1 : 0);
+		// The plate is a read of the sheets on the table and nothing else. `only` is
+		// honoured, which is how the testbed shows that one sheet decodes to a slab.
+		void ready;
+		plate = live.length
+			? bakeDecoded(
+					resolve(live.map((c) => c.lv as Uint8Array)),
+					stage === 'clash' ? fault : hues[3]
+				)
+			: null;
+	});
+
+	// Both tweens read the value they are about to write, so the reads are untracked:
+	// a tracked one would make each rAF frame re-run the effect that started it, which
+	// is the loop that pegged the tab the last time this component grew a tween. The
+	// effects depend on the STAGE flags and nothing else.
+	$effect(() => {
+		const to = registered ? 1 : 0;
+		untrack(() => {
+			rafP = tween(progress, to, 950, 0, (v) => (progress = v), rafP);
+		});
+	});
+
+	$effect(() => {
+		const to = decoded ? 1 : 0;
+		untrack(() => {
+			// Develop only once the sheets are actually in register — if the stage
+			// jumped straight there, wait out the slide first so the two never overlap.
+			const wait = to ? (1 - progress) * 950 + 120 : 0;
+			rafD = tween(develop, to, 620, wait, (v) => (develop = v), rafD);
+		});
 	});
 
 	$effect(() => {
 		// touch everything a frame depends on
-		void [sheets, ghost, progress, only, readout, stage, ready];
+		void [sheets, ghost, plate, progress, develop, only, readout, stage, ready];
 		paint();
 	});
 
@@ -268,11 +382,11 @@
 			{#if stage === 'resolved'}
 				three sheets of ink — light gets through only where all three are clear
 			{:else if stage === 'clash'}
-				the third sheet does not complete — nothing survives the stack
+				the third sheet does not complete — the stack reads as noise
 			{:else if stage === 'register'}
 				stacking…
 			{:else}
-				one sheet per digest · each inks 3 of every 9 cells, everywhere
+				one sheet per digest · each inks 2 of every 4 cells, everywhere
 			{/if}
 		</span>
 	</div>
@@ -293,7 +407,10 @@
 							{d.tag}
 						</span>
 					</div>
-					<div class="tabular font-mono text-[15px] leading-none font-semibold" style="color:{hues[i]}">
+					<div
+						class="tabular font-mono text-[15px] leading-none font-semibold"
+						style="color:{hues[i]}"
+					>
 						{fmt(d.hex)}
 					</div>
 					<div class="font-mono text-[9px] tracking-[0.12em] text-muted-foreground/70 uppercase">
