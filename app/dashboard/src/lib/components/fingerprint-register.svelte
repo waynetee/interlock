@@ -6,18 +6,13 @@
 	 * fingerprint of the response, and the commitment to the model weights. Each is
 	 * one share of a (3,3) visual secret sharing scheme — see $lib/fingerprint-shares.
 	 *
-	 * Each share is drawn as INK on a clear sheet, and the sheets are laid over one
-	 * another. Ink is opaque, so a subcell survives bright only where none of the
-	 * three inked it: hold three inked transparencies up to a lamp and this is the
-	 * picture you get.
+	 * Each sheet LIGHTS a third of the panel, and the sheets are laid over one another
+	 * so the light adds. The ground was dealt out between the three, one cell to one
+	 * sheet, so together they fill it exactly; no sheet lights a letter cell at all, so
+	 * the word stays black however many sheets go down.
 	 *
-	 * That picture is one clear subcell in four — a 25% grey, faint. So once the
-	 * sheets are in register the stack is READ at message resolution, the resolution
-	 * the word was written at: a message pixel is lit if any light gets through its
-	 * 2x2 block. Solid word, solid ground, nothing dithered. It is the same threshold
-	 * a human eye applies to a physical stack whose subcells it cannot resolve, done
-	 * exactly rather than by squinting, and it is `resolve()` in the shares module —
-	 * which is handed the sheets and nothing else.
+	 * What you see stacked is the union, cell for cell. There is no threshold pass and
+	 * no second resolution — a cell was lit by somebody or it was not.
 	 *
 	 * Everything is composited into one canvas at the sheets' current positions, so
 	 * the slide is three sheets actually moving, not a dissolve between two pictures.
@@ -25,47 +20,33 @@
 	 * Drop a sheet and the word goes; that is the only thing holding it up.
 	 */
 	import { untrack } from 'svelte';
-	import {
-		build,
-		resolve,
-		BLK,
-		COLS,
-		MSG_COLS,
-		N,
-		ROWS,
-		type Polarity,
-		type Shares
-	} from '$lib/fingerprint-shares';
+	import { build, union, COLS, N, ROWS, type Shares } from '$lib/fingerprint-shares';
 	import { cn } from '$lib/utils';
 
 	type Stage = 'hidden' | 'stacked' | 'register' | 'resolved' | 'clash';
-	type Readout = 'ink' | 'light';
 
 	let {
 		req = null,
 		rsp = null,
 		model = null,
 		stage = 'hidden',
-		only = null,
-		polarity = 'solid',
-		readout = 'ink'
+		only = null
 	}: {
 		req?: string | null;
 		rsp?: string | null;
 		model?: string | null;
 		stage?: Stage;
-		/** testbed only: show a single sheet, to see for yourself that it says nothing */
+		/** testbed only: show a single sheet */
 		only?: number | null;
-		polarity?: Polarity;
-		/** 'ink' = light through stacked ink; 'light' = the emitted-light reading */
-		readout?: Readout;
 	} = $props();
 
-	const CELL = 7;
+	// 91 cells across, one per message pixel: at a 9 px pitch that is 818, the widest
+	// the demo page's column takes without scrolling.
+	const CELL = 8;
 	const GAP = 1;
 	const PITCH = CELL + GAP;
-	const W = COLS * PITCH - GAP; // 831
-	const H = ROWS * PITCH - GAP; // 207
+	const W = COLS * PITCH - GAP; // 818
+	const H = ROWS * PITCH - GAP; // 260
 	// Decked, the three sit side by side across the width they will occupy stacked, so
 	// the slide is a convergence rather than a jump.
 	const DECK_GAP = 18;
@@ -90,7 +71,7 @@
 	// Sheet C is the only one the outcome touches; A and B are byte-identical either
 	// way, so the deck cannot be read ahead of the verdict.
 	const shares = $derived<Shares | null>(
-		req ? build(req, rsp ?? '', model ?? '', stage !== 'clash', polarity) : null
+		req ? build(req, rsp ?? '', model ?? '', stage !== 'clash') : null
 	);
 
 	const cards = $derived([
@@ -125,7 +106,8 @@
 	let hues = $state<string[]>(['#8fdc4a', '#4ae8a8', '#3fd8d0', '#4ae8a8']);
 	let fault = $state('#ff6b5e');
 	let ground = $state('#242c39');
-	let card = $state('#1a1f2b');
+	/** the black the letters are cut out in — the read's only other colour */
+	const VOID = '#05080b';
 	let dpr = 1;
 
 	// Read once. An earlier cut of this read hues[] to supply its own fallbacks while
@@ -143,7 +125,6 @@
 		];
 		fault = v('--fault', '#ff6b5e');
 		ground = v('--grid', '#242c39');
-		card = v('--card', '#1a1f2b');
 	}
 
 	function surface() {
@@ -162,26 +143,20 @@
 	};
 
 	/**
-	 * One sheet, pre-rendered so a frame costs three drawImage calls instead of
-	 * twelve thousand rectangles.
-	 *   ink   opaque everywhere, punched transparent where the sheet is clear
-	 *   light the sheet's lit cells only, transparent elsewhere
+	 * One sheet's lit cells, pre-rendered so a frame costs three drawImage calls
+	 * instead of twenty-three thousand rectangles. Transparent everywhere the sheet is
+	 * dark, so laying the three down really is adding their light together.
+	 *
+	 * 'ghost' lays down every cell instead, so an empty slot still reads as a grid.
 	 */
-	function bake(lv: Uint8Array, hue: string, mode: Readout | 'ghost', faint: boolean) {
+	function bake(lv: Uint8Array, hue: string, mode: 'light' | 'ghost', faint: boolean) {
 		const { cv, ctx } = surface();
 		if (!ctx) return cv;
-		if (mode === 'ink') {
-			ctx.fillStyle = card;
-			ctx.fillRect(0, 0, W, H);
-			ctx.globalCompositeOperation = 'destination-out';
-		}
 		for (let r = 0; r < ROWS; r++) {
 			for (let c = 0; c < COLS; c++) {
 				const l = lv[r * COLS + c];
-				// 'ghost' lays down every cell, so an empty slot still reads as a grid
-				const on = mode === 'ghost' ? true : mode === 'ink' ? !l : !!l;
-				if (!on) continue;
-				ctx.globalAlpha = mode === 'light' ? INK[l] : 1;
+				if (mode !== 'ghost' && !l) continue;
+				ctx.globalAlpha = mode === 'ghost' ? 1 : INK[l];
 				ctx.fillStyle = faint ? ground : hue;
 				dot(ctx, r, c);
 			}
@@ -190,21 +165,22 @@
 	}
 
 	/**
-	 * The message-resolution read of whatever sheets are on the table. Opaque and
-	 * full-bleed, so it cross-fades over the raw stack cleanly. Every cell is drawn
-	 * either way — lit cells in the verdict hue, dark ones in the grid's own colour —
-	 * so the register keeps its texture while the word itself has no dither in it at
-	 * all: a block is on or it is off, and every cell in it agrees.
+	 * The same union, in one colour instead of three. Opaque and full-bleed so it
+	 * cross-fades over the coloured stack cleanly.
+	 *
+	 * This is a recolour and nothing else: the lit cells are exactly the cells the
+	 * three sheets lit, counted by `union()`, which is handed the sheets and knows
+	 * nothing else. Dropping a sheet punches its third straight out of the ground.
 	 */
-	function bakeDecoded(msg: Uint8Array, hue: string) {
+	function bakeUnion(u: Uint8Array, hue: string) {
 		const { cv, ctx } = surface();
 		if (!ctx) return cv;
-		ctx.fillStyle = card;
+		ctx.fillStyle = VOID;
 		ctx.fillRect(0, 0, W, H);
+		ctx.fillStyle = hue;
 		for (let r = 0; r < ROWS; r++) {
 			for (let c = 0; c < COLS; c++) {
-				ctx.fillStyle = msg[Math.floor(r / BLK) * MSG_COLS + Math.floor(c / BLK)] ? hue : ground;
-				dot(ctx, r, c);
+				if (u[r * COLS + c]) dot(ctx, r, c);
 			}
 		}
 		return cv;
@@ -291,19 +267,8 @@
 			}
 		}
 
-		if (readout === 'ink') {
-			// pass one: the lamp behind each sheet
-			for (const c of live) {
-				const { x, y, s: k } = place(c.i);
-				ctx.save();
-				ctx.translate(x, y);
-				ctx.scale(k, k);
-				ctx.fillStyle = decoded ? (stage === 'clash' ? fault : hues[3]) : hues[c.i];
-				ctx.fillRect(0, 0, W, H);
-				ctx.restore();
-			}
-		}
-		// pass two: the ink itself. Opaque, so laying all three down IS the union.
+		// the sheets themselves. Transparent where dark, so laying all three down adds
+		// their light — which is what the word is made of.
 		for (const c of live) {
 			const sh = sheets[c.i];
 			if (!sh) continue;
@@ -333,10 +298,9 @@
 	});
 
 	$effect(() => {
-		const mode = readout;
 		const unify = stage === 'resolved';
 		sheets = cards.map((c, i) =>
-			c.lv ? bake(c.lv, unify ? hues[3] : hues[i], mode, false) : null
+			c.lv ? bake(c.lv, unify ? hues[3] : hues[i], 'light', false) : null
 		);
 	});
 
@@ -345,10 +309,7 @@
 		// honoured, which is how the testbed shows that one sheet decodes to a slab.
 		void ready;
 		plate = live.length
-			? bakeDecoded(
-					resolve(live.map((c) => c.lv as Uint8Array)),
-					stage === 'clash' ? fault : hues[3]
-				)
+			? bakeUnion(union(live.map((c) => c.lv as Uint8Array)), stage === 'clash' ? fault : hues[3])
 			: null;
 	});
 
@@ -382,7 +343,7 @@
 
 	$effect(() => {
 		// touch everything a frame depends on
-		void [sheets, ghost, plate, prog[0], prog[1], prog[2], develop, only, readout, stage, ready];
+		void [sheets, ghost, plate, prog[0], prog[1], prog[2], develop, only, stage, ready];
 		paint();
 	});
 
@@ -401,13 +362,13 @@
 			)}
 		>
 			{#if stage === 'resolved'}
-				three sheets of ink — light gets through only where all three are clear
+				three thirds of one ground — together they leave none of it dark
 			{:else if stage === 'clash'}
-				the third sheet does not complete — the stack reads as noise
+				the third sheet was not the one dealt — the ground never closes
 			{:else if stage === 'register'}
 				proof in flight — the third sheet has not landed
 			{:else}
-				one sheet per digest · each inks 2 of every 4 cells, everywhere
+				one sheet per digest · each lights a third of the panel
 			{/if}
 		</span>
 	</div>

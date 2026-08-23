@@ -1,158 +1,201 @@
 /**
- * Fingerprint shares — a (3,3) visual secret sharing scheme over the run's digests.
+ * Fingerprint shares — three sheets of light that tile the ground.
  *
  * The three fingerprint grids are not three pictures that get swapped for a fourth
- * at the end. They are three SHARES, and the word is what their union actually is.
- * Stacking them is the reveal; nothing downstream of `build()` knows the message.
+ * at the end. Each carries a third of the lit cells, and the picture is what they
+ * add up to when you lay them over one another. Stacking them is the reveal; nothing
+ * downstream of `build()` knows the message.
  *
  * ── the construction ────────────────────────────────────────────────────────────
  *
- * Naor–Shamir (3,3), the textbook one, four subcells per message pixel laid out
- * 2x2. A share's row is a set of subcells it INKS. Two base matrices, rows written
- * as the index sets of their ones:
+ * One cell per message pixel — no subcell expansion, no threshold, no read. What you
+ * see stacked is literally the union of the three sheets, cell for cell.
  *
- *   CLEAR pixel   {2,3} {1,3} {1,2}   union {1,2,3}  -> subcell 0 stays clear
- *   OPAQUE pixel  {0,1} {0,2} {0,3}   union all four -> nothing gets through
+ *   LETTER cell   no sheet lights it. Ever. It is black on all three sheets and it
+ *                 is black in the stack, which is the point.
+ *   GROUND cell   dealt to exactly one of the three sheets. Every ground cell is
+ *                 owned by somebody, so the three together leave none of it dark.
  *
- * Per pixel we draw a random permutation of the four columns and a random
- * assignment of the three rows to the three shares, then hand one row to each.
+ * Lay the sheets down and the ground fills completely while the letters stay black.
+ * There is nothing between those two states because there is nothing to threshold:
+ * a cell was lit by somebody or it was not.
  *
- * Four facts fall out of that, and all four are checkable in /lab:
+ * Sheets are then topped up to a third of the WHOLE panel. Owning a third of the
+ * ground is a third of the panel minus a third of the letters, so each sheet also
+ * lights a few cells another sheet already owns. That costs nothing — a cell lit
+ * twice looks the same in the stack as a cell lit once — and it buys a density that
+ * is the same 33% on every sheet however big the word is.
  *
- *   1. every row of both matrices has exactly two ones, so every share inks exactly
- *      two of every four subcells everywhere. One sheet is uniform 50% noise and
- *      carries nothing.
- *   2. ANY TWO sheets are also uniform. The union of two rows is three subcells in
- *      both matrices, and under a random column permutation it is a uniformly random
- *      three-subset either way — identically distributed. Two of the three sheets
- *      tell you nothing about the pixel. This is the property the previous cut of
- *      this file did not have, and it is why the word cannot leak early.
- *   3. all three sheets separate perfectly: one clear subcell against none.
- *   4. share C is the only one the verdict touches. A and B are byte-identical pass
- *      or fail, so the deck gives nothing away before the third sheet lands.
+ * ── what this costs, stated plainly ─────────────────────────────────────────────
  *
- * ── the readout ─────────────────────────────────────────────────────────────────
+ * A single sheet is 33% dense over the ground and 0% dense over the letters, so the
+ * word is faintly there in each one, as an absence. That is not a bug to be fixed
+ * later; it is forced. A stack that is COMPLETELY black over the letters means no
+ * sheet lit a letter cell, and a sheet that never lights a letter cell has a hole in
+ * it shaped like the word.
  *
- * One clear subcell in four is a 25% grey against black — true, but faint. So the
- * stack is read at MESSAGE resolution, which is the resolution the message was
- * written at in the first place: a message pixel is lit if ANY light gets through
- * its 2x2 block, dark if none does. That is `resolve()`, and it is the same
- * thresholding a human eye does to a physical transparency stack it cannot resolve
- * the subcells of — just done honestly and exactly instead of by squinting.
- *
- * It turns 25%-vs-0% into 100%-vs-0%. Solid word, solid ground, no dither anywhere.
- *
- * `resolve()` never looks at MASK. Hand it one sheet or two and every block has
- * light through it, so it returns a solid slab and no word — which is fact 2 above,
- * rendered. Hand it three that do not complete and it returns coin-flip speckle.
+ * Hiding that hole is what pixel expansion buys, and it costs the thing that was
+ * wanted more: with expansion the letters can only ever be a third lit rather than
+ * black, and getting them to black again needs a threshold pass over the subcells.
+ * This file takes the other side of that trade on purpose — a true black word in a
+ * true solid ground, read straight off the cells, at the price of a legible ghost in
+ * each sheet.
  *
  * ── what this is NOT ────────────────────────────────────────────────────────────
  *
- * The shares are not three independent functions of three independent digests. They
- * cannot be — no three hashes chosen by the world union to a word chosen by us. The
- * request digest drives the column permutation, the response digest the row
- * assignment, the model digest share C's fallback. A is free; B and C are the shares
- * that complete it. The honest claim is the one the panel makes: the word is
- * genuinely the union, and it only completes when the third share is the completing
- * one.
+ * The sheets are not three independent functions of three independent digests. They
+ * cannot be — no three hashes chosen by the world tile a word chosen by us. The
+ * request digest deals the ground out; each sheet's own digest picks its top-up; the
+ * model digest is the sheet that either fits the deal or does not. The honest claim
+ * is the one the panel makes: the picture is genuinely the union of the three, and it
+ * is only whole when the third sheet is the one that was dealt.
  */
 
-export const MSG_ROWS = 13; // 11 for the face, one row of margin above and below
-export const MSG_COLS = 52; // 5 glyphs x 8 wide + 4 gaps x 2 + 2 margin each side
-export const BLK = 2; // 2x2 subcell expansion
-export const ROWS = MSG_ROWS * BLK; // 26
-export const COLS = MSG_COLS * BLK; // 104
+export const ROWS = 29; // 21 for the face, four rows of margin above and below
+export const COLS = 91; // 5 glyphs x 13 wide + 4 gaps x 4 + 5 margin each side
 export const N = ROWS * COLS;
-export const M = MSG_ROWS * MSG_COLS;
-export const PER = BLK * BLK; // 4 subcells
-export const LIT = 2; // subcells each share inks, per block, always
+/** what every sheet lights, as a fraction of the whole panel */
+export const DENSITY = 1 / 3;
 
 /**
- * 8x11 face at message resolution, every stroke two message pixels thick. The
- * decode is binary, so the stroke no longer has to fight a noise floor — it is
- * this heavy because at 16x22 rendered cells a heavy stroke is simply easier to
- * read across a room, which is where this gets looked at.
+ * 13x21 face, every stroke ONE cell wide.
+ *
+ * A hairline is affordable because a cell is either lit or it is not — there is no
+ * dither for a thin stroke to get lost in. The face is drawn large in cells rather
+ * than large on screen for the reason a typeface is: at 7x11 a one-cell stroke is a
+ * seventh of the letter and the diagonals climb in four visible steps; at 13x21 it is
+ * a thirteenth, and the V descends in twenty-one.
  */
 const GLYPHS: Record<string, string[]> = {
 	V: [
-		'##....##',
-		'##....##',
-		'##....##',
-		'##....##',
-		'##....##',
-		'##....##',
-		'##....##',
-		'.##..##.',
-		'.##..##.',
-		'..####..',
-		'...##...'
+		'#...........#',
+		'#...........#',
+		'.#.........#.',
+		'.#.........#.',
+		'.#.........#.',
+		'..#.......#..',
+		'..#.......#..',
+		'..#.......#..',
+		'..#.......#..',
+		'...#.....#...',
+		'...#.....#...',
+		'...#.....#...',
+		'....#...#....',
+		'....#...#....',
+		'....#...#....',
+		'....#...#....',
+		'.....#.#.....',
+		'.....#.#.....',
+		'.....#.#.....',
+		'......#......',
+		'......#......'
 	],
 	A: [
-		'..####..',
-		'.##..##.',
-		'##....##',
-		'##....##',
-		'##....##',
-		'########',
-		'##....##',
-		'##....##',
-		'##....##',
-		'##....##',
-		'##....##'
+		'......#......',
+		'......#......',
+		'.....#.#.....',
+		'.....#.#.....',
+		'.....#.#.....',
+		'....#...#....',
+		'....#...#....',
+		'....#...#....',
+		'....#...#....',
+		'...#.....#...',
+		'...#.....#...',
+		'...#.....#...',
+		'..#.......#..',
+		'..#.......#..',
+		'..#########..',
+		'..#.......#..',
+		'.#.........#.',
+		'.#.........#.',
+		'.#.........#.',
+		'#...........#',
+		'#...........#'
 	],
 	L: [
-		'##......',
-		'##......',
-		'##......',
-		'##......',
-		'##......',
-		'##......',
-		'##......',
-		'##......',
-		'##......',
-		'##......',
-		'########'
+		'#............',
+		'#............',
+		'#............',
+		'#............',
+		'#............',
+		'#............',
+		'#............',
+		'#............',
+		'#............',
+		'#............',
+		'#............',
+		'#............',
+		'#............',
+		'#............',
+		'#............',
+		'#............',
+		'#............',
+		'#............',
+		'#............',
+		'#............',
+		'#############'
 	],
 	I: [
-		'########',
-		'...##...',
-		'...##...',
-		'...##...',
-		'...##...',
-		'...##...',
-		'...##...',
-		'...##...',
-		'...##...',
-		'...##...',
-		'########'
+		'#############',
+		'......#......',
+		'......#......',
+		'......#......',
+		'......#......',
+		'......#......',
+		'......#......',
+		'......#......',
+		'......#......',
+		'......#......',
+		'......#......',
+		'......#......',
+		'......#......',
+		'......#......',
+		'......#......',
+		'......#......',
+		'......#......',
+		'......#......',
+		'......#......',
+		'......#......',
+		'#############'
 	],
 	D: [
-		'######..',
-		'##...##.',
-		'##....##',
-		'##....##',
-		'##....##',
-		'##....##',
-		'##....##',
-		'##....##',
-		'##....##',
-		'##...##.',
-		'######..'
+		'###########..',
+		'#..........#.',
+		'#...........#',
+		'#...........#',
+		'#...........#',
+		'#...........#',
+		'#...........#',
+		'#...........#',
+		'#...........#',
+		'#...........#',
+		'#...........#',
+		'#...........#',
+		'#...........#',
+		'#...........#',
+		'#...........#',
+		'#...........#',
+		'#...........#',
+		'#...........#',
+		'#...........#',
+		'#..........#.',
+		'###########..'
 	]
 };
-const GW = 8;
-const GK = 2;
+const GW = 13;
+const GK = 4;
 
 export function stencil(word: string) {
-	const mask = new Uint8Array(M);
+	const mask = new Uint8Array(N);
 	const gh = GLYPHS[word[0]].length;
-	const x0 = Math.floor((MSG_COLS - (word.length * (GW + GK) - GK)) / 2);
-	const y0 = Math.floor((MSG_ROWS - gh) / 2);
+	const x0 = Math.floor((COLS - (word.length * (GW + GK) - GK)) / 2);
+	const y0 = Math.floor((ROWS - gh) / 2);
 	for (let li = 0; li < word.length; li++) {
 		const g = GLYPHS[word[li]];
 		for (let r = 0; r < gh; r++) {
 			for (let c = 0; c < GW; c++) {
-				if (g[r][c] === '#') mask[(y0 + r) * MSG_COLS + x0 + li * (GW + GK) + c] = 1;
+				if (g[r][c] === '#') mask[(y0 + r) * COLS + x0 + li * (GW + GK) + c] = 1;
 			}
 		}
 	}
@@ -182,122 +225,94 @@ function stream(hex: string, tag: number) {
 /** Partial Fisher–Yates: k of pool, without replacement. k === pool.length shuffles. */
 function pick(pool: number[], k: number, next: () => number) {
 	const a = pool.slice();
-	for (let i = 0; i < k; i++) {
+	const n = Math.min(k, a.length);
+	for (let i = 0; i < n; i++) {
 		const j = i + (next() % (a.length - i));
 		const t = a[i];
 		a[i] = a[j];
 		a[j] = t;
 	}
-	return a.slice(0, k);
+	return a.slice(0, n);
 }
 
-const COLUMNS = [0, 1, 2, 3];
-const SLOTS = [0, 1, 2];
-
 /**
- * The two base matrices, rows as index sets of the subcells that row INKS.
- * Rows of CLEAR union to three of four; rows of OPAQUE union to all four.
+ * There is no polarity switch here, and that is a consequence rather than an
+ * omission. Inverting it would make the LETTERS the side that fills — 8.5% of the
+ * panel — and three sheets at a third of the panel each cannot fit inside 8.5% of
+ * it. A solid ground with a black word is the only way round this construction goes.
  */
-const CLEAR: number[][] = [
-	[2, 3],
-	[1, 3],
-	[1, 2]
-];
-const OPAQUE: number[][] = [
-	[0, 1],
-	[0, 2],
-	[0, 3]
-];
-
-export type Polarity = 'solid' | 'cutout';
 
 export type Shares = {
-	/** levels per rendered subcell: 0 = uninked, 1..4 = ink level (texture only) */
+	/** per cell: 0 = unlit, 1..4 = brightness (texture only, never read as data) */
 	a: Uint8Array;
 	b: Uint8Array;
 	c: Uint8Array;
 };
 
 /**
- * Build the three shares. `pass` decides share C only.
- *
- * `polarity` picks which side of the stencil is the side light gets through:
- * 'solid' lights the letters against a solid ground, 'cutout' lights the ground
- * and leaves the letters as exact holes in it. Both decode to a hard binary
- * picture; 'solid' is the one that reads as a word.
+ * Build the three sheets. `pass` decides sheet C only — A and B are byte-identical
+ * either way, so the deck gives nothing away before the verdict lands.
  */
-export function build(
-	req: string,
-	rsp: string,
-	model: string,
-	pass: boolean,
-	polarity: Polarity = 'solid'
-): Shares {
-	const a = new Uint8Array(N);
-	const b = new Uint8Array(N);
-	const c = new Uint8Array(N);
-	const nCol = stream(req, 1); // column permutation
-	const nRow = stream(rsp, 2); // which share gets which row
-	const nC = stream(model, 3); // share C's fallback when it does not complete
-	const lA = stream(req, 17);
-	const lB = stream(rsp, 18);
-	const lC = stream(model, 19);
+export function build(req: string, rsp: string, model: string, pass: boolean): Shares {
+	const nDeal = stream(req, 1); // how the ground is dealt out
+	const tops = [stream(req, 5), stream(rsp, 6), stream(model, 7)]; // each sheet's top-up
+	const nMiss = stream(model, 9); // sheet C when it does not fit the deal
+	const lvl = [stream(req, 17), stream(rsp, 18), stream(model, 19)];
 
-	const put = (buf: Uint8Array, mr: number, mc: number, set: number[], lvl: () => number) => {
-		for (const k of set) {
-			const r = mr * BLK + Math.floor(k / BLK);
-			const cc = mc * BLK + (k % BLK);
-			buf[r * COLS + cc] = 1 + (lvl() % 4);
-		}
-	};
+	// the cells that must stay dark on every sheet
+	const ground: number[] = [];
+	for (let i = 0; i < N; i++) if (!MASK[i]) ground.push(i);
 
-	for (let mr = 0; mr < MSG_ROWS; mr++) {
-		for (let mc = 0; mc < MSG_COLS; mc++) {
-			const inWord = MASK[mr * MSG_COLS + mc] === 1;
-			// the side light gets through
-			const lit = polarity === 'solid' ? inWord : !inWord;
-			const basis = lit ? CLEAR : OPAQUE;
+	// Deal every ground cell to exactly one sheet. This is the whole trick: the union
+	// covers the ground because the ground was partitioned, not because it happened to
+	// come out that way.
+	const dealt = pick(ground, ground.length, nDeal);
+	const own: number[][] = [[], [], []];
+	for (let k = 0; k < dealt.length; k++) own[k % 3].push(dealt[k]);
 
-			const perm = pick(COLUMNS, 4, nCol); // subcell perm(i) plays the part of i
-			const slot = pick(SLOTS, 3, nRow); // share i is handed row slot[i]
-			const row = (j: number) => basis[slot[j]].map((k) => perm[k]);
+	const target = Math.round(N * DENSITY);
+	const sets = own.map((mine, s) => {
+		if (mine.length >= target) return pick(mine, target, tops[s]);
+		// top up from ground somebody else already owns — invisible in the stack,
+		// and it is what makes every sheet the same density as every other
+		const taken = new Set(mine);
+		const spare = ground.filter((i) => !taken.has(i));
+		return mine.concat(pick(spare, target - mine.length, tops[s]));
+	});
 
-			const sa = row(0);
-			const sb = row(1);
-			// A non-completing C is drawn from the same distribution as a completing
-			// one — two of the four, uniformly — so C on its own is indistinguishable
-			// either way. What it loses is the correlation with A and B, which is the
-			// only thing that was ever holding the word up.
-			const sc = pass ? row(2) : pick(COLUMNS, LIT, nC);
-
-			put(a, mr, mc, sa, lA);
-			put(b, mr, mc, sb, lB);
-			put(c, mr, mc, sc, lC);
-		}
+	if (!pass) {
+		// A sheet that does not fit the deal: the same count of cells, drawn from the
+		// whole panel with no regard for the deal or for the word. Same density, so C
+		// alone is indistinguishable — it just no longer completes anything.
+		const all = Array.from({ length: N }, (_, i) => i);
+		sets[2] = pick(all, target, nMiss);
 	}
-	return { a, b, c };
+
+	const out = [new Uint8Array(N), new Uint8Array(N), new Uint8Array(N)];
+	for (let s = 0; s < 3; s++) {
+		for (const i of sets[s]) out[s][i] = 1 + (lvl[s]() % 4);
+	}
+	return { a: out[0], b: out[1], c: out[2] };
 }
 
 /**
- * Read the stack at message resolution: a message pixel is lit if ANY of its four
- * subcells is left uninked by every sheet handed in, dark if all four are inked.
- *
- * Takes whichever sheets are actually on the table, which is what makes it a
- * decode rather than a lookup. One sheet or two and every block has light through
- * it, so this returns a solid slab. No MASK below this line.
+ * The stack: a cell is lit if any sheet handed in lit it. That is the entire read —
+ * there is no threshold and no second resolution, which is why what you see is what
+ * the sheets are. No MASK below this line.
  */
-export function resolve(layers: Uint8Array[]): Uint8Array {
-	const out = new Uint8Array(M);
-	if (!layers.length) return out;
-	for (let mr = 0; mr < MSG_ROWS; mr++) {
-		for (let mc = 0; mc < MSG_COLS; mc++) {
-			let clear = 0;
-			for (let k = 0; k < PER; k++) {
-				const i = (mr * BLK + Math.floor(k / BLK)) * COLS + mc * BLK + (k % BLK);
-				if (!layers.some((l) => l[i])) clear++;
-			}
-			out[mr * MSG_COLS + mc] = clear > 0 ? 1 : 0;
-		}
+export function union(layers: Uint8Array[]): Uint8Array {
+	const out = new Uint8Array(N);
+	for (let i = 0; i < N; i++) out[i] = layers.some((l) => l[i]) ? 1 : 0;
+	return out;
+}
+
+/** How many of the handed-in sheets lit each cell — what the stack is coloured by. */
+export function depth(layers: Uint8Array[]): Uint8Array {
+	const out = new Uint8Array(N);
+	for (let i = 0; i < N; i++) {
+		let n = 0;
+		for (const l of layers) if (l[i]) n++;
+		out[i] = n;
 	}
 	return out;
 }
@@ -307,44 +322,37 @@ export function stats(s: Partial<Shares>) {
 	const layers = [s.a, s.b, s.c].filter(Boolean) as Uint8Array[];
 	const density = layers.map((l) => l.reduce((n, v) => n + (v ? 1 : 0), 0) / N);
 
-	// raw subcell union, before the message-resolution read
-	let rawL = 0,
-		rawF = 0,
-		nL = 0,
-		nF = 0;
+	const u = union(layers);
+	let litL = 0;
+	let litF = 0;
+	let nL = 0;
+	let nF = 0;
 	for (let i = 0; i < N; i++) {
-		const clear = !layers.some((l) => l[i]);
-		const mr = Math.floor(i / COLS / BLK);
-		const mc = Math.floor((i % COLS) / BLK);
-		if (MASK[mr * MSG_COLS + mc]) {
+		if (MASK[i]) {
 			nL++;
-			if (clear) rawL++;
+			if (u[i]) litL++;
 		} else {
 			nF++;
-			if (clear) rawF++;
+			if (u[i]) litF++;
 		}
 	}
 
-	// and after it — this is what actually gets drawn
-	const dec = resolve(layers);
-	let decL = 0,
-		decF = 0,
-		mL = 0,
-		mF = 0;
-	for (let i = 0; i < M; i++) {
-		if (MASK[i]) {
-			mL++;
-			if (dec[i]) decL++;
-		} else {
-			mF++;
-			if (dec[i]) decF++;
-		}
-	}
+	// how much of each single sheet falls inside the letters — the ghost, measured
+	const ghost = layers.map((l) => {
+		let n = 0;
+		let t = 0;
+		for (let i = 0; i < N; i++)
+			if (MASK[i]) {
+				t++;
+				if (l[i]) n++;
+			}
+		return t ? n / t : 0;
+	});
 
 	return {
 		density,
-		raw: { letters: rawL / nL, field: rawF / nF },
-		decoded: { letters: decL / mL, field: decF / mF },
+		ghost,
+		stacked: { letters: nL ? litL / nL : 0, field: nF ? litF / nF : 0 },
 		layers: layers.length
 	};
 }
