@@ -74,8 +74,17 @@
 	const BOX = H;
 	const INK = [0, 0.45, 0.62, 0.82, 1]; // a sheet's own four ink levels
 
-	const registered = $derived(stage === 'register' || stage === 'resolved' || stage === 'clash');
 	const decoded = $derived(stage === 'resolved' || stage === 'clash');
+	/**
+	 * The deck converges only once the THIRD sheet has been dealt, which is when the
+	 * verdict lands. An earlier cut slid the two wire sheets together while the proof
+	 * was still running, so by the time the model sheet existed there was nothing left
+	 * to stack: it appeared already merged and the one moment worth watching happened
+	 * off-screen. Now all three are on the table, side by side, before anything moves.
+	 */
+	const converging = $derived(decoded);
+	/** how long the completed deck is held before it slides, so the third sheet reads */
+	const DEAL_HOLD = 550;
 	const EMPTY = new Uint8Array(N);
 
 	// Sheet C is the only one the outcome touches; A and B are byte-identical either
@@ -205,11 +214,17 @@
 	let ghost = $state<HTMLCanvasElement | null>(null);
 	let plate = $state<HTMLCanvasElement | null>(null);
 
-	// eased 0 -> 1: 0 is three sheets abreast, 1 is all three in register
-	let progress = $state(0);
+	// eased 0 -> 1 PER SHEET: 0 is that sheet out in its slot of the deck, 1 is it in
+	// register with the others. One number per sheet rather than one for the panel,
+	// because the sheets do not arrive together: the two wire digests are certified
+	// while the proof is still running and converge then, and the model sheet cannot
+	// be drawn until the verdict says which one it is. Sharing a single progress made
+	// the third sheet appear already merged — it never visibly landed, which is the
+	// one moment in the animation that is actually load-bearing.
+	let prog = $state([0, 0, 0]);
 	// eased 0 -> 1: 0 is the raw subcell union, 1 is the message-resolution read
 	let develop = $state(0);
-	let rafP = 0;
+	let rafP = [0, 0, 0];
 	let rafD = 0;
 	const still = () =>
 		typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -255,12 +270,11 @@
 		ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 		ctx.clearRect(0, 0, W, H);
 
-		const p = progress;
-		const s = DECK + (1 - DECK) * p;
 		const place = (i: number) => {
+			const p = prog[i];
 			const x0 = i * (DECK_W + DECK_GAP);
 			const y0 = (BOX - H * DECK) / 2;
-			return { x: x0 * (1 - p), y: y0 * (1 - p), s };
+			return { x: x0 * (1 - p), y: y0 * (1 - p), s: DECK + (1 - DECK) * p };
 		};
 
 		// sheets with no digest yet hold their slot open
@@ -269,7 +283,7 @@
 				if (cards[i].lv) continue;
 				const { x, y, s: k } = place(i);
 				ctx.save();
-				ctx.globalAlpha = 0.3 * (1 - p);
+				ctx.globalAlpha = 0.3 * (1 - prog[i]);
 				ctx.translate(x, y);
 				ctx.scale(k, k);
 				ctx.drawImage(ghost, 0, 0, W, H);
@@ -343,25 +357,32 @@
 	// is the loop that pegged the tab the last time this component grew a tween. The
 	// effects depend on the STAGE flags and nothing else.
 	$effect(() => {
-		const to = registered ? 1 : 0;
+		const want = cards.map((c) => (converging && c.lv ? 1 : 0));
 		untrack(() => {
-			rafP = tween(progress, to, 950, 0, (v) => (progress = v), rafP);
+			for (let i = 0; i < 3; i++) {
+				// hold the finished deck a beat before it moves, so the sheet that just
+				// arrived is seen as a sheet rather than as a flicker
+				const hold = want[i] > prog[i] ? DEAL_HOLD : 0;
+				rafP[i] = tween(prog[i], want[i], 950, hold, (v) => (prog[i] = v), rafP[i]);
+			}
 		});
 	});
 
 	$effect(() => {
 		const to = decoded ? 1 : 0;
+		const n = live.length;
 		untrack(() => {
-			// Develop only once the sheets are actually in register — if the stage
-			// jumped straight there, wait out the slide first so the two never overlap.
-			const wait = to ? (1 - progress) * 950 + 120 : 0;
+			// Develop only once every sheet on the table is actually in register, so
+			// the wait is set by the LAST one to land — deal hold included.
+			const behind = n ? Math.min(...live.map((c) => prog[c.i])) : 1;
+			const wait = to ? (behind === 0 ? DEAL_HOLD : 0) + (1 - behind) * 950 + 120 : 0;
 			rafD = tween(develop, to, 620, wait, (v) => (develop = v), rafD);
 		});
 	});
 
 	$effect(() => {
 		// touch everything a frame depends on
-		void [sheets, ghost, plate, progress, develop, only, readout, stage, ready];
+		void [sheets, ghost, plate, prog[0], prog[1], prog[2], develop, only, readout, stage, ready];
 		paint();
 	});
 
@@ -384,7 +405,7 @@
 			{:else if stage === 'clash'}
 				the third sheet does not complete — the stack reads as noise
 			{:else if stage === 'register'}
-				stacking…
+				proof in flight — the third sheet has not landed
 			{:else}
 				one sheet per digest · each inks 2 of every 4 cells, everywhere
 			{/if}
