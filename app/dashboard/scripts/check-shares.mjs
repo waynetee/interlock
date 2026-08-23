@@ -15,14 +15,7 @@
  * Every knob the bench exposes is swept, because a bigger word on a smaller grid
  * leaves less ground for the three sheets to divide.
  */
-import {
-	build,
-	union,
-	stats,
-	stencil,
-	layout,
-	DEFAULT_FACE
-} from '../src/lib/fingerprint-shares.ts';
+import { build, union, stats, stencil, layout, DEFAULT_FACE } from '../src/lib/fingerprint-shares.ts';
 
 const hex = (s) =>
 	[...Array(40)].map((_, i) => '0123456789abcdef'[(Math.imul(i + 1, s) >>> 3) & 15]).join('');
@@ -34,6 +27,8 @@ const fail = (m) => {
 };
 
 const CASES = [
+	// the defaults the bench and the demo page both open on
+	{ word: 'VERIFIED', face: { size: 7, weight: 1 }, grid: { rows: 12, cols: 58 } },
 	{ word: 'VALID', face: { size: 21, weight: 1 }, grid: { rows: 33, cols: 105 } },
 	{ word: 'VALID', face: { size: 7, weight: 1 }, grid: { rows: 33, cols: 105 } },
 	{ word: 'VALID', face: { size: 31, weight: 5 }, grid: { rows: 55, cols: 165 } },
@@ -124,8 +119,7 @@ for (const { word, face, grid } of CASES) {
 		const sf = stats(f, mask);
 		if (sf.lit[2] !== st.lit[2]) fail(`${tag} fail sheet C holds ${sf.lit[2]} not ${st.lit[2]}`);
 		if (sf.stacked.field >= 0.999) fail(`${tag} a non-fitting C still filled the ground`);
-		if (wordCells && sf.stacked.letters <= 0.001)
-			fail(`${tag} a non-fitting C left the word clean`);
+		if (wordCells && sf.stacked.letters <= 0.001) fail(`${tag} a non-fitting C left the word clean`);
 
 		worstGhost = Math.max(worstGhost, ...st.ghost);
 		ghostAcc += st.ghost.reduce((a, b) => a + b, 0) / 3;

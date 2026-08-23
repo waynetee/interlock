@@ -43,6 +43,16 @@
 	const LAMP = '#35e08b';
 	/** and the black the letters are left in */
 	const VOID = '#05080b';
+	/**
+	 * A sheet C that was not the one dealt is drawn in fault red WHERE IT LANDED, and
+	 * only in the stack. Its own panel stays violet, because a rogue C really is
+	 * indistinguishable on its own — same cell count, same statistics — and colouring
+	 * it there would be the bench giving away an answer it is not supposed to have.
+	 * In the stack it has something to be measured against, and every cell it touched
+	 * is worth pointing at: the ground it doubled up on, and the cells it dropped into
+	 * the word.
+	 */
+	const FAULT = '#f4593f';
 
 	// ── state ──────────────────────────────────────────────────────────────────
 	const rand = () =>
@@ -112,7 +122,7 @@
 			? `${count} of 3 sheets — the missing third is a hole in the ground`
 			: pass
 				? 'three thirds of one ground — it closes, and the word stays black'
-				: 'three sheets, but the third was not the one dealt'
+				: 'three sheets, but the third was not the one dealt — red is where it landed'
 	);
 
 	// ── painting ───────────────────────────────────────────────────────────────
@@ -129,6 +139,7 @@
 	/** t = 0 is all of a, t = 1 is all of b */
 	const mix = (a: number[], b: number[], t: number) => a.map((v, i) => v + (b[i] - v) * t);
 	const HUE_RGB = HUES.map(hex2rgb);
+	const FAULT_RGB = hex2rgb(FAULT);
 	const WHITE = [255, 255, 255];
 	/**
 	 * How far towards white a cell goes once n sheets have lit it. The deal gives each
@@ -160,10 +171,12 @@
 				const i = r * cols + c;
 				const by = which.filter((k) => layers[k][i] > 0);
 				if (!by.length) continue;
+				const rogue = !pass && by.includes(2);
 				if (mode === 'one') {
-					ctx.fillStyle = LAMP;
+					ctx.fillStyle = rogue ? FAULT : LAMP;
 				} else {
-					const avg = [0, 1, 2].map((ch) => by.reduce((s, k) => s + HUE_RGB[k][ch], 0) / by.length);
+					const src = by.map((k) => (k === 2 && !pass ? FAULT_RGB : HUE_RGB[k]));
+					const avg = [0, 1, 2].map((ch) => src.reduce((a, c) => a + c[ch], 0) / src.length);
 					ctx.fillStyle = rgb2hex(mix(avg, WHITE, GLOW[by.length]));
 				}
 				ctx.fillRect(c * ST_PITCH, r * ST_PITCH, ST_CELL, ST_CELL);
@@ -193,7 +206,7 @@
 	let sheetCv = $state<(HTMLCanvasElement | null)[]>([null, null, null]);
 
 	$effect(() => {
-		void [layers, mask];
+		void [layers, mask, pass];
 		paintStack(stackCv, sel, tint);
 	});
 	$effect(() => {

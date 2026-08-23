@@ -45,7 +45,7 @@
 
 export type Grid = { rows: number; cols: number };
 export const GRID_LIMITS = { rows: [7, 55], cols: [15, 165] } as const;
-export const DEFAULT_GRID: Grid = { rows: 33, cols: 105 };
+export const DEFAULT_GRID: Grid = { rows: 12, cols: 58 };
 
 export type Face = {
 	/** glyph height in cells */
@@ -54,9 +54,9 @@ export type Face = {
 	weight: number;
 };
 export const FACE_LIMITS = { size: [5, 31], weight: [1, 5] } as const;
-export const DEFAULT_FACE: Face = { size: 21, weight: 1 };
+export const DEFAULT_FACE: Face = { size: 7, weight: 1 };
 
-export const DEFAULT_WORD = 'VALID';
+export const DEFAULT_WORD = 'VERIFIED';
 
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, Math.round(v)));
 
