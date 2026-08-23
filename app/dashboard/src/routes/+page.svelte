@@ -213,6 +213,7 @@
 			agentUp = !!d.agent;
 			wireOk = !!d.wire;
 			if (d.mode) modeRaw = d.mode;
+			if (d.prompt) SIM_PROMPT = d.prompt;
 			if (d.model_fp) modelFp = d.model_fp;
 		});
 		socket.on('wire:agent', (d: any) => {
@@ -296,8 +297,15 @@
 	 * digests rather than replaying a captured pair, because a recording of a real
 	 * run is exactly the thing that could be passed off as one.
 	 */
-	const SIM_PROMPT = 'Question: What is the capital of France?\nAnswer:';
-	const SIM_ANSWER = 'Paris';
+	/**
+	 * The question the simulator asks, and the answer it invents. Both are only a
+	 * FALLBACK: a connected server sends its own PROMPT in `hello` and that wins.
+	 * Two copies of one string drift the moment somebody sets PROMPT in the
+	 * environment, and the copy that drifts is the one on screen when the board is
+	 * dead -- which is exactly when nobody can check it against a real run.
+	 */
+	let SIM_PROMPT = $state('Question: How many countries are there?\nAnswer:');
+	const SIM_ANSWER = '195';
 	const SIM_STATUS = [
 		'loading proving key',
 		'committing to the token layer',

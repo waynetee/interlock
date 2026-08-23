@@ -262,6 +262,7 @@ async def connect(sid, environ):
                              "mode": MODE_LABEL,
                              "model": os.path.basename(MODEL_DIR),
                              "model_fp": MODEL_FP,
+                             "prompt": PROMPT,
                              "backlog": [{"event": e, "data": d} for e, d in S.log]},
                    namespace="/demo", to=sid)
 
@@ -396,7 +397,7 @@ async def demo_shutdown(sid, data=None):
 TAMPER_FLAG = os.path.join(HERE, ".tamper")
 
 PROMPT = os.environ.get("PROMPT",
-                        "Question: What is the capital of France?\nAnswer:")
+                        "Question: How many countries are there?\nAnswer:")
 
 
 def main():
