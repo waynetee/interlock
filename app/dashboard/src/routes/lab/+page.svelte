@@ -19,7 +19,13 @@
 	import {
 		build,
 		stats,
+		ROGUE,
 		stencil,
+		strips,
+		composite,
+		seats,
+		homes,
+		travel,
 		layout,
 		ALPHABET,
 		FACE_LIMITS,
@@ -29,6 +35,7 @@
 		DEFAULT_WORD
 	} from '$lib/fingerprint-shares';
 	import { cn } from '$lib/utils';
+	import { resolve } from '$app/paths';
 	import { onMount } from 'svelte';
 
 	// ── palette ────────────────────────────────────────────────────────────────
@@ -39,18 +46,37 @@
 	const NAMES = ['A', 'B', 'C'];
 	const ROLES = ['input fingerprint', 'output fingerprint', 'model fingerprint'];
 	const SUBS = ['certified inbound', 'certified outbound', 'committed in advance'];
+	/**
+	 * Words that say what this actually establishes, rather than a general blessing.
+	 * All eight fit the default face and grid; the longer ones want a wider grid.
+	 * ATTESTED is the precise one — attestation is what the hardware does. AS RUN and
+	 * NO SWAP name the claim outright: the output is the one that was run, on the
+	 * model that was committed.
+	 */
+	const PRESETS = [
+		'VERIFIED',
+		'ATTESTED',
+		'AS RUN',
+		'NO SWAP',
+		'INTACT',
+		'SEALED',
+		'MATCHED',
+		'GENUINE'
+	];
 	/** the one colour the finished stack is read in */
 	const LAMP = '#35e08b';
 	/** and the black the letters are left in */
 	const VOID = '#05080b';
 	/**
-	 * A sheet C that was not the one dealt is drawn in fault red WHERE IT LANDED, and
-	 * only in the stack. Its own panel stays violet, because a rogue C really is
-	 * indistinguishable on its own — same cell count, same statistics — and colouring
-	 * it there would be the bench giving away an answer it is not supposed to have.
-	 * In the stack it has something to be measured against, and every cell it touched
-	 * is worth pointing at: the ground it doubled up on, and the cells it dropped into
-	 * the word.
+	 * A sheet B that was not the one dealt is drawn in fault red where it landed IN
+	 * THE BAND, and only in the pile. Two limits, both deliberate:
+	 *
+	 * Everywhere: in the pile, in its margin, and on its own panel. Strictly this
+	 * over-reaches — B alone is statistically indistinguishable either way, and its
+	 * margin cells are doing exactly their job — so the bench is showing an answer it
+	 * would not have from the strip itself. That is the point of a bench rather than a
+	 * demo: colouring only the cells that are individually at fault made a strip that
+	 * is wrong as a whole look like a scattering of bad luck.
 	 */
 	const FAULT = '#f4593f';
 
@@ -82,16 +108,34 @@
 	 * still while a slider is being dragged.
 	 */
 	const GAP = 1;
+	/**
+	 * Spare rows on a strip. Every one of them is height on the printed film that
+	 * carries no picture, so it stays small: a strip half again as tall as its own
+	 * content already looks like a mistake in the hand.
+	 */
+	let slack = $state(2);
+	/**
+	 * How much of each margin the SLIDING strip carries, as a percentage; the backing
+	 * takes the rest. At 50 the three strips come out near enough the same weight of
+	 * ink. At 33 each margin matches the pattern band's own density, so a sliding
+	 * strip is uniform top to bottom and does not advertise its band by a density step.
+	 */
+	let split = $state(50);
+	const STRIP_ROWS = $derived(rows + slack);
+	/** and the pile is taller again, because nothing is cropped */
+	const PILE_ROWS = $derived(rows + 2 * slack);
 	const fitPitch = (max: number, cap: number) =>
 		Math.max(2, Math.min(cap, Math.floor((max + GAP) / cols)));
 	const ST_PITCH = $derived(fitPitch(944, 16));
 	const ST_CELL = $derived(ST_PITCH - GAP);
 	const ST_W = $derived(cols * ST_PITCH - GAP);
-	const ST_H = $derived(rows * ST_PITCH - GAP);
+	const ST_H = $derived(PILE_ROWS * ST_PITCH - GAP);
 	const SH_PITCH = $derived(fitPitch(734, 10));
 	const SH_CELL = $derived(SH_PITCH - GAP);
 	const SH_W = $derived(cols * SH_PITCH - GAP);
-	const SH_H = $derived(rows * SH_PITCH - GAP);
+	// each strip is drawn where it currently sits in the pile, so the panel is the
+	// pile's height and the strip moves inside it
+	const SH_H = $derived(PILE_ROWS * SH_PITCH - GAP);
 
 	// `metrics` is the face the stencil will ACTUALLY use, which is not always the one
 	// the sliders asked for: a stroke cannot be thicker than the counter it has to
@@ -102,27 +146,160 @@
 	const N = $derived(rows * cols);
 	const wordCells = $derived(mask.reduce((n, v) => n + v, 0));
 	const shares = $derived(build(req, rsp, model, pass, mask));
-	const layers = $derived([shares.a, shares.b, shares.c]);
+
 	const sel = $derived([0, 1, 2].filter((i) => on[i]));
 	const measured = $derived(stats(shares, mask));
-	const partial = $derived(
-		stats(
-			{
-				a: on[0] ? layers[0] : undefined,
-				b: on[1] ? layers[1] : undefined,
-				c: on[2] ? layers[2] : undefined
-			},
-			mask
-		)
-	);
 
 	const count = $derived(sel.length);
+
+	/**
+	 * Registration. The three are printed on strips and have to be slid along Y until
+	 * their patterns seat on the same row. There is no aperture to hold against film,
+	 * so the panel is the whole pile — see the shares module for how the pile divides
+	 * into a band and two dealt margins.
+	 *
+	 * This is not a hiding property and the panel says so: the extents are structural,
+	 * a few dozen slides is nothing to search, and every strip carries the word's own
+	 * ghost. What it buys is a processing step you can watch, and a physical demo where
+	 * three printed films have to be registered before the word comes through.
+	 */
+	const st = $derived(strips(shares, grid, slack, model, split / 100));
+	let shift = $state([0, 0, 0]);
+	const view = $derived(composite(st, shift, grid));
+	/** where each strip's pattern currently sits in the pile */
+	const seat = $derived(seats(st, shift));
+	/** registered when the three patterns land on the same row, wherever that is */
+	const band = $derived(new Set(sel.map((i) => seat[i])).size === 1 ? seat[sel[0] ?? 0] : slack);
+	const registered = $derived(count > 0 && new Set(sel.map((i) => seat[i])).size === 1);
+
+	// measured on the band the patterns are sitting in, plus the fringes above and
+	// below it, because the fringes are part of the pile and not a rendering artefact
+	const inView = $derived.by(() => {
+		let gl = 0,
+			gn = 0,
+			wl = 0,
+			wn = 0,
+			fl = 0,
+			fn = 0;
+		for (let r = 0; r < PILE_ROWS; r++) {
+			const inBand = r >= band && r < band + rows;
+			for (let c = 0; c < cols; c++) {
+				const lit = sel.some((k) => view[r * cols + c] & (1 << k));
+				if (!inBand) {
+					fn++;
+					if (lit) fl++;
+					continue;
+				}
+				if (mask[(r - band) * cols + c]) {
+					wn++;
+					if (lit) wl++;
+				} else {
+					gn++;
+					if (lit) gl++;
+				}
+			}
+		}
+		return {
+			ground: gn ? gl / gn : 0,
+			word: wn ? wl / wn : 0,
+			fringe: fn ? fl / fn : 0
+		};
+	});
+
+	let raf = 0;
+	const still = () =>
+		typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+	/** Slide each strip to where the verifier says it goes, staggered so you see three. */
+	let working = $state(false);
+
+	/**
+	 * The processing step, as something you can watch.
+	 *
+	 * A straight ease to the answer read as "the answer was always known", which is
+	 * the wrong impression: it should look like a search that lands. So the strips
+	 * step through the positions available to them first — quantised and quick, one
+	 * row at a time, which is what a piece of film actually does under a thumb — and
+	 * only then settle onto the registration.
+	 *
+	 * At small slack there are only a few rows to move over, so the search reads
+	 * through cadence rather than distance: a rapid ratchet, then a stop.
+	 */
+	function runVerifier() {
+		cancelAnimationFrame(raf);
+		const to = homes(st);
+		if (still()) {
+			shift = to;
+			working = false;
+			return;
+		}
+		const HUNT = 900;
+		const SETTLE = 620;
+		const STEP = 90; // one position per step: any faster and it blurs
+		const from = [...shift];
+		const t0 = performance.now();
+		working = true;
+		let lastStep = -1;
+		// captured once, at the moment hunting stops -- easing from a value that is
+		// re-read every frame converges geometrically instead of arriving, and can
+		// leave the strips a row short of home
+		let launch: number[] | null = null;
+
+		const step = (now: number) => {
+			const t = now - t0;
+			if (t < HUNT) {
+				// hunting: each strip walks its own range, offset so the three are never
+				// in step with one another
+				const n = Math.floor(t / STEP);
+				if (n !== lastStep) {
+					lastStep = n;
+					shift = [0, 1, 2].map((i) => {
+						const span = travel(st, i);
+						return span ? (from[i] + n + i * 2) % (span + 1) : 0;
+					});
+				}
+				raf = requestAnimationFrame(step);
+				return;
+			}
+			if (!launch) launch = [...shift];
+			const k = Math.min(1, (t - HUNT) / SETTLE);
+			shift = launch.map((f, i) => {
+				const lane = Math.max(0, Math.min(1, (k - i * 0.12) / 0.76));
+				const e = 1 - Math.pow(1 - lane, 3);
+				return Math.round(f + (to[i] - f) * e);
+			});
+			// every path either schedules the next frame or finishes; an earlier cut had
+			// one that did neither and stalled the strips mid-hunt
+			if (k < 1) {
+				raf = requestAnimationFrame(step);
+			} else {
+				shift = to;
+				working = false;
+			}
+		};
+		raf = requestAnimationFrame(step);
+	}
+
+	function scatter() {
+		cancelAnimationFrame(raf);
+		working = false;
+		// the backing does not move, so only the two sliding strips get thrown
+		for (;;) {
+			const next = [0, 1, 2].map((i) => Math.floor(Math.random() * (travel(st, i) + 1)));
+			if (new Set(seats(st, next)).size > 1) {
+				shift = next;
+				return;
+			}
+		}
+	}
 	const verdict = $derived(
 		count < 3
 			? `${count} of 3 sheets — the missing third is a hole in the ground`
-			: pass
-				? 'three thirds of one ground — it closes, and the word stays black'
-				: 'three sheets, but the third was not the one dealt — red is where it landed'
+			: !registered
+				? 'out of register — slide A and B onto the backing'
+				: pass
+					? 'registered — the ground closes, and the word stays black'
+					: 'registered, but B was not the strip that was dealt — red is where it landed'
 	);
 
 	// ── painting ───────────────────────────────────────────────────────────────
@@ -166,16 +343,22 @@
 		if (!ctx) return;
 		ctx.fillStyle = VOID;
 		ctx.fillRect(0, 0, ST_W, ST_H);
-		for (let r = 0; r < rows; r++) {
+		for (let r = 0; r < PILE_ROWS; r++) {
 			for (let c = 0; c < cols; c++) {
 				const i = r * cols + c;
-				const by = which.filter((k) => layers[k][i] > 0);
+				// what the pile is transmitting right now, not what the strips would say
+				// if they were already registered
+				const by = which.filter((k) => view[i] & (1 << k));
 				if (!by.length) continue;
-				const rogue = !pass && by.includes(2);
+				// Every cell B lit, wherever it lit it. Its margin cells are doing their
+				// job, so this reddens some ink that is not itself at fault — but a strip
+				// that was not the one dealt is wrong as a whole, and colouring only part
+				// of it made the fault look smaller than it is.
+				const rogue = !pass && by.includes(ROGUE);
 				if (mode === 'one') {
 					ctx.fillStyle = rogue ? FAULT : LAMP;
 				} else {
-					const src = by.map((k) => (k === 2 && !pass ? FAULT_RGB : HUE_RGB[k]));
+					const src = by.map((k) => (k === ROGUE && rogue ? FAULT_RGB : HUE_RGB[k]));
 					const avg = [0, 1, 2].map((ch) => src.reduce((a, c) => a + c[ch], 0) / src.length);
 					ctx.fillStyle = rgb2hex(mix(avg, WHITE, GLOW[by.length]));
 				}
@@ -184,18 +367,32 @@
 		}
 	}
 
-	function paintSheet(cv: HTMLCanvasElement | null, lv: Uint8Array, hue: string, live: boolean) {
+	/**
+	 * One strip, drawn where it currently sits in the pile. The panel is the pile's
+	 * full height and the film moves inside it, which is the only thing you can do to a
+	 * piece of film.
+	 */
+	function paintSheet(
+		cv: HTMLCanvasElement | null,
+		strip: Uint8Array,
+		hue: string,
+		live: boolean,
+		drop: number,
+		tall: number
+	) {
 		if (!cv) return;
 		const ctx = fit(cv, SH_W, SH_H);
 		if (!ctx) return;
 		ctx.fillStyle = VOID;
 		ctx.fillRect(0, 0, SH_W, SH_H);
 		const dim = ['#0f141b', '#131922'];
-		for (let r = 0; r < rows; r++) {
+		for (let r = 0; r < PILE_ROWS; r++) {
+			const sr = r - drop;
+			const on = sr >= 0 && sr < tall;
 			for (let c = 0; c < cols; c++) {
-				const l = lv[r * cols + c];
-				ctx.globalAlpha = l ? (live ? [0, 0.62, 0.76, 0.88, 1][l] : 0.22) : 1;
-				ctx.fillStyle = l ? hue : dim[(r + c) & 1];
+				const l = on ? strip[sr * cols + c] : 0;
+				ctx.globalAlpha = l ? (live ? [0, 0.62, 0.76, 0.88, 1][l] : 0.2) : 1;
+				ctx.fillStyle = l ? hue : on ? dim[(r + c) & 1] : '#080b10';
 				ctx.fillRect(c * SH_PITCH, r * SH_PITCH, SH_CELL, SH_CELL);
 			}
 		}
@@ -206,12 +403,15 @@
 	let sheetCv = $state<(HTMLCanvasElement | null)[]>([null, null, null]);
 
 	$effect(() => {
-		void [layers, mask, pass];
+		void [view, mask, pass];
 		paintStack(stackCv, sel, tint);
 	});
 	$effect(() => {
-		void mask;
-		for (let i = 0; i < 3; i++) paintSheet(sheetCv[i], layers[i], HUES[i], on[i]);
+		void [mask, st, shift, pass];
+		for (let i = 0; i < 3; i++) {
+			const hue = i === ROGUE && !pass ? FAULT : HUES[i];
+			paintSheet(sheetCv[i], st.cells[i], hue, on[i], shift[i], st.heights[i]);
+		}
 	});
 
 	// ?a=0&b=1&c=1&outcome=fail&tint=sheet so a state can be linked, or shot headlessly
@@ -232,8 +432,24 @@
 		num('weight', (v) => (weight = v));
 		num('cols', (v) => (cols = v));
 		num('rows', (v) => (rows = v));
+		num('slack', (v) => (slack = v));
+		if (q.get('split') !== null) split = Number(q.get('split'));
 		const tx = q.get('text');
 		if (tx !== null) text = tx;
+		const sf = q.get('shift');
+		if (sf) {
+			const v = sf.split(',').map(Number);
+			if (v.length === 3 && v.every(Number.isFinite)) {
+				shift = v;
+				return;
+			}
+		}
+		// Open out of register and then register: the page arrives showing what three
+		// films dropped on a light box look like, and resolves itself once, so the
+		// mechanism is the first thing you see rather than something you have to go
+		// looking for a button to trigger.
+		scatter();
+		setTimeout(runVerifier, 700);
 		if (q.get('seq') === '1') showSeq = true;
 	});
 
@@ -260,7 +476,7 @@
 				class="flex flex-wrap items-baseline justify-between gap-4 border-b border-border px-4 py-2"
 			>
 				<span class="font-mono text-[10px] tracking-[0.16em] text-muted-foreground uppercase">
-					The stack · A + B + C, cell for cell
+					The pile · A + B + C, nothing cropped
 				</span>
 				<div class="flex items-center gap-2">
 					<span
@@ -287,9 +503,56 @@
 			<div class="flex justify-center overflow-x-auto p-4">
 				<canvas bind:this={stackCv} class="shrink-0" aria-hidden="true"></canvas>
 			</div>
+			<div class="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-border px-4 py-2.5">
+				<span class="font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase">
+					Registration
+				</span>
+				{#each NAMES as n, i (n)}
+					<label class="flex items-center gap-2 font-mono text-[10px]" style="color:{HUES[i]}">
+						{n}
+						<input
+							type="range"
+							min="0"
+							max={Math.max(1, travel(st, i))}
+							step="1"
+							disabled={travel(st, i) === 0}
+							bind:value={shift[i]}
+							class="w-28 disabled:opacity-30"
+							aria-label="slide strip {n} along Y"
+						/>
+						<span class="tabular w-10 text-foreground">
+							{travel(st, i) === 0 ? 'fixed' : shift[i]}
+						</span>
+					</label>
+				{/each}
+				<button
+					class="border border-signal bg-signal/10 px-3 py-1 font-mono text-[10px] tracking-[0.14em] text-signal uppercase transition-colors hover:bg-signal/20"
+					onclick={runVerifier}>{working ? 'Registering…' : 'Run the verifier'}</button
+				>
+				<button
+					class="border border-border px-3 py-1 font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase transition-colors hover:text-foreground"
+					onclick={scatter}>Scatter</button
+				>
+				<span
+					class={cn(
+						'font-mono text-[10px] tracking-[0.12em]',
+						registered ? 'text-verified' : 'text-muted-foreground/70'
+					)}
+				>
+					{registered ? 'in register' : `${(slack + 1) ** 3} slides, few of them register`}
+				</span>
+			</div>
 		</section>
 
 		<!-- ── the sheets ───────────────────────────────────────────────────── -->
+		<div class="flex items-baseline justify-between gap-4 px-1">
+			<span class="font-mono text-[10px] tracking-[0.16em] text-muted-foreground uppercase">
+				The strips · A and B are {STRIP_ROWS} rows and slide; C backs the pile at {PILE_ROWS}
+			</span>
+			<span class="font-mono text-[10px] tracking-[0.12em] text-muted-foreground/70">
+				each drawn where it currently sits · A tops the frame, B foots it, C spans
+			</span>
+		</div>
 		<div class="flex flex-col gap-2">
 			{#each NAMES as name, i (name)}
 				<div
@@ -370,7 +633,7 @@
 					<span
 						class="w-20 font-mono text-[10px] tracking-[0.14em] text-muted-foreground uppercase"
 					>
-						Sheet C
+						Sheet B
 					</span>
 					{#each [{ v: true, l: 'was dealt' }, { v: false, l: 'was not' }] as o (o.l)}
 						<button
@@ -384,7 +647,7 @@
 						>
 					{/each}
 					<span class="font-mono text-[10px] text-muted-foreground/70">
-						A and B are byte-identical either way — only C changes
+						A and C are byte-identical either way — only B changes
 					</span>
 				</div>
 
@@ -398,6 +661,19 @@
 					<span class="font-mono text-[10px] whitespace-nowrap text-muted-foreground/70">
 						A–Z 0–9
 					</span>
+				</div>
+				<div class="flex flex-wrap items-center gap-1.5 pl-22">
+					{#each PRESETS as w (w)}
+						<button
+							class={cn(
+								'border px-2 py-1 font-mono text-[10px] tracking-[0.1em] uppercase transition-colors',
+								word === w
+									? 'border-foreground text-foreground'
+									: 'border-border text-muted-foreground hover:text-foreground'
+							)}
+							onclick={() => (text = w)}>{w}</button
+						>
+					{/each}
 				</div>
 
 				<div class="flex flex-wrap items-center gap-x-4 gap-y-2">
@@ -469,6 +745,32 @@
 						/>
 						<span class="tabular w-10 text-foreground">{rows}</span>
 					</label>
+					<label class="flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
+						SLACK
+						<input
+							type="range"
+							min="2"
+							max="10"
+							step="1"
+							bind:value={slack}
+							class="w-24"
+							aria-label="spare rows on each strip"
+						/>
+						<span class="tabular w-10 text-foreground">{slack}</span>
+					</label>
+					<label class="flex items-center gap-2 font-mono text-[10px] text-muted-foreground">
+						SPLIT
+						<input
+							type="range"
+							min="10"
+							max="90"
+							step="1"
+							bind:value={split}
+							class="w-24"
+							aria-label="share of each margin carried by the sliding strip"
+						/>
+						<span class="tabular w-14 text-foreground">{split}/{100 - split}</span>
+					</label>
 					<span class="font-mono text-[10px] text-muted-foreground/70">
 						{N} cells at {ST_CELL}px
 					</span>
@@ -514,6 +816,23 @@
 							onclick={() => (showSeq = !showSeq)}
 							aria-pressed={showSeq}>{showSeq ? 'Hide' : 'Show'} sequence</button
 						>
+						<a
+							class="border border-border px-3 py-1.5 font-mono text-[11px] tracking-[0.12em] text-muted-foreground uppercase transition-colors hover:text-foreground"
+							href="{resolve('/lab/print')}?{new URLSearchParams({
+								text,
+								size: String(size),
+								weight: String(weight),
+								cols: String(cols),
+								rows: String(rows),
+								slack: String(slack),
+								split: String(split),
+								req,
+								rsp,
+								model
+							})}"
+							target="_blank"
+							rel="noopener">Print the film</a
+						>
 					</div>
 				</div>
 			</div>
@@ -540,21 +859,31 @@
 					</div>
 					<div class="my-1 h-px bg-border"></div>
 					<div class="text-[10px] tracking-[0.14em] text-muted-foreground/70 uppercase">
-						stacked, {count} sheet{count === 1 ? '' : 's'} on
+						in the band, {count} strip{count === 1 ? '' : 's'} on
 					</div>
 					<div class="flex justify-between gap-6">
 						<dt class="text-muted-foreground">ground lit</dt>
-						<dd class={partial.stacked.field === 1 ? 'text-verified' : 'text-caution'}>
-							{pct(partial.stacked.field)}
+						<dd class={inView.ground === 1 ? 'text-verified' : 'text-caution'}>
+							{pct(inView.ground)}
 						</dd>
 					</div>
 					<div class="flex justify-between gap-6">
 						<dt class="text-muted-foreground">word lit</dt>
-						<dd class={partial.stacked.letters === 0 ? 'text-verified' : 'text-fault'}>
-							{pct(partial.stacked.letters)}
-						</dd>
+						<dd class={inView.word === 0 ? 'text-verified' : 'text-fault'}>{pct(inView.word)}</dd>
+					</div>
+					<div class="flex justify-between gap-6">
+						<dt class="text-muted-foreground">fringe lit</dt>
+						<dd class="text-muted-foreground">{pct(inView.fringe)}</dd>
+					</div>
+					<div class="flex justify-between gap-6">
+						<dt class="text-muted-foreground">patterns seated at</dt>
+						<dd class={registered ? 'text-verified' : 'text-caution'}>{seat.join(' / ')}</dd>
 					</div>
 					<div class="my-1 h-px bg-border"></div>
+					<div class="flex justify-between gap-6 text-muted-foreground/70">
+						<dt>strip / pile</dt>
+						<dd>{STRIP_ROWS} / {PILE_ROWS} rows</dd>
+					</div>
 					<div class="flex justify-between gap-6 text-muted-foreground/70">
 						<dt>grid</dt>
 						<dd>{rows} × {cols} = {N} · {ST_CELL}px cells</dd>
@@ -576,6 +905,22 @@
 					The ground is dealt out a cell at a time, so all three sheets are load bearing: switch one
 					off and its third goes black where it stood, which is the holed ground above rather than a
 					blank panel.
+				</p>
+				<p class="mt-2 leading-relaxed text-muted-foreground/70">
+					Nothing here is cropped. There is no aperture you could hold against three pieces of film
+					— you stack them and you move them — so the panel is the whole pile. It divides in three:
+					a top margin dealt between A and the backing, the band where all three carry the picture,
+					and a bottom margin dealt between B and the backing. Each margin is a partition exactly
+					like the ground is, so the two strips that share it cover it completely and neither has to
+					be a solid block.
+				</p>
+				<p class="mt-2 leading-relaxed text-muted-foreground/70">
+					The extents are structural, so nothing hides where a pattern sits: A's is always under its
+					margin and B's always over its own, and registering is aligning three edges rather than
+					finding three positions. SPLIT is the one dial left on that — at 33 each margin matches
+					the band's own density and a sliding strip is uniform top to bottom, at 50 the three
+					strips weigh about the same in ink. The hiding was never worth much anyway: every strip
+					carries the word's ghost regardless.
 				</p>
 				<p class="mt-2 leading-relaxed text-caution/80">
 					The word being <em>completely</em> black in the stack means no sheet lit a single cell of it

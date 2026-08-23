@@ -45,7 +45,11 @@
 
 export type Grid = { rows: number; cols: number };
 export const GRID_LIMITS = { rows: [7, 55], cols: [15, 165] } as const;
-export const DEFAULT_GRID: Grid = { rows: 12, cols: 58 };
+/**
+ * Eleven rows is exactly the face's height, so the word fills the band top to bottom
+ * and the only margin it gets is the frame the strips deal between them.
+ */
+export const DEFAULT_GRID: Grid = { rows: 11, cols: 74 };
 
 export type Face = {
 	/** glyph height in cells */
@@ -54,7 +58,13 @@ export type Face = {
 	weight: number;
 };
 export const FACE_LIMITS = { size: [5, 31], weight: [1, 5] } as const;
-export const DEFAULT_FACE: Face = { size: 7, weight: 1 };
+/**
+ * Size 11 puts the glyph box at 7 cells across, which is where a hairline stroke has
+ * room to be a hairline rather than a third of the letter. Heavier weights need at
+ * least this much: at size 7 the box is 5 across and a two-cell stroke closes the
+ * counters, so E, F and B stop being different letters.
+ */
+export const DEFAULT_FACE: Face = { size: 11, weight: 1 };
 
 export const DEFAULT_WORD = 'VERIFIED';
 
@@ -664,6 +674,9 @@ function pick(pool: number[], k: number, next: () => number) {
 	return a.slice(0, n);
 }
 
+/** the sheet the verdict decides: the output fingerprint */
+export const ROGUE = 1;
+
 export type Shares = {
 	/** per cell: 0 = unlit, 1..4 = brightness (texture only, never read as data) */
 	a: Uint8Array;
@@ -672,8 +685,19 @@ export type Shares = {
 };
 
 /**
- * Punch the word out, deal the rest three ways. `pass` decides sheet C only — A and
- * B are byte-identical either way, so the deck gives nothing away before the verdict.
+ * Punch the word out, deal the rest three ways.
+ *
+ * `pass` decides sheet B only. B is the output fingerprint, and the tamper this demo
+ * exists to show is an output the certifier never fingerprinted — so B is the sheet
+ * that either fits the deal or does not. A and C are byte-identical either way.
+ *
+ * B being on the table before the verdict costs nothing: until the verdict lands
+ * `pass` is true and B is drawn as dealt, which is exactly what an honest run looks
+ * like. It rearranges at the moment of the verdict, not before it.
+ *
+ * C is the model commitment, and it is the backing the other two register onto — the
+ * thing committed in advance is the thing that does not move, which is why the
+ * verdict does not touch it.
  */
 export function build(
 	req: string,
@@ -684,7 +708,7 @@ export function build(
 ): Shares {
 	const N = mask.length;
 	const nDeal = stream(req, 1);
-	const nMiss = stream(model, 9);
+	const nMiss = stream(rsp, 9);
 	const lvl = [stream(req, 17), stream(rsp, 18), stream(model, 19)];
 
 	// 1. the word is punched out first: these cells belong to nobody
@@ -698,15 +722,151 @@ export function build(
 
 	if (!pass) {
 		// A sheet that was not the one dealt: the same number of cells, drawn from the
-		// whole grid with no regard for the deal or for the word. Same density, so C
+		// whole grid with no regard for the deal or for the word. Same density, so B
 		// alone is indistinguishable — it just no longer fits.
 		const all = Array.from({ length: N }, (_, i) => i);
-		sets[2] = pick(all, sets[2].length, nMiss);
+		sets[ROGUE] = pick(all, sets[ROGUE].length, nMiss);
 	}
 
 	const out = [new Uint8Array(N), new Uint8Array(N), new Uint8Array(N)];
 	for (let s = 0; s < 3; s++) for (const i of sets[s]) out[s][i] = 1 + (lvl[s]() % 4);
 	return { a: out[0], b: out[1], c: out[2] };
+}
+
+/**
+ * ── registration ────────────────────────────────────────────────────────────────
+ *
+ * Three strips, slid along Y until their patterns land on the same rows. There is NO
+ * APERTURE — you cannot crop three pieces of film, you can only stack them and move
+ * them — so the composite is the whole pile and nothing here is trimmed.
+ *
+ * The pile is `rows + 2 * slack` tall and divides into three horizontal regions:
+ *
+ *   top margin     slack rows, inked by A and C between them
+ *   the band       rows rows, inked by all three: this is the picture
+ *   bottom margin  slack rows, inked by B and C between them
+ *
+ * Each margin is a partition, exactly like the ground is: every cell in the top
+ * margin goes to A or to C and never both, so the two together cover it completely
+ * and neither has to be solid. `share` is how much of that goes to the sliding strip.
+ * The backing carries the rest, which at a half-and-half split is half the ink a
+ * solid margin needed and reads as a field rather than a slab.
+ *
+ * The strips fall out of that with no freedom left in them:
+ *
+ *   A   [ top margin | pattern ]     rows + slack tall, sits at pile row 0
+ *   B   [ pattern | bottom margin ]  rows + slack tall, sits at pile row slack
+ *   C   [ margin | pattern | margin ] full height, does not move
+ *
+ * ── what that costs ─────────────────────────────────────────────────────────────
+ *
+ * The earlier cut hid where each pattern sat by surrounding it with decoy at the
+ * pattern's own density, and picked the position from a digest. Neither survives:
+ * the extents are now structural, so A's pattern is always directly below its margin
+ * and B's directly above its own. Registration is aligning three edges, not finding
+ * three positions.
+ *
+ * `share` is the one dial left on that. At 0.5 the margins are denser than the
+ * pattern band, so each sliding strip has a visible step where one ends and the other
+ * begins. At 1/3 the margin matches the band and the strip is uniform top to bottom —
+ * the band is no longer advertised by its own density, though the strip's ends still
+ * say where it must go. Looks against hiding, and the hiding was never worth much:
+ * a handful of slides, and every strip carries the word's ghost regardless.
+ */
+export type Strips = {
+	/** one strip per sheet; strip i is `heights[i]` rows tall */
+	cells: Uint8Array[];
+	heights: number[];
+	/** where each pattern starts inside its own strip */
+	offsets: number[];
+	/** the depth of each margin, and the range a sliding strip moves over */
+	slack: number;
+	/** the pile's height: grid.rows + 2 * slack */
+	pile: number;
+	/** index of the backing strip, which is full height and does not move */
+	backing: number;
+};
+
+const BACKING = 2; // the model fingerprint: committed in advance, so it is the anchor
+
+export function strips(
+	sh: Shares,
+	grid: Grid,
+	slack: number,
+	seed: string,
+	/** the fraction of each margin carried by the sliding strip rather than the backing */
+	share = 0.5
+): Strips {
+	const { rows, cols } = grid;
+	const pile = rows + 2 * slack;
+	const src = [sh.a, sh.b, sh.c];
+	const heights = [rows + slack, rows + slack, pile];
+	// A's pattern sits below its margin, B's above its own, C's in the middle
+	const offsets = [slack, 0, slack];
+	const cells = [0, 1, 2].map((i) => new Uint8Array(heights[i] * cols));
+
+	for (let i = 0; i < 3; i++) {
+		for (let r = 0; r < rows; r++) {
+			for (let c = 0; c < cols; c++) {
+				cells[i][(offsets[i] + r) * cols + c] = src[i][r * cols + c];
+			}
+		}
+	}
+
+	// Deal each margin between its sliding strip and the backing, cell by cell, the
+	// same way the ground is dealt. Neither carries a solid block; together they
+	// leave nothing uncovered.
+	const nDeal = stream(seed, 31);
+	const lvl = stream(seed, 51);
+	for (let side = 0; side < 2; side++) {
+		const slider = side; // A owns the top margin, B the bottom
+		for (let r = 0; r < slack; r++) {
+			const sliderRow = side === 0 ? r : rows + r;
+			const backRow = side === 0 ? r : slack + rows + r;
+			for (let c = 0; c < cols; c++) {
+				const v = 1 + (lvl() % 4);
+				if (nDeal() % 100000 < share * 100000) cells[slider][sliderRow * cols + c] = v;
+				else cells[BACKING][backRow * cols + c] = v;
+			}
+		}
+	}
+
+	return { cells, heights, offsets, slack, pile, backing: BACKING };
+}
+
+/** How far strip i can be slid: zero for the backing, which is already full height. */
+export function travel(st: Strips, i: number) {
+	return Math.max(0, st.pile - st.heights[i]);
+}
+
+/** Where each strip's pattern lands, given how far the strip has been slid down. */
+export function seats(st: Strips, shift: number[]) {
+	return st.offsets.map((o, i) => o + Math.max(0, Math.min(travel(st, i), Math.round(shift[i]))));
+}
+
+/** The slide that brings each pattern onto the backing's band. */
+export function homes(st: Strips) {
+	return st.offsets.map((o, i) => (i === st.backing ? 0 : st.offsets[st.backing] - o));
+}
+
+/**
+ * The whole pile: every strip at its current slide, nothing cropped. Returns one byte
+ * per cell — 0 unlit, otherwise a bitmask of which strips lit it (1 = A, 2 = B,
+ * 4 = C), which is what the composite is coloured by.
+ */
+export function composite(st: Strips, shift: number[], grid: Grid) {
+	const { cols } = grid;
+	const out = new Uint8Array(st.pile * cols);
+	for (let i = 0; i < 3; i++) {
+		const d = Math.max(0, Math.min(travel(st, i), Math.round(shift[i])));
+		const strip = st.cells[i];
+		for (let r = 0; r < st.heights[i]; r++) {
+			for (let c = 0; c < cols; c++) {
+				if (strip[r * cols + c]) out[(d + r) * cols + c] |= 1 << i;
+			}
+		}
+	}
+	return out;
 }
 
 /**

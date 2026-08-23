@@ -15,7 +15,7 @@
  * Every knob the bench exposes is swept, because a bigger word on a smaller grid
  * leaves less ground for the three sheets to divide.
  */
-import { build, union, stats, stencil, layout, DEFAULT_FACE } from '../src/lib/fingerprint-shares.ts';
+import { build, union, stats, stencil, layout } from '../src/lib/fingerprint-shares.ts';
 
 const hex = (s) =>
 	[...Array(40)].map((_, i) => '0123456789abcdef'[(Math.imul(i + 1, s) >>> 3) & 15]).join('');
@@ -54,6 +54,8 @@ for (const { word, face, grid } of CASES) {
 	const ground = N - wordCells;
 	let worstGhost = 0;
 	let spread = 0;
+	let dirty = 0;
+	let dirtyN = 0;
 
 	for (let t = 0; t < 40; t++) {
 		cases++;
@@ -112,14 +114,20 @@ for (const { word, face, grid } of CASES) {
 		// 4. nothing on the table lights nothing
 		if (union([], N).some((v) => v !== 0)) fail(`${tag} the empty stack is not black`);
 
-		// 5. A and B are byte-identical pass or fail; C keeps its size either way
+		// 5. A and C are byte-identical pass or fail; B keeps its size either way
 		const f = build(r, s, mo, false, mask);
 		if (!p.a.every((v, i) => v === f.a[i])) fail(`${tag} sheet A differs pass/fail`);
-		if (!p.b.every((v, i) => v === f.b[i])) fail(`${tag} sheet B differs pass/fail`);
+		if (!p.c.every((v, i) => v === f.c[i])) fail(`${tag} sheet C differs pass/fail`);
+		if (p.b.every((v, i) => v === f.b[i])) fail(`${tag} sheet B is unchanged by the verdict`);
 		const sf = stats(f, mask);
-		if (sf.lit[2] !== st.lit[2]) fail(`${tag} fail sheet C holds ${sf.lit[2]} not ${st.lit[2]}`);
-		if (sf.stacked.field >= 0.999) fail(`${tag} a non-fitting C still filled the ground`);
-		if (wordCells && sf.stacked.letters <= 0.001) fail(`${tag} a non-fitting C left the word clean`);
+		if (sf.lit[1] !== st.lit[1]) fail(`${tag} fail sheet B holds ${sf.lit[1]} not ${st.lit[1]}`);
+		if (sf.stacked.field >= 0.999) fail(`${tag} a non-fitting B still filled the ground`);
+		// Whether it also drops light INTO the word is a coin toss per cell, so on a
+		// tiny grid with a tiny word it can miss entirely. That is a real property of
+		// the construction, not a defect, so it is scored over the run rather than
+		// asserted per trial.
+		if (wordCells && sf.stacked.letters > 0.001) dirty++;
+		dirtyN++;
 
 		worstGhost = Math.max(worstGhost, ...st.ghost);
 		ghostAcc += st.ghost.reduce((a, b) => a + b, 0) / 3;
@@ -130,8 +138,14 @@ for (const { word, face, grid } of CASES) {
 			`${String(grid.rows).padStart(2)}x${String(grid.cols).padStart(3)}=${String(N).padStart(5)}  ` +
 			`glyph ${L.w}x${L.h}${L.fits ? '' : ' OVERFLOWS'}  ` +
 			`word ${String(wordCells).padStart(4)}  ground ${String(ground).padStart(5)}  ` +
-			`thirds differ by ${spread}  ${worstGhost === 0 ? 'word untouched' : 'GHOST ' + worstGhost}`
+			`thirds differ by ${spread}  ${worstGhost === 0 ? 'word untouched' : 'GHOST ' + worstGhost}` +
+			`  ·  rogue B dirties the word ${((dirty / dirtyN) * 100).toFixed(0)}% of runs`
 	);
+	if (wordCells >= 40 && dirty / dirtyN < 0.9) {
+		fail(
+			`"${word}" a rogue B left the word clean ${(100 - (dirty / dirtyN) * 100).toFixed(0)}% of the time`
+		);
+	}
 	if (worstGhost !== 0) fail(`"${word}" ${face.size}/${face.weight}: sheets lit word cells`);
 }
 
