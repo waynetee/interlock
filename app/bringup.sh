@@ -75,7 +75,15 @@ fi
 # invokes this script, and any ssh command that mentions it -- so it reported
 # "already running" when nothing was, and the wire half then came up talking to
 # a backend that did not exist. The socket cannot lie.
-if timeout 3 python3 -c "import socket;socket.create_connection(('127.0.0.1',9917),2)" 2>/dev/null; then
+if [ -f /etc/systemd/system/interlock-backend.service ]; then
+    # The boot unit owns the backend. Hand-starting a second copy here loses the
+    # 9917 bind race and dies -- which is exactly what happened when this script
+    # ran moments after install-service.sh restarted the unit and the model was
+    # still loading. Poke the unit instead and fall through to the port wait.
+    echo "   owned by interlock-backend.service ($(systemctl is-active interlock-backend.service)) -- not hand-starting"
+    systemctl is-active interlock-backend.service >/dev/null 2>&1 \
+        || sudo -n systemctl start interlock-backend.service 2>/dev/null || true
+elif timeout 3 python3 -c "import socket;socket.create_connection(('127.0.0.1',9917),2)" 2>/dev/null; then
     echo "   already running"
 else
     cd "$APP"
@@ -86,6 +94,7 @@ else
     DEMO_SELF_POLICY="${DEMO_SELF_POLICY:-1}" \
     ENROLL_DIR="${ENROLL_DIR:-$VERINF/.enroll}" \
     ENROLL_LEDGER="${ENROLL_LEDGER:-0}" \
+    CHALLENGE_PY="${CHALLENGE_PY:-$VERINF/venv/bin/python -u $VERINF/analysis/subsample_challenge.py}" \
     nohup "$VERINF/venv/bin/python" -u model_backend.py \
         > "$LOGDIR/backend.log" 2>&1 &
     echo "   started -> $LOGDIR/backend.log"
@@ -109,8 +118,12 @@ echo "        CAP_NET_RAW + NET_ADMIN for promiscuous mode and SYS_NICE for RT) 
 # load, and the ~13 s JSON proof dump. Shortening the response is NOT a useful
 # speed lever -- cutting 24 -> 8 response tokens saved only 10%, and it changes
 # U (U is summed over response positions).
-# Default 10 is the grade VerInf's own quickstart gate uses; keeps demos ~2.8 min.
-# Production soundness is 80:   CHALLENGE_TQ=80 ./bringup.sh
+# (Those timings are the SOUND prover's; the fast subsampled prover the demo
+# runs has a far smaller floor and finishes in ~30 s at tq=1.)
+# Default 1 matches the deployed fast demo. The three knobs that describe this
+# one pipeline -- this default, CHALLENGE_PY in interlock-backend.service (and
+# the launch block below), MODE_LABEL in interlock-demo.service -- move together.
+# Sound grades:   CHALLENGE_TQ=10 (quickstart gate)   CHALLENGE_TQ=80 (production)
 docker rm -f ilk_server >/dev/null 2>&1 || true
 # Two extra read-only mounts for the wire crypto:
 #   /app/ref  the prover's reference AES (prover/ref/token_recorder.py). MOUNTED,
@@ -131,7 +144,7 @@ docker run -d --name ilk_server --network host --restart unless-stopped \
     -v "$VERINF/prover/ref":/app/ref:ro \
     -v "$HOME/.interlock":/psk:ro \
     -e ILK_PSK_FILE=/psk/psk \
-    -e MAX_NEW_TOKENS=24 -e CHALLENGE_TQ="${CHALLENGE_TQ:-10}" \
+    -e MAX_NEW_TOKENS=24 -e CHALLENGE_TQ="${CHALLENGE_TQ:-1}" \
     python:3-slim python3 -u /app/model_server.py "$IFACE" >/dev/null
 sleep 6
 ILK_LOG=$(docker logs ilk_server 2>&1 || true)
