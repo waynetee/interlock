@@ -119,7 +119,13 @@ docker rm -f ilk_server >/dev/null 2>&1 || true
 #             be free to drift from the one the gadget is composed against.
 #   /psk      the pre-shared secret both ends derive per-request keys from. It
 #             never crosses the cable; only the 16-byte nonce does.
-docker run -d --name ilk_server --network host \
+# --restart unless-stopped so the backend comes back with the machine. Without it
+# the container is left restart=no, the demo page returns after a reboot looking
+# perfectly healthy, and the failure only surfaces at challenge time when the
+# prover reaches for a backend that is not there. If the board is still dark at
+# boot the container will restart-loop with backoff, which is self-healing once
+# the interlock is powered, and no worse than being down.
+docker run -d --name ilk_server --network host --restart unless-stopped \
     --cap-add NET_RAW --cap-add NET_ADMIN --cap-add SYS_NICE \
     -v "$APP":/app \
     -v "$VERINF/prover/ref":/app/ref:ro \
