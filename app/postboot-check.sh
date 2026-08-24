@@ -58,9 +58,19 @@ systemctl is-active interlock-tunnel.service >/dev/null 2>&1 \
 
 echo
 echo "proof backend"
+# Two separate processes, and it is easy to check the wrong one. 9917 is
+# model_backend.py on the HOST (it needs CUDA, so it is not in the container);
+# ilk_server is the wire half in docker, which talks to it over loopback and
+# logs only a warning when it is missing. Either can be down while the other
+# looks perfectly healthy, and the demo needs both.
+systemctl is-enabled interlock-backend.service >/dev/null 2>&1 \
+  && ok "backend enabled at boot" || bad "backend NOT enabled at boot"
 if timeout 4 python3 -c "import socket;socket.create_connection(('127.0.0.1',9917),3)" 2>/dev/null
-then ok "ilk_server listening on 9917"
-else bad "ilk_server DOWN -- the page works, the proof will not"; fi
+then ok "model_backend listening on 9917 (GPU)"
+else bad "model_backend DOWN on 9917 -- the page works, the proof will not"; fi
+docker inspect -f '{{.State.Running}}' ilk_server 2>/dev/null | grep -q true \
+  && ok "ilk_server container running (wire half)" \
+  || bad "ilk_server container not running"
 docker inspect -f '{{.HostConfig.RestartPolicy.Name}}' ilk_server 2>/dev/null \
   | grep -q "unless-stopped" && ok "container set to restart on boot" \
   || bad "container restart policy is not unless-stopped"

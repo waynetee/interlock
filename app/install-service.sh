@@ -13,7 +13,9 @@
 set -euo pipefail
 
 DIR="$(cd "$(dirname "$0")" && pwd)"
-UNITS=(interlock-demo.service interlock-tunnel.service)
+# Order matters only for readability; systemd starts them in parallel and each
+# retries on its own. The backend is the one that takes minutes, not seconds.
+UNITS=(interlock-backend.service interlock-demo.service interlock-tunnel.service)
 PORT=80
 
 if [ "$(id -u)" -ne 0 ]; then echo "needs root: sudo $0 ${1:-}" >&2; exit 1; fi
@@ -28,10 +30,17 @@ fi
 
 for u in "${UNITS[@]}"; do [ -f "$DIR/$u" ] || { echo "missing $DIR/$u" >&2; exit 1; }; done
 
-# Anything already on port 80 will make the orchestrator fail to bind five seconds
-# after this script has reported success. Find out now.
+# Stop our own units first. Re-running this over an already-installed demo is the
+# normal case (upgrading a unit, adding the tunnel), and the orchestrator holding
+# port 80 is then OUR service, not a conflict -- an earlier cut of this check
+# refused to run at all in exactly that situation.
+for u in "${UNITS[@]}"; do systemctl stop "$u" 2>/dev/null || true; done
+sleep 1
+
+# Anything STILL on port 80 is something else, and it will make the orchestrator
+# fail to bind five seconds after this script has reported success. Find out now.
 if ss -ltnH "sport = :$PORT" 2>/dev/null | grep -q .; then
-  echo "something is already listening on port $PORT:" >&2
+  echo "something other than this demo is listening on port $PORT:" >&2
   ss -ltnp "sport = :$PORT" 2>/dev/null >&2
   echo "stop it first, or the orchestrator will not bind." >&2
   exit 1
