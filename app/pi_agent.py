@@ -141,7 +141,18 @@ class Agent:
             t0 = time.time()
             try:
                 with self.warm_lock:
-                    infcli.canon_port(self.a)
+                    p = infcli.canon_port(self.a)
+                    # A cached port can outlive the board. A power-cycled
+                    # interlock comes back on a fresh sync epoch, the old
+                    # bootstrap is void, and send() would raise "send() before
+                    # bootstrap()" at prompt time -- with the wire still showing
+                    # healthy, because this warm was happily returning the stale
+                    # cache. Observed after a mid-session FPGA restart. recover()
+                    # relocks and re-bootstraps the same port in place.
+                    if p.decl_shift is None:
+                        print("[agent] warm: cached port lost its bootstrap -- "
+                              "recovering", flush=True)
+                        p.recover()
                     tok.tokenizer()
             except Exception as e:
                 # Drop the cached half-open port so the next warm genuinely retries
@@ -252,9 +263,17 @@ class Agent:
             self.emit("ev:opened", {"rid": entry["rid"], "ok": True,
                                     "n_tokens": len(rsp_ids or []), "text": out})
         except Exception as e:
-            self.emit("ev:error", {"stage": "prompt",
-                                   "error": "%s: %s" % (type(e).__name__, e)})
-            print("[agent] prompt failed: %s: %s" % (type(e).__name__, e), flush=True)
+            msg = "%s: %s" % (type(e).__name__, e)
+            self.emit("ev:error", {"stage": "prompt", "error": msg})
+            print("[agent] prompt failed: %s" % msg, flush=True)
+            # A failure at the wire layer means the port is dead or its bootstrap
+            # is void (the board was power-cycled mid-session). Drop the cache and
+            # declare a fault, so the server disables Run and re-warms -- without
+            # this, every later prompt fails identically while the wire shows
+            # healthy, which is how one bad run becomes a bad afternoon.
+            if "bootstrap" in msg or "no sync" in msg.lower():
+                infcli._PORT["p"] = None
+                self.emit("ev:wire_fault", {"error": msg})
         finally:
             self.lock.release()
 

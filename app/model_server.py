@@ -405,6 +405,23 @@ def main():
 
     print("model_server on %s: inference + in-band ZK control "
           "(DST %s SRC %s)" % (IFACE, SERVER.hex(), CLIENT.hex()), flush=True)
+
+    def sturdy(fn, *a):
+        """One retry after recover(). A board power-cycled mid-session voids the
+        port's bootstrap; by the time anything sends again the sync stream is
+        usually back, and recover() relocks and re-bootstraps in place. Without
+        this the port stays dead until the container is restarted -- observed
+        2026-08-24, when a restarted FPGA turned every send into
+        "send() before bootstrap()" while recv kept working."""
+        try:
+            return fn(*a)
+        except RuntimeError as e:
+            if "bootstrap" not in str(e):
+                raise
+            print("[wire] %s -- recovering the port in place" % e, flush=True)
+            port.recover()
+            return fn(*a)
+
     while True:
         data = port.recv()                       # canonical DATA: CANON_HDR || app bytes
         if data is None:
@@ -425,7 +442,7 @@ def main():
                 print("[challenge] body=%dB" % len(body), flush=True)
 
                 def send(mt, b, _hdr=header):              # reply on port 1, spaced
-                    port.send_confirmed(_hdr + ctl_payload(mt, b))   # retries until accepted
+                    sturdy(port.send_confirmed, _hdr + ctl_payload(mt, b))
                     time.sleep(CTL_GAP)
 
                 try:
@@ -436,7 +453,7 @@ def main():
 
         try:                                               # ----- inference -----
             rsp_header, rsp_ct = generate(header, payload)
-            port.send_confirmed(rsp_header + rsp_ct)       # DATA the device accepted
+            sturdy(port.send_confirmed, rsp_header + rsp_ct)  # DATA the device accepted
             # rsp side is retained by canon_tx itself (store["rsp"] IS port.sent_log)
             print("[infer] req hdr=%s (%dB) -> rsp (%dB)"
                   % (header.hex(), len(payload), len(rsp_ct)), flush=True)

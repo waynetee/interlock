@@ -211,6 +211,11 @@ async def ev_sent(sid, data):
 async def ev_opened(sid, data):
     await to_demo("beat:answer", data)
     if not data.get("ok"):
+        # Say it failed in the vocabulary every client understands. beat:answer
+        # with ok=False alone left anything waiting for a verdict -- the UI, and
+        # rehearse.py -- hanging politely for a run that was already over.
+        await to_demo("beat:error", {
+            "error": data.get("error") or "the response did not come back"})
         S.reset()
         return
     # Beat 10 follows immediately: the challenge goes back over the same wire.
