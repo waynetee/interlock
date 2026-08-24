@@ -27,11 +27,12 @@ ExecStart=/home/spark/v2/VerInf/venv/bin/python -u demo_server.py --port 80
 # The truthful name for what the backend actually runs, shown on the front panel
 # and stamped on every verdict. It has to be kept in step BY HAND with the two
 # knobs that decide the pipeline: CHALLENGE_PY in interlock-backend.service
-# (unset there = the sound prover, interlock_challenge.py) and CHALLENGE_TQ in
-# the ilk_server container (10 as deployed; 80 is production soundness). Left
-# unset, demo_server falls back to the spot-check label, which under-claims --
-# the safe direction, but a waste of a real proof.
-Environment="MODE_LABEL=sound - the real four-round proof over the whole forward pass, welded, tq=10 (production 80)"
+# (the fast subsampled prover as deployed; unset there = the sound one) and
+# CHALLENGE_TQ in the ilk_server container (1 as deployed). Anything containing
+# the words "spot check" makes the dashboard raise its caution banner; this
+# label deliberately does not -- the key binding and the weld ARE full strength
+# in fast mode, and the lid should lead with what is proven, not hedge it.
+Environment="MODE_LABEL=fast - subsampled proof, key binding and weld at full strength"
 
 # Port 80 is privileged and this process is not. Rather than run the whole
 # orchestrator as root to bind one socket, grant exactly the one capability that

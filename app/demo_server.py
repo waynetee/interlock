@@ -19,9 +19,10 @@ MODE. Which prover runs, and at what strength, is deployment config that lives
 in the backend service and the ilk_server container, not here; MODE_LABEL (see
 below) is how this server is told what to call it, and it rides on every result
 so the UI cannot render a verdict without it. As deployed the demo runs the
-SOUND prover (interlock_challenge.py, four rounds over the whole forward pass,
-welded, tq=10) at ~3.5 min per run; point CHALLENGE_PY at
-subsample_challenge.py for the ~25 s spot-check variant, and relabel to match.
+FAST prover (subsample_challenge.py, tq=1): ~30 s a run, the key binding and
+the weld at full strength, the forward pass spot-checked at one (token, layer)
+of ~460. Point CHALLENGE_PY at interlock_challenge.py for the full sound proof
+(~3.5 min), and relabel to match.
 
 Run:  VerInf/venv/bin/python -u demo_server.py --port 8770
 """
