@@ -78,6 +78,23 @@ def generate(in_ids):
         out = model.generate(ids, max_new_tokens=k, do_sample=False, num_beams=1,
                              pad_token_id=tok.eos_token_id)
     new_ids = out[0, len(in_ids):].tolist()
+    # Stop at the end of the answer's line. The demo prompt is completion-style
+    # ("Question: ...\nAnswer:") and a base-style continuation, having finished
+    # the answer, happily invents the NEXT question -- "...Atomic Energy Agency.
+    # Question: What is the purpose of the IAEA?" -- until max_new_tokens runs
+    # out, because EOS never comes. The first newline after real text IS the
+    # stop token. Leading newlines (the model clearing its throat) don't count.
+    seen_text, cut = False, None
+    for i, t in enumerate(new_ids):
+        piece = tok.decode([t])
+        if "\n" in piece:
+            if seen_text:
+                cut = i
+                break
+        elif piece.strip():
+            seen_text = True
+    if cut:
+        new_ids = new_ids[:cut]
     print("[backend] generate: %d in -> %d out" % (len(in_ids), len(new_ids)), flush=True)
     return new_ids
 
