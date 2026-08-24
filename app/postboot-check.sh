@@ -50,6 +50,13 @@ sio=$(curl -s -m 10 -o /dev/null -w '%{http_code}' \
 [ "$sio" = "200" ] && ok "socket.io handshake" || bad "socket.io -> ${sio:-no answer}"
 
 echo
+echo "control-plane tunnel (Pi -> orchestrator)"
+systemctl is-enabled interlock-tunnel.service >/dev/null 2>&1 \
+  && ok "enabled at boot" || bad "NOT enabled at boot"
+systemctl is-active interlock-tunnel.service >/dev/null 2>&1 \
+  && ok "active" || bad "not active -- the Pi cannot reach the orchestrator"
+
+echo
 echo "proof backend"
 if timeout 4 python3 -c "import socket;socket.create_connection(('127.0.0.1',9917),3)" 2>/dev/null
 then ok "ilk_server listening on 9917"
@@ -64,10 +71,17 @@ TS=$(docker logs -t --tail 60 ilk_server 2>&1 | grep -a "hits=" | tail -1 | awk 
 if [ -n "${TS:-}" ] && AGE=$(( $(date +%s) - $(date -d "$TS" +%s) )) 2>/dev/null \
    && [ "$AGE" -le 40 ]; then note "board LIVE (last sync ${AGE}s ago)"
 else note "board quiet -- power-cycle the interlock when you want a real run"; fi
-if timeout 12 ssh -o BatchMode=yes -o ConnectTimeout=6 2a-rpi \
-     "pgrep -f pi_agent.py >/dev/null" 2>/dev/null
-then note "pi agent running (separate machine; survives a Spark reboot)"
-else note "pi agent not running -- ./demo_up.sh start"; fi
+AST=$(timeout 15 ssh -o BatchMode=yes -o ConnectTimeout=6 2a-rpi \
+     "systemctl is-active interlock-agent.service 2>/dev/null" 2>/dev/null || echo unreachable)
+note "pi agent service: $AST (separate machine; its own boot unit)"
+# The one signal that the whole live path closed: the orchestrator warmed an agent
+# more recently than it lost one.
+W=$(journalctl -u interlock-demo --no-pager 2>/dev/null | grep -aE "agent warm|agent gone" | tail -1)
+case "$W" in
+  *"agent warm"*) note "orchestrator has a warm agent (wire connected)" ;;
+  *"agent gone"*) note "orchestrator's agent has disconnected -- check the tunnel and the board" ;;
+  *)              note "orchestrator has not seen an agent yet" ;;
+esac
 
 echo
 [ "$fail" = 0 ] && echo "PASS -- the demo came back on its own." \
