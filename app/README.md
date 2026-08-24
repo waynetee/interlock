@@ -42,7 +42,11 @@ same certificate/challenge dataflow in pure Python with no FPGA and no proof.
 | `sync_pi.sh` | push the client half to the Pi; `--check` reports drift instead of changing anything |
 
 **Diagnostics** — not on the demo path, but what you reach for when the board misbehaves:
-`cert_parse.py`, `cert_send_spaced.py`, `dump_rx.py`, `size_probe.py`.
+`cert_parse.py`, `cert_send_spaced.py`, `dump_rx.py`, `size_probe.py`. And
+`rehearse.py`, for when the board behaves but the *verdicts* might not: it drives
+the web demo's own socket through one honest and one tampered run and demands
+PASS then FAIL — `postboot-check.sh` proves the services are up, this proves the
+demo is right. Two real proofs (~7 min); run it before an audience does.
 
 **Tests**: `test_ilk_crypto.py` (AES-GCM against the `cryptography` library),
 `test_framing.py` (seal/open across both ends), `test_commit.py`, `test_frames.py`.
