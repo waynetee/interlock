@@ -31,3 +31,7 @@ tb/**/dump.vcd
 
 # one-shot beat-11 tamper flag, dropped by demo_server at runtime
 .tamper
+
+# docker mountpoint for the prover reference AES (bringup.sh -v ...prover/ref);
+# recreated root-owned on every container create, so ignore rather than fight it
+app/ref/
