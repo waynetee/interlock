@@ -159,8 +159,12 @@ hr
 if [ "$ok" = 1 ]; then
     IP=$(ip -4 -br addr show wlP9s9 2>/dev/null | awk '{print $3}' | cut -d/ -f1)
     echo "  READY"
-    echo "    demo      http://10.42.0.1:8770/        (from the Pi's network)"
-    [ -n "$IP" ] && echo "    or        http://${IP%%/*}:8770/"
+    # Port follows whoever is serving: the boot service takes 80, a hand start
+    # from demo_up.sh stays on 8770. Print the one that is actually answering
+    # rather than a guess -- these two lines are what somebody types.
+    if [ -f /etc/systemd/system/interlock-demo.service ]; then DP=80; else DP=8770; fi
+    echo "    demo      http://10.42.0.1:$DP/        (from the Pi's network)"
+    [ -n "$IP" ] && echo "    or        http://${IP%%/*}:$DP/"
     echo "    headless  $PY -u demo_probe.py"
     echo "    fallback  UI=ui ./demo_up.sh start      (no-JS-bundle page)"
 else

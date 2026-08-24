@@ -12,23 +12,51 @@ PY=/home/spark/v2/VerInf/venv/bin/python
 # tunnel that existed only because the Pi and Spark shared a client-isolated LAN and
 # could not address each other at all. Set USE_TUNNEL=1 to fall back to that if the
 # Pi is ever back on an isolated network.
-SPARK_URL="${SPARK_URL:-http://10.42.0.1:${PORT:-8770}}"
 cd "$APP" || exit 1
+
+# When the boot service owns the orchestrator, this script must not also start
+# one. Two copies race for the same port: the second fails to bind, and
+# stop_server has already killed the managed one, which systemd then restarts
+# underneath us. So if the unit is installed, leave the server alone entirely and
+# just do the parts this script uniquely does -- the agent and the preflight.
+UNIT=/etc/systemd/system/interlock-demo.service
+managed() { [ -f "$UNIT" ]; }
+
+# The port follows from who is running the server, because only one of them can
+# have port 80: the service is granted it by CAP_NET_BIND_SERVICE, while a hand
+# start from this script is an ordinary spark process that would simply fail to
+# bind it. So unmanaged runs stay on the high port they have always used.
+if managed; then PORT="${PORT:-80}"; else PORT="${PORT:-8770}"; fi
+SPARK_URL="${SPARK_URL:-http://10.42.0.1:$PORT}"
 
 stop_server() {
   ps -eo pid,args | grep "[p]ython -u demo_server.py" | awk '{print $1}' \
     | xargs -r kill -9 2>/dev/null
 }
 
+# systemd keeps its logs in the journal; a hand-started one is in /tmp.
+server_log() {
+  if managed; then journalctl -u interlock-demo -n "${1:-4}" --no-pager 2>/dev/null \
+      || echo "  (no journal access -- try: sudo journalctl -u interlock-demo)"
+  else tail -"${1:-4}" /tmp/demo_server.log 2>/dev/null; fi
+}
+
 case "${1:-start}" in
   start)
-    stop_server; sleep 1
-    setsid "$PY" -u demo_server.py --port "${PORT:-8770}" \
-        > /tmp/demo_server.log 2>&1 < /dev/null &
-    disown; sleep 4
+    if managed; then
+      echo "orchestrator: managed by interlock-demo.service (leaving it alone)"
+      systemctl is-active interlock-demo.service >/dev/null 2>&1 \
+        || echo "  WARNING: the service is not active -- sudo systemctl start interlock-demo"
+    else
+      stop_server; sleep 1
+      setsid "$PY" -u demo_server.py --port "$PORT" \
+          > /tmp/demo_server.log 2>&1 < /dev/null &
+      disown; sleep 4
+    fi
     if [ "${USE_TUNNEL:-0}" = "1" ]; then
-      ./tunnel.sh start
-      SPARK_URL="http://127.0.0.1:${PORT:-8770}"
+      PORT="$PORT" ./tunnel.sh start
+      # the Pi's own end of the reverse forward, which is never the Spark's port
+      SPARK_URL="http://127.0.0.1:${RPORT:-8770}"
     fi
     echo "agent will dial $SPARK_URL"
     ssh 2a-rpi "SPARK_URL=$SPARK_URL bash fpe/run_agent.sh start" 2>&1 | tail -3
@@ -63,7 +91,7 @@ case "${1:-start}" in
     else
         echo "no servo reading yet; re-run in a few seconds"; ok=0
     fi
-    echo "--- orchestrator ---"; tail -4 /tmp/demo_server.log
+    echo "--- orchestrator ---"; server_log 4
     # First run only: mint the per-layer weight commitments and the enrolment tree,
     # so the weight root the verifier is handed is one committed BEFORE the run
     # rather than one read back out of the proof. Skipped once enrolled (a file
@@ -81,13 +109,25 @@ case "${1:-start}" in
         fi
     fi ;;
   stop)
-    stop_server; ./tunnel.sh stop >/dev/null 2>&1
+    if managed; then
+      echo "orchestrator: managed by systemd -- sudo systemctl stop interlock-demo"
+    else stop_server; fi
+    ./tunnel.sh stop >/dev/null 2>&1
     # Match on process shape, not on the string -- `pkill -f pi_agent.py` also
     # matches the ssh command line carrying it and kills its own remote shell.
     ssh 2a-rpi "ps -eo pid,args | awk '/[p]i_agent\\.py/ {print \$1}' | xargs -r sudo kill"
     echo stopped ;;
   status)
-    ps -eo pid,args | grep -c "[p]ython -u demo_server.py" | sed 's/^/server procs: /'
+    if managed; then
+      systemctl is-active interlock-demo.service | sed 's/^/service: /'
+      systemctl is-enabled interlock-demo.service | sed 's/^/on boot: /'
+    else
+      ps -eo pid,args | grep -c "[p]ython -u demo_server.py" | sed 's/^/server procs: /'
+    fi
+    # Serving is the thing worth reporting; a live process that never bound the
+    # port looks identical to a healthy one from the process table.
+    curl -fsS -o /dev/null -m 3 "http://127.0.0.1:$PORT/" 2>/dev/null \
+      && echo "http: OK on $PORT" || echo "http: NOT ANSWERING on $PORT"
     pgrep -f "8770:127.0.0.1:8770" >/dev/null && echo "tunnel: UP" || echo "tunnel: DOWN"
-    tail -5 /tmp/demo_server.log ;;
+    server_log 5 ;;
 esac

@@ -22,7 +22,7 @@ leaving it to each emit site to remember.
 THE PSK NEVER MOVES. It is provisioned out of band at ~/.interlock/psk (root, since
 this runs under sudo for AF_PACKET). sync_pi.sh deliberately does not sync it.
 
-Run:  sudo ./venv/bin/python -u pi_agent.py --iface eth0 --spark http://2a-spark:8770
+Run:  sudo ./venv/bin/python -u pi_agent.py --iface eth0 --spark http://2a-spark:80
 """
 import argparse
 import os
@@ -293,8 +293,10 @@ class Agent:
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--iface", default="eth0")
+    # Port 80: the orchestrator runs as a boot service (interlock-demo.service).
+    # demo_up.sh passes SPARK_URL explicitly and wins over this either way.
     ap.add_argument("--spark", default=os.environ.get("SPARK_URL",
-                                                      "http://2a-spark:8770"))
+                                                      "http://2a-spark:80"))
     # Only infcli's own transformers path uses --model, which this agent never
     # takes; tok.py finds its tokenizer at app/tokenizer/tinyllama (TOKENIZER_DIR
     # overrides). Kept so infcli's namespace is complete.
