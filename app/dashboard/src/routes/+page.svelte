@@ -9,15 +9,17 @@
 	 *
 	 * ...unless the board is off, in which case it invents everything — see
 	 * `simulate()`. That path exists so the demo survives a dead board, and it says
-	 * so on screen in the one strip that is never dismissible, because a rehearsal
-	 * that cannot be told apart from a run is worse than no rehearsal.
+	 * so on screen in a strip that is never dismissible, because a rehearsal that
+	 * cannot be told apart from a run is worse than no rehearsal.
 	 *
 	 * WHO IS READING THIS. A panel in the lid of a case, seen standing up from a few
-	 * feet by someone who has not been briefed. That sets every rule below: one
-	 * screen and no scroll, type sized off the viewport, one sentence at a time, and
-	 * no term that would need a footnote. The numbers an engineer wants — the byte
-	 * audits, the soundness bound, the prover's own status lines — are not gone; they
-	 * are on the console and in /lab. They are just not on the lid.
+	 * feet by someone who has not been briefed. One screen, no scroll, and nothing
+	 * static: no title, no headings, no explainer copy. The picture IS the
+	 * explanation — the question itself rides the cable, seals into its real
+	 * ciphertext bytes and opens again; the certifier stamps a fingerprint out of
+	 * each passing packet; the fingerprints slide into the GPU cluster and combine
+	 * there, because that is where the proof actually runs. The numbers an engineer
+	 * wants are on the console and in /lab.
 	 */
 	import FingerprintRegister, { type Stage } from '$lib/components/fingerprint-register.svelte';
 	import { cn } from '$lib/utils';
@@ -33,7 +35,7 @@
 	let wireOk = $state(false);
 	let wireFault = $state('');
 	/** the server's own mode label, kept verbatim for the console and the tooltip */
-	let modeRaw = $state('spot check');
+	let modeRaw = $state('');
 	let busy = $state(false);
 
 	/** the tamper switch: sticky, and only the operator flips it */
@@ -50,16 +52,30 @@
 	let hotFpga = $state(false);
 	let hotSpark = $state(false);
 
-	/** where the packet is, across the cable: your machine, the checker, the far end */
-	const STOP = [16, 50, 84];
+	/**
+	 * Where the payload is, along the cable: your machine, the certifier, the mouth
+	 * of the GPU cluster. The payload is the TEXT — the question and later the
+	 * answer ride the wire themselves, scrambling into their real ciphertext bytes
+	 * at the moment they are sealed and back at the moment they are opened.
+	 */
+	const STOP = [14, 40, 58];
 	let pktX = $state(STOP[0]);
-	let pktLabel = $state('QUESTION');
+	let pktText = $state('');
 	let pktSealed = $state(false);
 	let pktShown = $state(false);
 
 	let reqFp = $state<string | null>(null);
 	let rspFp = $state<string | null>(null);
 	let modelFp = $state<string | null>(null);
+	/**
+	 * The two fingerprints the certifier mints, as physical chips: stamped out of
+	 * the certifier as the packet passes, then slid across into the GPU cluster —
+	 * because the proof that combines them runs on the Spark, not in the cable.
+	 * 'out' is the stamp emerging; 'docked' is seated in the cluster.
+	 */
+	type Chip = 'hidden' | 'out' | 'docked';
+	let chipA = $state<Chip>('hidden');
+	let chipB = $state<Chip>('hidden');
 	/** the proof is in flight: the register hunts for the seat until this clears */
 	let proving = $state(false);
 	let promptText = $state('');
@@ -68,12 +84,7 @@
 	let elapsed = $state('');
 
 	const short = (h: string | null, n = 8) => (h ? h.slice(0, n).toUpperCase() : '—');
-	/**
-	 * The run's narration, on the console rather than on the lid. The status tape
-	 * this used to paint was the densest thing on the screen and the least legible
-	 * from three feet; an operator who wants it can open devtools, and /lab has the
-	 * measurements in full.
-	 */
+	/** the run's narration, on the console rather than on the lid */
 	const log = (s: string) => console.debug('[interlock]', s);
 
 	let pending: Record<string, any> = {};
@@ -87,6 +98,54 @@
 		return gen === generation;
 	}
 
+	const frozen = () =>
+		typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+	// ── the seal/open animation ────────────────────────────────────────────────
+	/**
+	 * The payload text boiling into different bytes, one character at a time behind
+	 * a scanning head. The cipher form is the run's REAL ciphertext (ct_in/ct_out
+	 * off the wire), not decoration — what appears on the cable is a window onto
+	 * the bytes that actually crossed it.
+	 */
+	let scrRaf = 0;
+	const HEXCHARS = '0123456789ABCDEF';
+	function scrambleTo(target: string, ms = 650) {
+		cancelAnimationFrame(scrRaf);
+		if (frozen()) {
+			pktText = target;
+			return;
+		}
+		const from = pktText;
+		const n = Math.max(from.length, target.length);
+		const t0 = performance.now();
+		const tick = (now: number) => {
+			const k = Math.min(1, (now - t0) / ms);
+			const head = Math.floor(k * n);
+			let s = '';
+			for (let i = 0; i < n; i++) {
+				if (i < head) s += target[i] ?? '';
+				else if (i < head + 3) s += HEXCHARS[(Math.random() * 16) | 0];
+				else s += from[i] ?? '';
+			}
+			pktText = s;
+			if (k < 1) scrRaf = requestAnimationFrame(tick);
+			else pktText = target;
+		};
+		scrRaf = requestAnimationFrame(tick);
+	}
+
+	/** the payload's ciphertext, cut to the same length so the chip holds its shape */
+	function cipherOf(hex: string | undefined, n: number) {
+		let h = (hex || '').toUpperCase().replace(/[^0-9A-F]/g, '');
+		if (!h) h = 'A7F03C9E5B21D48C6E90F17B24A8D35E';
+		while (h.length < n) h += h;
+		return h.slice(0, Math.max(10, n));
+	}
+
+	/** a long answer still has to fit the chip; the full text lands in the corner */
+	const clip = (s: string, n = 44) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
+
 	/** Everything a run puts on the screen. The switches are not part of a run. */
 	function clearRun() {
 		phase = 'idle';
@@ -94,7 +153,10 @@
 		hotFpga = hotSpark = false;
 		pktShown = pktSealed = false;
 		pktX = STOP[0];
+		pktText = '';
+		cancelAnimationFrame(scrRaf);
 		reqFp = rspFp = null;
+		chipA = chipB = 'hidden';
 		proving = false;
 		promptText = '';
 		answer = '';
@@ -114,28 +176,39 @@
 		socket?.emit('demo:reset');
 	}
 
+	/** the stamp coming out of the certifier, then sliding across into the cluster */
+	async function emitChip(which: 'A' | 'B', gen: number) {
+		const set = (v: Chip) => (which === 'A' ? (chipA = v) : (chipB = v));
+		set('out');
+		if (!(await step(frozen() ? 30 : 420, gen))) return;
+		set('docked');
+	}
+
 	async function runRequest(d: any, gen: number) {
 		phase = 'req';
-		pktLabel = 'QUESTION';
 		pktSealed = false;
 		pktX = STOP[0];
+		pktText = asked || promptText;
 		pktShown = true;
 		caption = 'A question leaves your machine.';
-		if (!(await step(750, gen))) return;
+		if (!(await step(800, gen))) return;
 
 		pktSealed = true;
-		pktLabel = 'SEALED';
-		caption = 'It is locked before it touches the cable.';
+		scrambleTo(cipherOf(d.ct_in, pktText.length));
+		caption = 'It is sealed before it touches the cable.';
 		log(`SEAL   ${d.n_tokens} tok → ${(d.ct_in ?? '').length / 2}B`);
-		if (!(await step(900, gen))) return;
+		if (!(await step(1000, gen))) return;
 
 		pktX = STOP[1];
 		hotFpga = true;
 		if (!(await step(950, gen))) return;
 		reqFp = d.request_digest ?? null;
-		caption = 'The checker takes its fingerprint on the way past.';
+		caption = 'The certifier stamps a fingerprint off the sealed bytes as they pass.';
 		log(`CERT   inbound  ${short(reqFp, 16)} audit=${d.request_audit ? 'PASS' : 'FAIL'}`);
-		if (!(await step(950, gen))) return;
+		// the stamp and the onward hop overlap on purpose: the certifier never
+		// holds traffic, it reads it on the way past
+		await emitChip('A', gen);
+		if (!(await step(700, gen))) return;
 
 		pktX = STOP[2];
 		hotFpga = false;
@@ -146,32 +219,33 @@
 
 	async function runResponse(d: any, text: string, gen: number) {
 		phase = 'gen';
-		caption = 'The datacenter runs the model and locks the answer.';
+		caption = 'The GPU cluster runs the model and seals the answer.';
 		if (!(await step(1100, gen))) return;
 
 		phase = 'rsp';
-		pktLabel = 'SEALED';
 		pktSealed = true;
+		pktText = cipherOf(d.ct_out, Math.min(clip(text).length, 44));
 		pktX = STOP[2];
 		pktShown = true;
-		if (!(await step(550, gen))) return;
+		if (!(await step(600, gen))) return;
 		pktX = STOP[1];
 		hotSpark = false;
 		hotFpga = true;
 		if (!(await step(950, gen))) return;
 
 		rspFp = d.response_digest ?? null;
-		caption = 'The answer is fingerprinted too.';
+		caption = 'The answer is fingerprinted on the way out.';
 		log(`CERT   outbound ${short(rspFp, 16)} audit=${d.response_audit ? 'PASS' : 'FAIL'}`);
-		if (!(await step(950, gen))) return;
+		await emitChip('B', gen);
+		if (!(await step(700, gen))) return;
 
 		pktX = STOP[0];
 		hotFpga = false;
 		if (!(await step(950, gen))) return;
 		pktSealed = false;
-		pktLabel = 'ANSWER';
+		scrambleTo(clip(text));
 		caption = 'Only your machine holds the key that opens it.';
-		if (!(await step(850, gen))) return;
+		if (!(await step(1000, gen))) return;
 		pktShown = false;
 		answer = text;
 		log(`OPEN   ${text}`);
@@ -184,7 +258,8 @@
 		// the verdict lands however long that takes -- the animation is paced by the
 		// prover, not by a timer that guesses at it.
 		proving = true;
-		caption = 'Now the datacenter has to prove those fingerprints came from the promised model.';
+		caption =
+			'Both fingerprints are now in the cluster. It has to prove they came from the promised model.';
 		if (!(await step(1100, gen))) return;
 	}
 
@@ -200,7 +275,7 @@
 		const ok = verdict?.verdict === 'PASS';
 		caption = ok
 			? 'It did. The three fingerprints line up.'
-			: 'It could not. That answer never went past the checker.';
+			: 'It could not. That answer never went past the certifier.';
 		log(`PROOF  ${verdict?.verdict}  verify=${verdict?.verify}  binding=${verdict?.keybind}`);
 		busy = false;
 	}
@@ -249,7 +324,9 @@
 				if (gen !== generation) return;
 				await runRequest(pending, gen);
 				await runResponse(pending, d.ok ? d.text : 'could not open it', gen);
-				await runProve(gen);
+				// a run that failed to open has no proof coming: the server's
+				// beat:error follows, and 'proving' would wait on it forever
+				if (d.ok) await runProve(gen);
 			});
 		});
 		socket.on('beat:verdict', (d: any) => {
@@ -352,7 +429,8 @@
 		const nonce = `${Date.now()}:${Math.random()}`;
 		const d = {
 			n_tokens: 11,
-			ct_in: '0'.repeat(2 * 108),
+			ct_in: fauxDigest(`ct_in:${nonce}`) + fauxDigest(`ct_in2:${nonce}`),
+			ct_out: fauxDigest(`ct_out:${nonce}`) + fauxDigest(`ct_out2:${nonce}`),
 			request_digest: fauxDigest(`in:${SIM_PROMPT}:${nonce}`),
 			response_digest: fauxDigest(`out:${SIM_ANSWER}:${nonce}`),
 			request_audit: true,
@@ -408,9 +486,10 @@
 	}
 
 	// ── the register ───────────────────────────────────────────────────────────
-	// Three sheets: the two the checker printed on the way past, and the model's own,
-	// which is fixed before anything is sent. They land as the run does, hunt for
-	// their seat while the proof is in flight, and settle when it rules.
+	// Three sheets: the two the certifier stamped on the way past, and the model's
+	// own, which is fixed before anything is sent. They combine inside the GPU
+	// cluster because that is where the proof runs; the register hunts while the
+	// prover does and settles when it rules.
 	const fpStage = $derived(
 		(verdict
 			? verdict.verdict === 'PASS'
@@ -423,16 +502,13 @@
 					: 'idle') as Stage
 	);
 
-	// ── the one strip that is never dismissible ────────────────────────────────
+	// ── the strip that is never dismissible when it matters ────────────────────
 	/**
-	 * What an audience has a right to know before they believe the screen, in plain
-	 * words and at reading size. The simulator outranks the tamper because "none of
-	 * this happened" is the more important of the two.
-	 *
-	 * The mode line is DERIVED from the server's own label rather than written here,
-	 * so a server that switches out of the subsampled prover cannot leave the lid
-	 * claiming a spot check -- or, worse, leave a spot check unlabelled. The raw
-	 * label rides along as the strip's tooltip for whoever is running the demo.
+	 * What an audience has a right to know before they believe the screen. The
+	 * simulator outranks the tamper because "none of this happened" is the more
+	 * important of the two. A live, honest run has nothing to disclaim, so the
+	 * strip only exists when one of the warnings holds; the server's own mode
+	 * label rides as the stage tooltip for whoever is running the demo.
 	 */
 	const banner = $derived(
 		simRun || simMode
@@ -445,15 +521,9 @@
 				? {
 						tag: 'Tampered',
 						tone: 'fault' as const,
-						say: 'the datacenter is claiming an answer the checker never saw — this fails every time'
+						say: 'the cluster is claiming an answer the certifier never saw — this fails every time'
 					}
-				: /spot check/i.test(modeRaw)
-					? {
-							tag: 'Spot check',
-							tone: 'caution' as const,
-							say: 'one slice of the answer is proved, not the whole run'
-						}
-					: { tag: 'Live', tone: 'ok' as const, say: modeRaw }
+				: null
 	);
 
 	/** the prompt without its scaffolding, so the payoff reads as a question */
@@ -465,9 +535,9 @@
 	);
 	/**
 	 * The answer is whatever the model said, and the model does not know it is being
-	 * projected. A one-word answer should be huge; a five-word expansion has to still
-	 * fit the corner it is sitting in, so the size steps down with length rather than
-	 * running off a page that deliberately cannot scroll.
+	 * projected. A one-word answer should be huge; a longer sentence has to still
+	 * fit the corner it is sitting in, so the size steps down with length rather
+	 * than running off a page that deliberately cannot scroll.
 	 */
 	const answerSize = $derived(
 		answer.length <= 10
@@ -481,10 +551,33 @@
 	/** and your own machine lights up for the two moments the key is in use */
 	const hotHome = $derived(pktShown && pktX === STOP[0]);
 	const TONE = {
-		ok: { bar: 'border-l-verified', text: 'text-verified' },
 		caution: { bar: 'border-l-caution', text: 'text-caution' },
 		fault: { bar: 'border-l-fault', text: 'text-fault' }
 	};
+
+	// ── chips: geometry and dressing ───────────────────────────────────────────
+	// Stage coordinates for a stamp's journey: minted just under the certifier,
+	// then a long slide right into the cluster's tray. C never travels — the model
+	// commitment was in the cluster before anything ran.
+	const CHIP = {
+		A: { out: { x: 40, y: 47 }, dock: { x: 67.5, y: 88 } },
+		B: { out: { x: 40, y: 47 }, dock: { x: 79.5, y: 88 } }
+	};
+	const HUEA = '#b6e04c';
+	const HUEB = '#3fd2ea';
+	const HUEC = '#c98cf6';
+	const failB = $derived(!!verdict && verdict.verdict !== 'PASS');
+	const clusterStatus = $derived(
+		verdict
+			? verdict.verdict === 'PASS'
+				? `verified${elapsed ? ' · ' + elapsed : ''}`
+				: 'rejected'
+			: proving
+				? 'aligning the fingerprints…'
+				: phase === 'gen'
+					? 'running the model'
+					: ''
+	);
 </script>
 
 {#snippet toggle(on: boolean, label: string, tone: 'fault' | 'caution', click: () => void)}
@@ -534,7 +627,7 @@
 {#snippet station(left: number, name: string, sub: string, hot: boolean)}
 	<div
 		class={cn(
-			'absolute top-[6%] flex h-[56%] w-[clamp(140px,16vw,260px)] -translate-x-1/2 flex-col items-center justify-center gap-1 overflow-hidden border bg-background transition-all duration-300',
+			'absolute top-[10%] flex h-[30%] w-[clamp(130px,15vw,250px)] -translate-x-1/2 flex-col items-center justify-center gap-1 overflow-hidden border bg-background transition-all duration-300',
 			hot ? 'border-signal shadow-[0_0_30px_-4px_var(--signal)]' : 'border-border'
 		)}
 		style="left:{left}%"
@@ -546,43 +639,66 @@
 	</div>
 {/snippet}
 
-<div class="flex h-svh flex-col overflow-hidden bg-background text-foreground">
-	<!-- front panel -->
-	<header class="flex shrink-0 items-center justify-between gap-4 border-b border-border px-6 py-2">
-		<span class="t-body font-mono font-semibold tracking-[0.24em]">INTERLOCK</span>
-		<div class="flex items-center gap-4">
-			<a
-				href={resolve('/lab')}
-				class="font-mono text-[10px] tracking-[0.16em] text-muted-foreground/40 uppercase hover:text-foreground"
-				>bench</a
-			>
-			<button
-				class={cn(
-					't-tag border px-3 py-1 font-mono uppercase transition-colors',
-					armDown
-						? 'border-fault bg-fault/20 text-fault'
-						: 'border-border text-muted-foreground/60 hover:border-fault hover:text-fault'
-				)}
-				disabled={goingDown}
-				onclick={shutdown}
-			>
-				{armDown ? 'press again to power off' : 'shut down'}
-			</button>
-		</div>
-	</header>
+{#snippet chip(
+	name: string,
+	role: string,
+	hex: string | null,
+	hue: string,
+	state: Chip,
+	pos: { out: { x: number; y: number }; dock: { x: number; y: number } } | null,
+	bad: boolean
+)}
+	{@const at = pos ? (state === 'docked' ? pos.dock : pos.out) : null}
+	<div
+		class={cn(
+			'absolute z-20 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 border bg-background px-2 py-1 transition-all duration-[1100ms] ease-in-out motion-reduce:transition-none',
+			state === 'hidden' && 'scale-75 opacity-0',
+			state === 'out' && 'opacity-100 duration-[420ms]',
+			state === 'docked' && 'opacity-100'
+		)}
+		style="left:{at?.x ?? 0}%;top:{at?.y ?? 0}%;border-color:{bad
+			? 'var(--fault)'
+			: hue};box-shadow:0 0 16px -6px {bad ? 'var(--fault)' : hue}"
+	>
+		<span class="t-tag font-mono whitespace-nowrap" style="color:{bad ? 'var(--fault)' : hue}"
+			>{name} · {role}</span
+		>
+		<span
+			class="tabular font-mono text-[clamp(0.65rem,0.8vw,0.95rem)] leading-none font-semibold whitespace-nowrap"
+			style="color:{bad ? 'var(--fault)' : hue}">{hex ? '0x' + short(hex, 10) : '—'}</span
+		>
+	</div>
+{/snippet}
 
+<div class="flex h-svh flex-col overflow-hidden bg-background text-foreground">
 	<main class="flex min-h-0 flex-1 flex-col gap-[clamp(0.5rem,1.4vh,1.1rem)] px-6 py-[1.2vh]">
-		<!-- the question, and the controls -->
+		<!-- controls only: everything else on this screen is a live value -->
 		<div class="flex shrink-0 flex-wrap items-center justify-between gap-x-8 gap-y-3">
-			<h1 class="t-hero max-w-[22ch] font-medium tracking-tight text-balance">
-				Is the datacenter really running the model it promised?
-			</h1>
 			<div class="flex flex-wrap items-center gap-x-6 gap-y-3">
 				{@render toggle(armed, 'Tamper', 'fault', () => (armed = !armed))}
 				{@render toggle(simForce || !liveWire, 'Simulate', 'caution', () => {
 					// off is only offerable when there is a wire to fall back to
 					if (liveWire) simForce = !simForce;
 				})}
+			</div>
+			<div class="flex flex-wrap items-center gap-x-4 gap-y-3">
+				<a
+					href={resolve('/lab')}
+					class="font-mono text-[10px] tracking-[0.16em] text-muted-foreground/40 uppercase hover:text-foreground"
+					>bench</a
+				>
+				<button
+					class={cn(
+						't-tag border px-3 py-1 font-mono uppercase transition-colors',
+						armDown
+							? 'border-fault bg-fault/20 text-fault'
+							: 'border-border text-muted-foreground/60 hover:border-fault hover:text-fault'
+					)}
+					disabled={goingDown}
+					onclick={shutdown}
+				>
+					{armDown ? 'press again to power off' : 'shut down'}
+				</button>
 				<button
 					class="t-tag border border-border px-4 py-2 font-mono text-muted-foreground uppercase transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
 					disabled={goingDown}
@@ -599,27 +715,30 @@
 			</div>
 		</div>
 
-		<!-- never dismissible: nothing here may read as a proof that it is not -->
-		<div
-			class={cn(
-				't-body flex shrink-0 flex-wrap items-baseline gap-x-3 border-l-4 bg-card/60 px-4 py-2 font-mono',
-				TONE[banner.tone].bar
-			)}
-			title={modeRaw}
-		>
-			<span class={cn('shrink-0 tracking-[0.16em] uppercase', TONE[banner.tone].text)}
-				>{banner.tag}</span
+		<!-- only exists while there is something to disclaim -->
+		{#if banner}
+			<div
+				class={cn(
+					't-body flex shrink-0 flex-wrap items-baseline gap-x-3 border-l-4 bg-card/60 px-4 py-2 font-mono',
+					TONE[banner.tone].bar
+				)}
 			>
-			<span class="text-muted-foreground">{banner.say}</span>
-		</div>
+				<span class={cn('shrink-0 tracking-[0.16em] uppercase', TONE[banner.tone].text)}
+					>{banner.tag}</span
+				>
+				<span class="text-muted-foreground">{banner.say}</span>
+			</div>
+		{/if}
 
 		<!--
-			Two bands: the three machines along the top, the cable underneath them. They
-			used to share one line, which put the packet on top of whichever station it
-			had reached and covered the label -- exactly at the moment the label matters.
+			The stage. Left two thirds: your machine and the certifier on the wire, the
+			payload text travelling between them. Right third: the GPU cluster, a tall
+			box holding the model's own fingerprint and the register the other two
+			slide into — the proof runs in there, so that is where they combine.
 		-->
 		<section
-			class="relative h-[clamp(118px,18vh,230px)] shrink-0 overflow-hidden border border-border bg-card"
+			class="relative min-h-0 flex-1 overflow-hidden border border-border bg-card"
+			title={modeRaw}
 		>
 			<div
 				class="pointer-events-none absolute inset-0 opacity-50"
@@ -627,27 +746,26 @@
 			></div>
 
 			<!-- a drop from each machine down to the cable it is spliced into -->
-			{#each STOP as x (x)}
-				<div class="absolute top-[62%] h-[20%] w-px bg-border" style="left:{x}%"></div>
+			{#each [STOP[0], STOP[1]] as x (x)}
+				<div class="absolute top-[40%] h-[18%] w-px bg-border" style="left:{x}%"></div>
 			{/each}
 
-			<!-- the cable itself, and the flow it carries only while there is traffic -->
-			<div class="absolute inset-x-[8%] top-[82%] h-px bg-border"></div>
+			<!-- the cable, running from your machine into the cluster's mouth -->
+			<div class="absolute top-[58%] right-[38%] left-[5%] h-px bg-border"></div>
 			<div
 				class={cn(
-					'absolute inset-x-[8%] top-[82%] h-[2px] transition-opacity duration-500',
+					'absolute top-[58%] right-[38%] left-[5%] h-[2px] transition-opacity duration-500',
 					pktShown ? 'ilk-flow opacity-80' : 'opacity-0'
 				)}
 			></div>
 
 			{@render station(STOP[0], 'YOUR MACHINE', 'holds the key', hotHome)}
-			{@render station(STOP[1], 'THE CHECKER', 'a chip in the cable', hotFpga)}
+			{@render station(STOP[1], 'NETWORK CERTIFIER', 'a chip in the cable', hotFpga)}
 
-			<!-- the far end, which becomes the verdict once there is one -->
+			<!-- the GPU cluster: where the model runs, and where the proof combines -->
 			<div
 				class={cn(
-					'absolute top-[6%] flex h-[56%] -translate-x-1/2 flex-col items-center justify-center gap-1 overflow-hidden border bg-background transition-all duration-500',
-					verdict ? 'w-[clamp(180px,21vw,340px)]' : 'w-[clamp(140px,16vw,260px)]',
+					'absolute inset-y-[5%] right-[2%] left-[62%] flex flex-col overflow-hidden border bg-background transition-all duration-500',
 					verdict
 						? verdict.verdict === 'PASS'
 							? 'border-verified shadow-[0_0_40px_-4px_var(--verified)]'
@@ -656,38 +774,35 @@
 							? 'border-signal shadow-[0_0_30px_-4px_var(--signal)]'
 							: 'border-border'
 				)}
-				style="left:{STOP[2]}%"
 			>
-				{#if verdict}
-					{@const ok = verdict.verdict === 'PASS'}
-					<div
-						class={cn(
-							'ilk-bloom font-mono text-[clamp(1.15rem,2vw,2.3rem)] leading-none font-bold tracking-[0.08em]',
-							ok ? 'text-verified' : 'text-fault'
-						)}
-					>
-						{ok ? 'VERIFIED' : 'REJECTED'}
-					</div>
-					{#if elapsed}
-						<div class="tabular t-tag font-mono text-muted-foreground">proved in {elapsed}</div>
-					{/if}
-				{:else}
-					{#if working}
-						<div class="ilk-sweep pointer-events-none absolute inset-x-0 h-1/3 bg-signal/15"></div>
-					{/if}
-					<div class="t-body font-mono font-semibold tracking-[0.05em]">THE DATACENTER</div>
-					<div
-						class="t-tag px-2 text-center font-mono leading-tight text-muted-foreground uppercase"
-					>
-						runs the model
-					</div>
+				{#if working}
+					<div class="ilk-sweep pointer-events-none absolute inset-x-0 h-1/4 bg-signal/10"></div>
 				{/if}
+				<div
+					class="flex shrink-0 items-baseline justify-between gap-2 border-b border-border px-3 py-1.5"
+				>
+					<span class="t-body font-mono font-semibold tracking-[0.05em]">GPU CLUSTER</span>
+					<span
+						class={cn(
+							't-tag font-mono uppercase',
+							verdict
+								? verdict.verdict === 'PASS'
+									? 'text-verified'
+									: 'text-fault'
+								: 'text-muted-foreground'
+						)}>{clusterStatus}</span
+					>
+				</div>
+				<!-- the register: three fingerprints hunting for the seat, then the word -->
+				<FingerprintRegister req={reqFp} rsp={rspFp} model={modelFp} stage={fpStage} embed />
+				<!-- the tray the chips slide into; they are stage-level so they can travel -->
+				<div class="h-[clamp(2.4rem,6vh,3.6rem)] shrink-0 border-t border-border"></div>
 			</div>
 
-			<!-- the one thing allowed to use the accent: traffic actually on the cable -->
+			<!-- the payload: the text itself rides the cable, sealed or open -->
 			<div
 				class={cn(
-					't-tag absolute top-[82%] z-10 flex -translate-x-1/2 -translate-y-1/2 items-center gap-2 border px-3 py-1 font-mono whitespace-nowrap transition-all duration-[900ms] ease-in-out',
+					'absolute top-[58%] z-10 flex max-w-[38%] -translate-x-1/2 -translate-y-1/2 items-center gap-2 overflow-hidden border px-3 py-1.5 font-mono whitespace-nowrap transition-all duration-[900ms] ease-in-out motion-reduce:transition-none',
 					pktSealed
 						? 'border-border bg-muted text-muted-foreground'
 						: 'border-signal bg-signal/15 text-signal shadow-[0_0_22px_-3px_var(--signal)]',
@@ -697,7 +812,7 @@
 			>
 				<svg
 					viewBox="0 0 24 24"
-					class="size-[1.15em]"
+					class="size-[1.15em] shrink-0"
 					fill="none"
 					stroke="currentColor"
 					stroke-width="2.4"
@@ -710,12 +825,17 @@
 						<path d="M8 11V7a4 4 0 0 1 7.4-2" />
 					{/if}
 				</svg>
-				{pktLabel}
+				<span class="t-body overflow-hidden">{pktText}</span>
 			</div>
-		</section>
 
-		<!-- the three fingerprints, which is the thing worth watching -->
-		<FingerprintRegister req={reqFp} rsp={rspFp} model={modelFp} stage={fpStage} />
+			<!-- the certifier's two stamps, and the cluster's own commitment -->
+			{@render chip('A', 'QUESTION', reqFp, HUEA, chipA, CHIP.A, false)}
+			{@render chip('B', 'ANSWER', rspFp, HUEB, chipB, CHIP.B, failB)}
+			{@render chip('C', 'MODEL', modelFp, HUEC, modelFp ? 'docked' : 'hidden', {
+				out: { x: 91.5, y: 88 },
+				dock: { x: 91.5, y: 88 }
+			}, false)}
+		</section>
 
 		<!-- one sentence, and the answer -->
 		<div class="flex shrink-0 items-end justify-between gap-8">

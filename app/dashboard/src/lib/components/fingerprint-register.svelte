@@ -62,7 +62,8 @@
 		face = DEFAULT_FACE,
 		grid = DEFAULT_GRID,
 		slack = 2,
-		split = 0.5
+		split = 0.5,
+		embed = false
 	}: {
 		/** the certifier's fingerprint of the request — strip A */
 		req?: string | null;
@@ -81,6 +82,13 @@
 		slack?: number;
 		/** how much of each margin the sliding strip carries; the backing takes the rest */
 		split?: number;
+		/**
+		 * Bare-pile mode for hosts that provide their own chrome: no section frame,
+		 * no header, no per-strip previews -- just the measured pile filling its
+		 * parent. The lid embeds this inside the GPU-cluster box; /lab keeps the
+		 * full bench.
+		 */
+		embed?: boolean;
 	} = $props();
 
 	// ── the three films ────────────────────────────────────────────────────────
@@ -438,25 +446,7 @@
 	);
 </script>
 
-<section class="flex min-h-0 flex-1 flex-col border border-border bg-card">
-	<div
-		class="flex shrink-0 flex-wrap items-baseline justify-between gap-3 border-b border-border px-4 py-1.5"
-	>
-		<span class="t-tag font-mono text-muted-foreground uppercase">The three fingerprints</span>
-		<span
-			class={cn(
-				't-body font-mono',
-				stage === 'fail'
-					? 'text-fault'
-					: stage === 'pass'
-						? 'text-verified'
-						: 'text-muted-foreground/70'
-			)}
-		>
-			{note}
-		</span>
-	</div>
-
+{#snippet pile()}
 	<!-- The pile takes whatever height is left; the canvas floats inside the measured
 	     box so its own size cannot feed back into the measurement. -->
 	<div class="relative min-h-0 flex-1" bind:clientWidth={boxW} bind:clientHeight={boxH}>
@@ -481,6 +471,31 @@
 			<canvas bind:this={pileCv} class="absolute top-0 left-0" aria-hidden="true"></canvas>
 		</div>
 	</div>
+{/snippet}
+
+{#if embed}
+	{@render pile()}
+{:else}
+	<section class="flex min-h-0 flex-1 flex-col border border-border bg-card">
+	<div
+		class="flex shrink-0 flex-wrap items-baseline justify-between gap-3 border-b border-border px-4 py-1.5"
+	>
+		<span class="t-tag font-mono text-muted-foreground uppercase">The three fingerprints</span>
+		<span
+			class={cn(
+				't-body font-mono',
+				stage === 'fail'
+					? 'text-fault'
+					: stage === 'pass'
+						? 'text-verified'
+						: 'text-muted-foreground/70'
+			)}
+		>
+			{note}
+		</span>
+	</div>
+
+	{@render pile()}
 
 	<div class="grid shrink-0 grid-cols-3 gap-4 px-4 pt-1 pb-2">
 		{#each NAMES as name, i (name)}
@@ -511,4 +526,5 @@
 			</div>
 		{/each}
 	</div>
-</section>
+	</section>
+{/if}
