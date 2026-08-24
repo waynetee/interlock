@@ -15,11 +15,13 @@ the decrypted response, emitted by the Pi because the Pi is what holds the key -
 which is the point the demo is making, so it is a feature that it cannot come
 from here.
 
-FAST MODE. The demo runs the subsampled prover: ~25 s, and it proves ONE
-(token, layer) of ~460 at t-queries 1. The key binding (B1/B2) and the weld ARE
-full strength, so "the certified ciphertext opens, under the pre-committed key,
-to the proven tokens" is exact. The forward pass is a spot check. `MODE_LABEL`
-rides on every result so the UI cannot render a verdict without it.
+MODE. Which prover runs, and at what strength, is deployment config that lives
+in the backend service and the ilk_server container, not here; MODE_LABEL (see
+below) is how this server is told what to call it, and it rides on every result
+so the UI cannot render a verdict without it. As deployed the demo runs the
+SOUND prover (interlock_challenge.py, four rounds over the whole forward pass,
+welded, tq=10) at ~3.5 min per run; point CHALLENGE_PY at
+subsample_challenge.py for the ~25 s spot-check variant, and relabel to match.
 
 Run:  VerInf/venv/bin/python -u demo_server.py --port 8770
 """
@@ -67,8 +69,17 @@ def model_fingerprint(path=MODEL_DIR):
 
 MODEL_FP = None      # filled at startup; 2.2 GB takes a few seconds
 
-MODE_LABEL = ("spot check - 1 token-layer of ~460 at tq=1, NOT a proof of the "
-              "forward pass")
+# What the pipeline behind this server actually runs is decided elsewhere -- the
+# prover script by CHALLENGE_PY in interlock-backend.service, the opened columns
+# by CHALLENGE_TQ in the ilk_server container -- so this server cannot derive the
+# label and the deployment has to say it (MODE_LABEL in interlock-demo.service,
+# kept next to those two knobs' cross-references). The default UNDER-claims: a
+# stale label calling a sound run a spot check wastes credit, but the reverse
+# would print a full-proof banner over a spot check, and that is the one lie the
+# whole app is built to never tell.
+MODE_LABEL = os.environ.get("MODE_LABEL") or (
+    "spot check - 1 token-layer of ~460 at tq=1, NOT a proof of the "
+    "forward pass")
 
 sio = socketio.AsyncServer(async_mode="asgi", cors_allowed_origins="*")
 

@@ -24,6 +24,15 @@ Group=spark
 WorkingDirectory=/home/spark/v2/interlock/app
 ExecStart=/home/spark/v2/VerInf/venv/bin/python -u demo_server.py --port 80
 
+# The truthful name for what the backend actually runs, shown on the front panel
+# and stamped on every verdict. It has to be kept in step BY HAND with the two
+# knobs that decide the pipeline: CHALLENGE_PY in interlock-backend.service
+# (unset there = the sound prover, interlock_challenge.py) and CHALLENGE_TQ in
+# the ilk_server container (10 as deployed; 80 is production soundness). Left
+# unset, demo_server falls back to the spot-check label, which under-claims --
+# the safe direction, but a waste of a real proof.
+Environment="MODE_LABEL=sound - the real four-round proof over the whole forward pass, welded, tq=10 (production 80)"
+
 # Port 80 is privileged and this process is not. Rather than run the whole
 # orchestrator as root to bind one socket, grant exactly the one capability that
 # binding it needs; everything else stays an ordinary spark process.
