@@ -191,17 +191,8 @@
 {/snippet}
 
 {#snippet film(cells: Uint8Array, height: number, drop: number, ink: string)}
-	<!-- grid frame at the shared position; edge-to-edge cells at this strip's
-	     registered drop, so flush corners mean seated patterns -->
-	<rect
-		x={X0 - 0.8}
-		y={Y0 - 0.8}
-		width={PATW + 1.6}
-		height={PILE * P + 1.6}
-		fill="none"
-		stroke={ink}
-		stroke-width="0.3"
-	/>
+	<!-- no frame around the grid: the corner ticks carry the registration, and a
+	     border stacked three deep just draws a box around the word -->
 	<g transform="translate({X0},{Y0 + drop * P})">
 		{#each { length: height } as _r, r (r)}
 			{#each { length: grid.cols } as _c, c (c)}

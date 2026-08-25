@@ -22,6 +22,14 @@
 	 * wants are on the console and in /lab.
 	 */
 	import FingerprintRegister, { type Stage } from '$lib/components/fingerprint-register.svelte';
+	import {
+		build,
+		stencil,
+		strips,
+		DEFAULT_FACE,
+		DEFAULT_GRID,
+		DEFAULT_WORD
+	} from '$lib/fingerprint-shares';
 	import { cn } from '$lib/utils';
 	import { resolve } from '$app/paths';
 	import { io, type Socket } from 'socket.io-client';
@@ -58,7 +66,7 @@
 	 * answer ride the wire themselves, scrambling into their real ciphertext bytes
 	 * at the moment they are sealed and back at the moment they are opened.
 	 */
-	const STOP = [14, 40, 58];
+	const STOP = [14, 41, 63];
 	let pktX = $state(STOP[0]);
 	let pktText = $state('');
 	let pktSealed = $state(false);
@@ -68,12 +76,14 @@
 	let rspFp = $state<string | null>(null);
 	let modelFp = $state<string | null>(null);
 	/**
-	 * The two fingerprints the certifier mints, as physical chips: stamped out of
-	 * the certifier as the packet passes, then slid across into the GPU cluster —
-	 * because the proof that combines them runs on the Spark, not in the cable.
-	 * 'out' is the stamp emerging; 'docked' is seated in the cluster.
+	 * The two fingerprints the certifier mints, as flying FILMS: the strip's own
+	 * cell pattern is stamped out of the certifier as the packet passes, slides
+	 * across into the GPU cluster — because the proof that combines them runs on
+	 * the Spark, not in the cable — and is absorbed into the register there.
+	 * 'out' is the stamp emerging; 'docked' is arrived over the register; 'gone'
+	 * is absorbed into it (the register is then showing the same strip).
 	 */
-	type Chip = 'hidden' | 'out' | 'docked';
+	type Chip = 'hidden' | 'out' | 'docked' | 'gone';
 	let chipA = $state<Chip>('hidden');
 	let chipB = $state<Chip>('hidden');
 	/** the proof is in flight: the register hunts for the seat until this clears */
@@ -176,12 +186,14 @@
 		socket?.emit('demo:reset');
 	}
 
-	/** the stamp coming out of the certifier, then sliding across into the cluster */
+	/** the film coming out of the certifier, sliding across, and being absorbed */
 	async function emitChip(which: 'A' | 'B', gen: number) {
 		const set = (v: Chip) => (which === 'A' ? (chipA = v) : (chipB = v));
 		set('out');
 		if (!(await step(frozen() ? 30 : 420, gen))) return;
 		set('docked');
+		if (!(await step(frozen() ? 30 : 1300, gen))) return;
+		set('gone');
 	}
 
 	async function runRequest(d: any, gen: number) {
@@ -543,19 +555,6 @@
 			.replace(/\s*Answer:\s*$/i, '')
 			.trim()
 	);
-	/**
-	 * The answer is whatever the model said, and the model does not know it is being
-	 * projected. A one-word answer should be huge; a longer sentence has to still
-	 * fit the corner it is sitting in, so the size steps down with length rather
-	 * than running off a page that deliberately cannot scroll.
-	 */
-	const answerSize = $derived(
-		answer.length <= 10
-			? 'clamp(1.6rem, 3.4vw, 3.4rem)'
-			: answer.length <= 24
-				? 'clamp(1.25rem, 2.3vw, 2.4rem)'
-				: 'clamp(1rem, 1.6vw, 1.75rem)'
-	);
 	/** the far end is doing something you cannot see: say so with a sweep, not a word */
 	const working = $derived(phase === 'gen' || phase === 'prove');
 	/** and your own machine lights up for the two moments the key is in use */
@@ -565,18 +564,24 @@
 		fault: { bar: 'border-l-fault', text: 'text-fault' }
 	};
 
-	// ── chips: geometry and dressing ───────────────────────────────────────────
-	// Stage coordinates for a stamp's journey: minted just under the certifier,
-	// then a long slide right into the cluster's tray. C never travels — the model
-	// commitment was in the cluster before anything ran.
+	// ── the flying films: geometry and dressing ────────────────────────────────
+	// Stage coordinates for a film's journey: minted just under the certifier,
+	// then a long slide right into the cluster, where the register absorbs it.
+	// C never travels — the model commitment was in the cluster before anything
+	// ran, so it only ever appears in the tray.
 	const CHIP = {
-		A: { out: { x: 40, y: 47 }, dock: { x: 67.5, y: 88 } },
-		B: { out: { x: 40, y: 47 }, dock: { x: 79.5, y: 88 } }
+		A: { out: { x: 41, y: 54 }, dock: { x: 83, y: 40 } },
+		B: { out: { x: 41, y: 54 }, dock: { x: 83, y: 40 } }
 	};
 	const HUEA = '#b6e04c';
 	const HUEB = '#3fd2ea';
 	const HUEC = '#c98cf6';
 	const failB = $derived(!!verdict && verdict.verdict !== 'PASS');
+	// The films' own cell patterns — the same strips the register is composing,
+	// derived from the same digests, so what flies is what lands.
+	const filmMask = stencil(DEFAULT_WORD, DEFAULT_FACE, DEFAULT_GRID);
+	const filmShares = $derived(build(reqFp ?? '', rspFp ?? '', modelFp ?? '', !failB, filmMask));
+	const filmStrips = $derived(strips(filmShares, DEFAULT_GRID, 2, modelFp ?? '', 0.5));
 	const clusterStatus = $derived(
 		verdict
 			? verdict.verdict === 'PASS'
@@ -634,10 +639,13 @@
 	</button>
 {/snippet}
 
-{#snippet station(left: number, name: string, sub: string, hot: boolean)}
+{#snippet station(left: number, name: string, sub: string, hot: boolean, big = false)}
 	<div
 		class={cn(
-			'absolute top-[10%] flex h-[30%] w-[clamp(130px,15vw,250px)] -translate-x-1/2 flex-col items-center justify-center gap-1 overflow-hidden border bg-background transition-all duration-300',
+			'absolute flex -translate-x-1/2 flex-col items-center justify-center gap-1 overflow-hidden border bg-background transition-all duration-300',
+			big
+				? 'top-[8%] h-[38%] w-[clamp(170px,21vw,340px)]'
+				: 'top-[12%] h-[28%] w-[clamp(120px,13vw,220px)]',
 			hot ? 'border-signal shadow-[0_0_30px_-4px_var(--signal)]' : 'border-border'
 		)}
 		style="left:{left}%"
@@ -649,34 +657,47 @@
 	</div>
 {/snippet}
 
-{#snippet chip(
-	name: string,
+{#snippet filmchip(
+	idx: number,
 	role: string,
 	hex: string | null,
 	hue: string,
 	state: Chip,
-	pos: { out: { x: number; y: number }; dock: { x: number; y: number } } | null,
+	pos: { out: { x: number; y: number }; dock: { x: number; y: number } },
 	bad: boolean
 )}
-	{@const at = pos ? (state === 'docked' ? pos.dock : pos.out) : null}
+	{@const at = state === 'out' ? pos.out : pos.dock}
+	{@const ink = bad ? 'var(--fault)' : hue}
+	{@const rows = filmStrips.heights[idx]}
 	<div
 		class={cn(
-			'absolute z-20 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 border bg-background px-2 py-1 transition-all duration-[1100ms] ease-in-out motion-reduce:transition-none',
+			'absolute z-20 flex w-[clamp(110px,12vw,200px)] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 transition-all duration-[1100ms] ease-in-out motion-reduce:transition-none',
 			state === 'hidden' && 'scale-75 opacity-0',
 			state === 'out' && 'opacity-100 duration-[420ms]',
-			state === 'docked' && 'opacity-100'
+			state === 'docked' && 'opacity-100',
+			state === 'gone' && 'scale-110 opacity-0 duration-[500ms]'
 		)}
-		style="left:{at?.x ?? 0}%;top:{at?.y ?? 0}%;border-color:{bad
-			? 'var(--fault)'
-			: hue};box-shadow:0 0 16px -6px {bad ? 'var(--fault)' : hue}"
+		style="left:{at.x}%;top:{at.y}%"
 	>
-		<span class="t-tag font-mono whitespace-nowrap" style="color:{bad ? 'var(--fault)' : hue}"
-			>{name} · {role}</span
+		<span class="t-tag font-mono whitespace-nowrap" style="color:{ink}"
+			>{role} · {hex ? '0x' + short(hex, 8) : '—'}</span
 		>
-		<span
-			class="tabular font-mono text-[clamp(0.65rem,0.8vw,0.95rem)] leading-none font-semibold whitespace-nowrap"
-			style="color:{bad ? 'var(--fault)' : hue}">{hex ? '0x' + short(hex, 10) : '—'}</span
+		<!-- the strip's actual cells: what flies is what the register composes -->
+		<svg
+			viewBox="0 0 {DEFAULT_GRID.cols} {rows}"
+			class="w-full"
+			preserveAspectRatio="none"
+			style="filter:drop-shadow(0 0 6px {ink})"
+			aria-hidden="true"
 		>
+			{#each { length: rows } as _r, r (r)}
+				{#each { length: DEFAULT_GRID.cols } as _c, c (c)}
+					{#if filmStrips.cells[idx][r * DEFAULT_GRID.cols + c] > 0}
+						<rect x={c} y={r} width="1.05" height="1.05" fill={ink} />
+					{/if}
+				{/each}
+			{/each}
+		</svg>
 	</div>
 {/snippet}
 
@@ -756,26 +777,25 @@
 			></div>
 
 			<!-- a drop from each machine down to the cable it is spliced into -->
-			{#each [STOP[0], STOP[1]] as x (x)}
-				<div class="absolute top-[40%] h-[18%] w-px bg-border" style="left:{x}%"></div>
-			{/each}
+			<div class="absolute top-[40%] h-[18%] w-px bg-border" style="left:{STOP[0]}%"></div>
+			<div class="absolute top-[46%] h-[12%] w-px bg-border" style="left:{STOP[1]}%"></div>
 
 			<!-- the cable, running from your machine into the cluster's mouth -->
-			<div class="absolute top-[58%] right-[38%] left-[5%] h-px bg-border"></div>
+			<div class="absolute top-[58%] right-[32%] left-[5%] h-px bg-border"></div>
 			<div
 				class={cn(
-					'absolute top-[58%] right-[38%] left-[5%] h-[2px] transition-opacity duration-500',
+					'absolute top-[58%] right-[32%] left-[5%] h-[2px] transition-opacity duration-500',
 					pktShown ? 'ilk-flow opacity-80' : 'opacity-0'
 				)}
 			></div>
 
 			{@render station(STOP[0], 'YOUR MACHINE', 'holds the key', hotHome)}
-			{@render station(STOP[1], 'NETWORK CERTIFIER', 'a chip in the cable', hotFpga)}
+			{@render station(STOP[1], 'NETWORK CERTIFIER', 'fingerprints every packet', hotFpga, true)}
 
 			<!-- the GPU cluster: where the model runs, and where the proof combines -->
 			<div
 				class={cn(
-					'absolute inset-y-[5%] right-[2%] left-[62%] flex flex-col overflow-hidden border bg-background transition-all duration-500',
+					'absolute inset-y-[5%] right-[2%] left-[68%] flex flex-col overflow-hidden border bg-background transition-all duration-500',
 					verdict
 						? verdict.verdict === 'PASS'
 							? 'border-verified shadow-[0_0_40px_-4px_var(--verified)]'
@@ -805,8 +825,29 @@
 				</div>
 				<!-- the register: three fingerprints hunting for the seat, then the word -->
 				<FingerprintRegister req={reqFp} rsp={rspFp} model={modelFp} stage={fpStage} embed />
-				<!-- the tray the chips slide into; they are stage-level so they can travel -->
-				<div class="h-[clamp(2.4rem,6vh,3.6rem)] shrink-0 border-t border-border"></div>
+				<!-- the tray: which fingerprints the cluster is holding -->
+				<div
+					class="flex h-[clamp(2rem,5vh,3rem)] shrink-0 items-center justify-between border-t border-border px-3"
+				>
+					{#each [
+						['REQUEST', reqFp, HUEA],
+						['RESPONSE', rspFp, failB ? 'var(--fault)' : HUEB],
+						['MODEL', modelFp, HUEC]
+					] as [role, hex, hue] (role)}
+						<div
+							class={cn(
+								'flex flex-col transition-opacity duration-500',
+								hex ? 'opacity-100' : 'opacity-25'
+							)}
+						>
+							<span class="t-tag font-mono" style="color:{hue}">{role}</span>
+							<span
+								class="tabular font-mono text-[clamp(0.6rem,0.7vw,0.85rem)] leading-tight font-semibold"
+								style="color:{hue}">{hex ? '0x' + short(hex, 8) : '—'}</span
+							>
+						</div>
+					{/each}
+				</div>
 			</div>
 
 			<!-- the payload: the text itself rides the cable, sealed or open -->
@@ -838,30 +879,10 @@
 				<span class="t-body overflow-hidden">{pktText}</span>
 			</div>
 
-			<!-- the certifier's two stamps, and the cluster's own commitment -->
-			{@render chip('A', 'QUESTION', reqFp, HUEA, chipA, CHIP.A, false)}
-			{@render chip('B', 'ANSWER', rspFp, HUEB, chipB, CHIP.B, failB)}
-			{@render chip('C', 'MODEL', modelFp, HUEC, modelFp ? 'docked' : 'hidden', {
-				out: { x: 91.5, y: 88 },
-				dock: { x: 91.5, y: 88 }
-			}, false)}
+			<!-- the certifier's two stamps in flight: the strip patterns themselves -->
+			{@render filmchip(0, 'REQUEST', reqFp, HUEA, chipA, CHIP.A, false)}
+			{@render filmchip(1, 'RESPONSE', rspFp, HUEB, chipB, CHIP.B, failB)}
 		</section>
-
-		<!-- one sentence, and the answer -->
-		<div class="flex shrink-0 items-end justify-between gap-8">
-			<p class="t-lead max-w-[52ch] text-balance">{caption}</p>
-			{#if answer}
-				<div class="ilk-bloom flex max-w-[46ch] min-w-0 flex-col items-end gap-1">
-					{#if asked}
-						<span class="t-body text-right text-muted-foreground">{asked}</span>
-					{/if}
-					<span
-						class="text-right font-mono leading-[1.06] font-semibold text-balance text-signal"
-						style="font-size:{answerSize}">{answer}</span
-					>
-				</div>
-			{/if}
-		</div>
 	</main>
 
 	{#if goingDown}
