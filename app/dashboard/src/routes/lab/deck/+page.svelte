@@ -46,6 +46,12 @@
 	let rsp = $state('9ddad76a4dd8226a729e9942652142380b80bbe64d506377466ad8396ddd12f9');
 	let model = $state('6e6001da2106d4757498752a021df6c2bdc332c650aae4bae6b0c004dcf14933');
 	let text = $state(DEFAULT_WORD);
+	/**
+	 * ?media=stock prints only the cardstock pages, ?media=film only the
+	 * transparency sheet -- two documents, because the two stocks go through
+	 * the printer separately anyway. Default is everything.
+	 */
+	let media = $state('all');
 	let ready = $state(false);
 
 	// ── the shares ─────────────────────────────────────────────────────────────
@@ -141,7 +147,8 @@
 			['req', (v: string) => (req = v)],
 			['rsp', (v: string) => (rsp = v)],
 			['model', (v: string) => (model = v)],
-			['text', (v: string) => (text = v)]
+			['text', (v: string) => (text = v)],
+			['media', (v: string) => (media = v)]
 		] as [string, (v: string) => void][]) {
 			const v = p.get(k);
 			if (v !== null) set(v);
@@ -217,7 +224,7 @@
 )}
 	<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
 		{#if opaque}
-			{@render paper('#f6f3ec', 'stock-paper', 'rgba(24,24,24,0.055)')}
+			{@render paper('#f8f0df', 'stock-paper', 'rgba(24,24,24,0.055)')}
 		{/if}
 		{@render outline()}
 		{@render slot(slotIdx, role, digest, ink, sub)}
@@ -227,7 +234,7 @@
 
 {#snippet msgFront(label: string, big: string)}
 	<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
-		{@render paper('#f6f3ec', 'stock-paper', 'rgba(24,24,24,0.055)')}
+		{@render paper('#f8f0df', 'stock-paper', 'rgba(24,24,24,0.055)')}
 		{@render outline()}
 		<text x="6" y="12" class="t-eyebrow">{label}</text>
 		<line x1="6" y1="15.5" x2={CW - 6} y2="15.5" stroke="#000" stroke-width="0.3" />
@@ -239,7 +246,7 @@
 
 {#snippet msgBack(label: string, hex: string, plainLen: number)}
 	<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
-		{@render paper('#f6f3ec', 'stock-paper', 'rgba(24,24,24,0.055)')}
+		{@render paper('#f8f0df', 'stock-paper', 'rgba(24,24,24,0.055)')}
 		{@render outline()}
 		<text x="6" y="12" class="t-eyebrow">{label} · ENCRYPTED</text>
 		<!-- closed padlock: modest, clear of the rule -->
@@ -262,31 +269,34 @@
 
 <div class="page">
 	{#if ready}
+		{#if media !== 'film'}
 		<section class="sheet">
-			<p class="sheetnote">page 1 · message card faces · cardstock</p>
+			<p class="sheetnote">message card faces · cardstock</p>
 			<div class="pair">{@render msgFront('REQUEST', q)}{@render msgFront('REQUEST', q)}</div>
 			<div class="pair">{@render msgFront('RESPONSE', answer)}{@render msgFront('RESPONSE', answer)}</div>
 		</section>
 
 		<section class="sheet">
 			<p class="sheetnote">
-				page 2 · flip sides · duplex reverse of page 1 (long edge), or glue back-to-back
+				flip sides · duplex reverse of the faces page (long edge), or glue back-to-back
 			</p>
 			<div class="pair">{@render msgBack('REQUEST', ctin, q.length)}{@render msgBack('REQUEST', ctin, q.length)}</div>
 			<div class="pair">{@render msgBack('RESPONSE', ctout, answer.length)}{@render msgBack('RESPONSE', ctout, answer.length)}</div>
 		</section>
 
 		<section class="sheet">
-			<p class="sheetnote">page 3 · model fingerprint · cardstock — the backing</p>
+			<p class="sheetnote">model fingerprint · cardstock — the backing</p>
 			<div class="pair">
 				{@render fpCard(2, ROLES[2], short(digests[2]), INK.C, st.cells[2], st.heights[2], HOME[2], true, 'llama-1.1b')}
 				{@render fpCard(2, ROLES[2], short(digests[2]), INK.C, st.cells[2], st.heights[2], HOME[2], true, 'llama-1.1b')}
 			</div>
 		</section>
+		{/if}
 
+		{#if media !== 'stock'}
 		<section class="sheet">
 			<p class="sheetnote">
-				page 4 · the three films: input, output, and the impostor · transparency · 100% scale
+				the three films: input, output, and the impostor · transparency · 100% scale
 			</p>
 			<div class="pair">
 				{@render fpCard(0, ROLES[0], short(digests[0]), INK.A, st.cells[0], st.heights[0], HOME[0], false)}
@@ -301,7 +311,7 @@
 				{@render fpCard(1, ROLES[1], xDigest, INK.X, xCells, st.heights[1], HOME[1], false)}
 			</div>
 		</section>
-
+		{/if}
 	{/if}
 </div>
 
