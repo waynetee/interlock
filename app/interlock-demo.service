@@ -34,6 +34,11 @@ ExecStart=/home/spark/v2/VerInf/venv/bin/python -u demo_server.py --port 80
 # in fast mode, and the lid should lead with what is proven, not hedge it.
 Environment="MODE_LABEL=fast - subsampled proof, key binding and weld at full strength"
 
+# The demo prompt. Few-shot on purpose: the worked example is what makes the
+# model's own greedy answer terse (see demo_server.PROMPT); \n becomes a real
+# newline in demo_server, because Environment= cannot carry one.
+Environment="PROMPT=Question: What is the capital of France?\nAnswer: Paris\nQuestion: What does IAEA stand for?\nAnswer:"
+
 # Port 80 is privileged and this process is not. Rather than run the whole
 # orchestrator as root to bind one socket, grant exactly the one capability that
 # binding it needs; everything else stays an ordinary spark process.

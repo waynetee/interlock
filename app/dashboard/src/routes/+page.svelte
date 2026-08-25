@@ -548,10 +548,13 @@
 				: null
 	);
 
-	/** the prompt without its scaffolding, so the payoff reads as a question */
+	/**
+	 * The prompt without its scaffolding, so the payoff reads as a question. A
+	 * few-shot prompt carries worked examples in front; the question being asked
+	 * is the LAST one, so take the text after the final "Question:".
+	 */
 	const asked = $derived(
-		promptText
-			.replace(/^\s*Question:\s*/i, '')
+		(promptText.split(/Question:/i).pop() ?? '')
 			.replace(/\s*Answer:\s*$/i, '')
 			.trim()
 	);

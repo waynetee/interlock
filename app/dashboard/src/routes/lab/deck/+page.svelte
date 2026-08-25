@@ -18,7 +18,7 @@
 	 * labels mashed into mush. Cards are pre-registered: corners flush =
 	 * patterns seated -- the card edges themselves are the registration.
 	 *
-	 * The defaults below are values captured off a real PASSing run (2026-08-25);
+	 * The defaults below are values captured off a real PASSing run with the few-shot prompt (2026-08-25);
 	 * override any of them with query parameters (q, answer, ctin, ctout, req,
 	 * rsp, model, text for the word).
 	 */
@@ -35,15 +35,15 @@
 
 	// ── the run on the cards (a real one; params override) ─────────────────────
 	let q = $state('What does IAEA stand for?');
-	let answer = $state('IAEA stands for International Atomic Energy Agency.');
+	let answer = $state('International Atomic Energy Agency');
 	let ctin = $state(
-		'2a8431cb3904b66911ec7a9c32efa61dfa6b68deb1a00749bc6fd3f8c7cd3404c286d5e70b9d54b96560597600f9cbf2ec75055e38f9742c'
+		'ba98330dd9a87875aa050d51b9c32e37065e2e286dcb9fc8ec20b3b8dbb4dcff424574bad386ab29e619b184e2fec7c93e9da4965b9483be7f99af614d7d9e7d693611b26871089e200449953e70b2e2de8ab193b8ad669551056696516aefb1f6e1a1abe3e80cb802956c68f10fa312'
 	);
 	let ctout = $state(
-		'f3995d6c8e199913dd5f699abe7f145ea800054b42835ae6498aed110ad10f188d4d93f53e16a1050e6163a4'
+		'7d1bf2757998a67262771478da0c47d8fcfaadc2'
 	);
-	let req = $state('60a2bf5fe1dcfd03cd18974f61282931cd9697aaa9b138a7de96ba34356de0e2');
-	let rsp = $state('da0e9d728bbf39ac8fe703d55703cb8180ed93f7a442159f90dd1c2e771e65b4');
+	let req = $state('a9368f47e724515062810b54c7b1c19c2c797aad57b61c678831193d7407a50a');
+	let rsp = $state('9ddad76a4dd8226a729e9942652142380b80bbe64d506377466ad8396ddd12f9');
 	let model = $state('6e6001da2106d4757498752a021df6c2bdc332c650aae4bae6b0c004dcf14933');
 	let text = $state(DEFAULT_WORD);
 	let ready = $state(false);
@@ -61,11 +61,11 @@
 	// ── card geometry, mm ──────────────────────────────────────────────────────
 	const CW = 94;
 	const CH = 63;
-	const CR = 3;
+	const CR = 0;
 	const PATW = 86;
 	const P = $derived(PATW / grid.cols);
 	const X0 = (CW - PATW) / 2;
-	const Y0 = 27;
+	const Y0 = 26;
 	const PILE = $derived(grid.rows + 2 * SLACK);
 
 	// Three greens with real distance between them: films read apart in the
@@ -124,8 +124,12 @@
 	function hexBig(h: string, lines = 6, per = 12) {
 		const s = '0x' + h.toUpperCase();
 		const out: string[] = [];
-		for (let i = 0; i < lines; i++) out.push(s.slice(i * per, (i + 1) * per));
-		out[out.length - 1] = out[out.length - 1].slice(0, per - 1) + '…';
+		for (let i = 0; i < lines && i * per < s.length; i++)
+			out.push(s.slice(i * per, (i + 1) * per));
+		// an ellipsis only where there really is more: a short ciphertext is
+		// shown whole, and a lone '…' line is nobody's idea of bytes
+		if (s.length > lines * per)
+			out[out.length - 1] = out[out.length - 1].slice(0, per - 1) + '…';
 		return out;
 	}
 
@@ -177,8 +181,8 @@
 {/snippet}
 
 {#snippet slot(i: number, role: string, digest: string, ink: string)}
-	<text x={SLOT[i].x} y="9" text-anchor={SLOT[i].anchor} class="t-name" fill={ink}>{role}</text>
-	<text x={SLOT[i].x} y="13.6" text-anchor={SLOT[i].anchor} class="t-hex" fill={ink}
+	<text x={SLOT[i].x} y="10" text-anchor={SLOT[i].anchor} class="t-name" fill={ink}>{role}</text>
+	<text x={SLOT[i].x} y="15.6" text-anchor={SLOT[i].anchor} class="t-hex" fill={ink}
 		>{digest}</text
 	>
 {/snippet}
@@ -195,6 +199,26 @@
 			{/each}
 		{/each}
 	</g>
+{/snippet}
+
+{#snippet fpCard(
+	slotIdx: number,
+	role: string,
+	digest: string,
+	ink: string,
+	cells: Uint8Array,
+	height: number,
+	drop: number,
+	opaque: boolean
+)}
+	<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
+		{#if opaque}
+			{@render paper('#f6f3ec', 'stock-paper', 'rgba(24,24,24,0.055)')}
+		{/if}
+		{@render outline()}
+		{@render slot(slotIdx, role, digest, ink)}
+		{@render film(cells, height, drop, ink)}
+	</svg>
 {/snippet}
 
 {#snippet msgFront(label: string, big: string)}
@@ -214,10 +238,16 @@
 		{@render paper('#f6f3ec', 'stock-paper', 'rgba(24,24,24,0.055)')}
 		{@render outline()}
 		<text x="6" y="12" class="t-eyebrow">{label} · ENCRYPTED</text>
-		<!-- closed padlock -->
-		<g transform="translate({CW - 9.5},6.5)" fill="none" stroke="#000" stroke-width="0.7">
-			<rect x="0" y="3.4" width="6" height="4.6" rx="0.6" />
-			<path d="M 1.4 3.4 V 2 a 1.6 1.6 0 0 1 3.2 0 v 1.4" />
+		<!-- closed padlock: sized to the header band, sitting on its rule -->
+		<g
+			transform="translate({CW - 15},4.6)"
+			fill="none"
+			stroke="#000"
+			stroke-width="0.85"
+			stroke-linecap="round"
+		>
+			<rect x="0" y="4.6" width="9" height="6.3" rx="0.9" />
+			<path d="M 2.1 4.6 V 2.8 a 2.4 2.4 0 0 1 4.8 0 v 1.8" />
 		</g>
 		<line x1="6" y1="15.5" x2={CW - 6} y2="15.5" stroke="#000" stroke-width="0.3" />
 		{#each hexBig(hex, 4, 16) as row, i (i)}
@@ -230,7 +260,7 @@
 	<section class="cover">
 		<h1>The hand deck</h1>
 		<p>
-			Six cards, 94 × 63 mm (landscape), that tell the run in the audience's hands. The two message cards are
+			Six cards, 94 × 63 mm landscape, printed two-up — one print run yields two decks — that tell the run in the audience's hands. The two message cards are
 			double-sided: the words on the face, and on the flip the <em>actual ciphertext bytes</em> that
 			crossed the cable for this exchange — the only form the datacenter's wire ever saw them in.
 			The fingerprint cards stack: lay the two green films on the solid model card, corners flush,
@@ -268,49 +298,44 @@
 	{#if ready}
 		<section class="sheet">
 			<p class="sheetnote">page 2 · message card faces · cardstock</p>
-			{@render msgFront('REQUEST', q)}
-			{@render msgFront('RESPONSE', answer)}
+			<div class="pair">{@render msgFront('REQUEST', q)}{@render msgFront('REQUEST', q)}</div>
+			<div class="pair">{@render msgFront('RESPONSE', answer)}{@render msgFront('RESPONSE', answer)}</div>
 		</section>
 
 		<section class="sheet">
 			<p class="sheetnote">
 				page 3 · flip sides · duplex reverse of page 2 (long edge), or glue back-to-back
 			</p>
-			{@render msgBack('REQUEST', ctin)}
-			{@render msgBack('RESPONSE', ctout)}
+			<div class="pair">{@render msgBack('REQUEST', ctin)}{@render msgBack('REQUEST', ctin)}</div>
+			<div class="pair">{@render msgBack('RESPONSE', ctout)}{@render msgBack('RESPONSE', ctout)}</div>
 		</section>
 
 		<section class="sheet">
 			<p class="sheetnote">page 4 · input + output fingerprints · transparency film · 100% scale</p>
-			<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
-				{@render outline()}
-				{@render slot(0, ROLES[0], short(digests[0]), INK.A)}
-				{@render film(st.cells[0], st.heights[0], HOME[0], INK.A)}
-			</svg>
-			<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
-				{@render outline()}
-				{@render slot(1, ROLES[1], short(digests[1]), INK.B)}
-				{@render film(st.cells[1], st.heights[1], HOME[1], INK.B)}
-			</svg>
+			<div class="pair">
+				{@render fpCard(0, ROLES[0], short(digests[0]), INK.A, st.cells[0], st.heights[0], HOME[0], false)}
+				{@render fpCard(0, ROLES[0], short(digests[0]), INK.A, st.cells[0], st.heights[0], HOME[0], false)}
+			</div>
+			<div class="pair">
+				{@render fpCard(1, ROLES[1], short(digests[1]), INK.B, st.cells[1], st.heights[1], HOME[1], false)}
+				{@render fpCard(1, ROLES[1], short(digests[1]), INK.B, st.cells[1], st.heights[1], HOME[1], false)}
+			</div>
 		</section>
 
 		<section class="sheet">
 			<p class="sheetnote">page 5 · model fingerprint · cardstock — the backing</p>
-			<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
-				{@render paper('#f6f3ec', 'stock-paper', 'rgba(24,24,24,0.055)')}
-				{@render outline()}
-				{@render slot(2, ROLES[2], short(digests[2]), INK.C)}
-				{@render film(st.cells[2], st.heights[2], HOME[2], INK.C)}
-			</svg>
+			<div class="pair">
+				{@render fpCard(2, ROLES[2], short(digests[2]), INK.C, st.cells[2], st.heights[2], HOME[2], true)}
+				{@render fpCard(2, ROLES[2], short(digests[2]), INK.C, st.cells[2], st.heights[2], HOME[2], true)}
+			</div>
 		</section>
 
 		<section class="sheet">
 			<p class="sheetnote">page 6 · the impostor · transparency film · 100% scale</p>
-			<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
-				{@render outline()}
-				{@render slot(1, ROLES[1], xDigest, INK.X)}
-				{@render film(xCells, st.heights[1], HOME[1], INK.X)}
-			</svg>
+			<div class="pair">
+				{@render fpCard(1, ROLES[1], xDigest, INK.X, xCells, st.heights[1], HOME[1], false)}
+				{@render fpCard(1, ROLES[1], xDigest, INK.X, xCells, st.heights[1], HOME[1], false)}
+			</div>
 		</section>
 	{/if}
 </div>
@@ -318,7 +343,7 @@
 <style>
 	@page {
 		size: A4 portrait;
-		margin: 12mm;
+		margin: 10mm 8mm;
 	}
 	/* the app's theme paints the body graphite; this route is a paper document */
 	:global(body) {
@@ -389,8 +414,15 @@
 	.sheet {
 		display: flex;
 		flex-direction: column;
-		gap: 7mm;
-		align-items: center;
+		gap: 6mm;
+		align-items: flex-start;
+	}
+	/* two copies of each card, side by side: one print run yields two decks.
+	   The columns are identical, so the duplex flip still lands every back on
+	   a front of the same card. */
+	.pair {
+		display: flex;
+		gap: 2mm;
 	}
 	.sheetnote {
 		font-size: 8pt;
@@ -422,12 +454,12 @@
 		letter-spacing: 0.3px;
 	}
 	.t-name {
-		font-size: 3.8px;
+		font-size: 4.6px;
 		font-weight: 700;
-		letter-spacing: 0.4px;
+		letter-spacing: 0.5px;
 	}
 	.t-hex {
-		font-size: 3px;
+		font-size: 3.8px;
 		font-weight: 600;
 	}
 	@media screen {

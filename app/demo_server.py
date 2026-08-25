@@ -413,8 +413,15 @@ async def demo_shutdown(sid, data=None):
 # Shared with model_server through the container's /app bind mount.
 TAMPER_FLAG = os.path.join(HERE, ".tamper")
 
-PROMPT = os.environ.get("PROMPT",
-                        "Question: What does IAEA stand for?\nAnswer:")
+# The few-shot shape is what keeps the answer terse WITHOUT cheating: with one
+# worked example in front, TinyLlama's own greedy continuation is the four-word
+# answer instead of a sentence plus an invented next question. Everything the
+# model actually generates is still certified and proven. systemd's
+# Environment= cannot carry a literal newline, so "\n" is interpreted here.
+PROMPT = os.environ.get(
+    "PROMPT",
+    "Question: What is the capital of France?\nAnswer: Paris\n"
+    "Question: What does IAEA stand for?\nAnswer:").replace("\\n", "\n")
 
 
 def main():

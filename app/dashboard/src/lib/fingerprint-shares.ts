@@ -46,11 +46,11 @@
 export type Grid = { rows: number; cols: number };
 export const GRID_LIMITS = { rows: [7, 55], cols: [15, 165] } as const;
 /**
- * Fifteen rows around an eleven-cell face: the word sits centred with two rows of
- * ground above and below it, so the stack reads as a word IN a field rather than a
- * word that is the field.
+ * Seventeen rows around an eleven-cell face: the word sits centred with three rows
+ * of ground above and below it, so the stack reads as a word IN a field rather
+ * than a word that is the field.
  */
-export const DEFAULT_GRID: Grid = { rows: 15, cols: 74 };
+export const DEFAULT_GRID: Grid = { rows: 17, cols: 74 };
 
 export type Face = {
 	/** glyph height in cells */
