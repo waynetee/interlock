@@ -178,11 +178,16 @@
 	/>
 {/snippet}
 
-{#snippet slot(i: number, role: string, digest: string, ink: string)}
+{#snippet slot(i: number, role: string, digest: string, ink: string, sub = '')}
 	<text x={SLOT[i].x} y="10" text-anchor={SLOT[i].anchor} class="t-name" fill={ink}>{role}</text>
 	<text x={SLOT[i].x} y="15.6" text-anchor={SLOT[i].anchor} class="t-hex" fill={ink}
 		>{digest}</text
 	>
+	{#if sub}
+		<text x={SLOT[i].x} y="20.4" text-anchor={SLOT[i].anchor} class="t-hex" fill={ink}
+			>{sub}</text
+		>
+	{/if}
 {/snippet}
 
 {#snippet film(cells: Uint8Array, height: number, drop: number, ink: string)}
@@ -207,14 +212,15 @@
 	cells: Uint8Array,
 	height: number,
 	drop: number,
-	opaque: boolean
+	opaque: boolean,
+	sub = ''
 )}
 	<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
 		{#if opaque}
 			{@render paper('#f6f3ec', 'stock-paper', 'rgba(24,24,24,0.055)')}
 		{/if}
 		{@render outline()}
-		{@render slot(slotIdx, role, digest, ink)}
+		{@render slot(slotIdx, role, digest, ink, sub)}
 		{@render film(cells, height, drop, ink)}
 	</svg>
 {/snippet}
@@ -289,7 +295,7 @@
 			<div><dt>question</dt><dd>{q}</dd></div>
 			<div><dt>answer</dt><dd>{answer}</dd></div>
 			<div><dt>word</dt><dd>{word} · {grid.rows} × {grid.cols} cells at {P.toFixed(2)} mm</dd></div>
-			<div><dt>digests</dt><dd>IN {short(req)} · OUT {short(rsp)} · MODEL {short(model)}</dd></div>
+			<div><dt>digests</dt><dd>IN {short(req)} · OUT {short(rsp)} · MODEL (llama-1.1b) {short(model)}</dd></div>
 		</dl>
 	</section>
 
@@ -323,8 +329,8 @@
 		<section class="sheet">
 			<p class="sheetnote">page 5 · model fingerprint · cardstock — the backing</p>
 			<div class="pair">
-				{@render fpCard(2, ROLES[2], short(digests[2]), INK.C, st.cells[2], st.heights[2], HOME[2], true)}
-				{@render fpCard(2, ROLES[2], short(digests[2]), INK.C, st.cells[2], st.heights[2], HOME[2], true)}
+				{@render fpCard(2, ROLES[2], short(digests[2]), INK.C, st.cells[2], st.heights[2], HOME[2], true, 'llama-1.1b')}
+				{@render fpCard(2, ROLES[2], short(digests[2]), INK.C, st.cells[2], st.heights[2], HOME[2], true, 'llama-1.1b')}
 			</div>
 		</section>
 

@@ -832,7 +832,7 @@
 					{#each [
 						['REQUEST', reqFp, HUEA],
 						['RESPONSE', rspFp, failB ? 'var(--fault)' : HUEB],
-						['MODEL', modelFp, HUEC]
+						['MODEL · llama-1.1b', modelFp, HUEC]
 					] as [role, hex, hue] (role)}
 						<div
 							class={cn(
