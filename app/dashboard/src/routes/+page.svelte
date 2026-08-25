@@ -767,10 +767,7 @@
 			box holding the model's own fingerprint and the register the other two
 			slide into — the proof runs in there, so that is where they combine.
 		-->
-		<section
-			class="relative min-h-0 flex-1 overflow-hidden border border-border bg-card"
-			title={modeRaw}
-		>
+		<section class="relative min-h-0 flex-1 overflow-hidden border border-border bg-card">
 			<div
 				class="pointer-events-none absolute inset-0 opacity-50"
 				style="background-image:linear-gradient(to right,var(--grid) 1px,transparent 1px),linear-gradient(to bottom,var(--grid) 1px,transparent 1px);background-size:44px 44px"

@@ -1,6 +1,6 @@
 <script lang="ts">
 	/**
-	 * /lab/deck — six hand cards, 85 × 64 mm, for narrating the demo.
+	 * /lab/deck — six hand cards, 94 × 63 mm landscape, for narrating the demo.
 	 *
 	 * Two message cards (double-sided: plaintext on the face, the run's REAL
 	 * ciphertext on the flip), three fingerprint cards in three greens, and one
@@ -12,12 +12,11 @@
 	 * never closes: no word, and red where the lie sits.
 	 *
 	 * STACKING IS THE DESIGN CONSTRAINT. All four fingerprint cards share one
-	 * geometry: the same grid frame, the same corner ticks, the same header
-	 * band. Each card fills only its own slot of that band (A · INPUT left,
-	 * B · OUTPUT centre, C · MODEL right), so an aligned stack composes a single
-	 * complete header instead of three labels mashed into mush -- and the frames
-	 * land on each other exactly, which is how you SEE that the stack is
-	 * aligned. Cards are pre-registered: corners flush = patterns seated.
+	 * geometry: the same grid position and the same header band. Each card fills
+	 * only its own slot of that band (INPUT left, OUTPUT centre, MODEL right),
+	 * so an aligned stack composes a single complete header instead of three
+	 * labels mashed into mush. Cards are pre-registered: corners flush =
+	 * patterns seated -- the card edges themselves are the registration.
 	 *
 	 * The defaults below are values captured off a real PASSing run (2026-08-25);
 	 * override any of them with query parameters (q, answer, ctin, ctout, req,
@@ -151,6 +150,18 @@
 
 <svelte:head><title>Interlock hand deck</title></svelte:head>
 
+{#snippet paper(base: string, id: string, dot: string)}
+	<!-- SVG fills, not CSS backgrounds, so the stock prints even with
+	     "background graphics" off: a soft paper tone under a fine dot grain -->
+	<defs>
+		<pattern id={id} width="3.5" height="3.5" patternUnits="userSpaceOnUse">
+			<circle cx="1.75" cy="1.75" r="0.17" fill={dot} />
+		</pattern>
+	</defs>
+	<rect x="0.3" y="0.3" width={CW - 0.6} height={CH - 0.6} rx={CR} fill={base} />
+	<rect x="0.3" y="0.3" width={CW - 0.6} height={CH - 0.6} rx={CR} fill="url(#{id})" />
+{/snippet}
+
 {#snippet outline()}
 	<rect
 		x="0.1"
@@ -165,34 +176,16 @@
 	/>
 {/snippet}
 
-{#snippet ticks(ink: string)}
-	<!-- corner registration ticks on the grid frame: identical on every
-	     fingerprint card, so an aligned stack draws ONE crisp mark -->
-	{#each [
-		[X0 - 0.8, Y0 - 0.8, 1, 0, 0, 1],
-		[X0 + PATW + 0.8, Y0 - 0.8, -1, 0, 0, 1],
-		[X0 - 0.8, Y0 + PILE * P + 0.8, 1, 0, 0, -1],
-		[X0 + PATW + 0.8, Y0 + PILE * P + 0.8, -1, 0, 0, -1]
-	] as [x, y, dx, , , dy] (x + ':' + y)}
-		<path
-			d="M {x + dx * 3} {y} L {x} {y} L {x} {y + dy * 3}"
-			fill="none"
-			stroke={ink}
-			stroke-width="0.4"
-		/>
-	{/each}
-{/snippet}
-
 {#snippet slot(i: number, role: string, digest: string, ink: string)}
-	<text x={SLOT[i].x} y="8" text-anchor={SLOT[i].anchor} class="t-name" fill={ink}>{role}</text>
-	<text x={SLOT[i].x} y="11.6" text-anchor={SLOT[i].anchor} class="t-hex" fill={ink}
+	<text x={SLOT[i].x} y="9" text-anchor={SLOT[i].anchor} class="t-name" fill={ink}>{role}</text>
+	<text x={SLOT[i].x} y="13.6" text-anchor={SLOT[i].anchor} class="t-hex" fill={ink}
 		>{digest}</text
 	>
 {/snippet}
 
 {#snippet film(cells: Uint8Array, height: number, drop: number, ink: string)}
-	<!-- no frame around the grid: the corner ticks carry the registration, and a
-	     border stacked three deep just draws a box around the word -->
+	<!-- nothing around the grid: the cards are printed pre-seated, so the card
+	     edges themselves are the registration -->
 	<g transform="translate({X0},{Y0 + drop * P})">
 		{#each { length: height } as _r, r (r)}
 			{#each { length: grid.cols } as _c, c (c)}
@@ -206,8 +199,7 @@
 
 {#snippet msgFront(label: string, big: string)}
 	<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
-		{@render outline()}
-		<rect x="0.3" y="0.3" width={CW - 0.6} height={CH - 0.6} rx={CR} fill="#fff" />
+		{@render paper('#f6f3ec', 'stock-paper', 'rgba(24,24,24,0.055)')}
 		{@render outline()}
 		<text x="6" y="12" class="t-eyebrow">{label}</text>
 		<line x1="6" y1="15.5" x2={CW - 6} y2="15.5" stroke="#000" stroke-width="0.3" />
@@ -219,8 +211,7 @@
 
 {#snippet msgBack(label: string, hex: string)}
 	<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
-		{@render outline()}
-		<rect x="0.3" y="0.3" width={CW - 0.6} height={CH - 0.6} rx={CR} fill="#fff" />
+		{@render paper('#f6f3ec', 'stock-paper', 'rgba(24,24,24,0.055)')}
 		{@render outline()}
 		<text x="6" y="12" class="t-eyebrow">{label} · ENCRYPTED</text>
 		<!-- closed padlock -->
@@ -249,14 +240,14 @@
 		</p>
 		<h2>Print</h2>
 		<ul>
-			<li><strong>Page 2</strong> — message card faces: white cardstock.</li>
+			<li><strong>Page 2</strong> — message card faces: cardstock.</li>
 			<li>
 				<strong>Page 3</strong> — message card flip sides: print as the REVERSE of page 2 (duplex,
 				flip on long edge), or print single-sided and glue back-to-back. The cards sit in one
 				centred column so a long-edge flip lands each back on its own face.
 			</li>
 			<li><strong>Page 4</strong> — INPUT + OUTPUT fingerprints: transparency film, 100% scale.</li>
-			<li><strong>Page 5</strong> — MODEL fingerprint: white cardstock (it is the backing).</li>
+			<li><strong>Page 5</strong> — MODEL fingerprint: cardstock (it is the backing).</li>
 			<li><strong>Page 6</strong> — the red impostor: transparency film, 100% scale.</li>
 		</ul>
 		<p class="fine">
@@ -276,7 +267,7 @@
 
 	{#if ready}
 		<section class="sheet">
-			<p class="sheetnote">page 2 · message card faces · white cardstock</p>
+			<p class="sheetnote">page 2 · message card faces · cardstock</p>
 			{@render msgFront('REQUEST', q)}
 			{@render msgFront('RESPONSE', answer)}
 		</section>
@@ -294,25 +285,21 @@
 			<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
 				{@render outline()}
 				{@render slot(0, ROLES[0], short(digests[0]), INK.A)}
-				{@render ticks(INK.A)}
 				{@render film(st.cells[0], st.heights[0], HOME[0], INK.A)}
 			</svg>
 			<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
 				{@render outline()}
 				{@render slot(1, ROLES[1], short(digests[1]), INK.B)}
-				{@render ticks(INK.B)}
 				{@render film(st.cells[1], st.heights[1], HOME[1], INK.B)}
 			</svg>
 		</section>
 
 		<section class="sheet">
-			<p class="sheetnote">page 5 · model fingerprint · white cardstock — the backing</p>
+			<p class="sheetnote">page 5 · model fingerprint · cardstock — the backing</p>
 			<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
-				{@render outline()}
-				<rect x="0.3" y="0.3" width={CW - 0.6} height={CH - 0.6} rx={CR} fill="#fff" />
+				{@render paper('#eaf2e9', 'stock-moss', 'rgba(20,83,45,0.09)')}
 				{@render outline()}
 				{@render slot(2, ROLES[2], short(digests[2]), INK.C)}
-				{@render ticks(INK.C)}
 				{@render film(st.cells[2], st.heights[2], HOME[2], INK.C)}
 			</svg>
 		</section>
@@ -322,7 +309,6 @@
 			<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
 				{@render outline()}
 				{@render slot(1, ROLES[1], xDigest, INK.X)}
-				{@render ticks(INK.X)}
 				{@render film(xCells, st.heights[1], HOME[1], INK.X)}
 			</svg>
 		</section>
@@ -436,12 +422,12 @@
 		letter-spacing: 0.3px;
 	}
 	.t-name {
-		font-size: 2.8px;
+		font-size: 3.8px;
 		font-weight: 700;
-		letter-spacing: 0.3px;
+		letter-spacing: 0.4px;
 	}
 	.t-hex {
-		font-size: 2.2px;
+		font-size: 3px;
 		font-weight: 600;
 	}
 	@media screen {
