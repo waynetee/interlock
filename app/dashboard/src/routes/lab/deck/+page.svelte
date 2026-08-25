@@ -279,21 +279,16 @@
 	{#if ready}
 		{#if media !== 'film'}
 		<section class="sheet">
-			<p class="sheetnote">message card faces · cardstock</p>
 			<div class="pair">{@render msgFront('REQUEST', q)}{@render msgFront('REQUEST', q)}</div>
 			<div class="pair">{@render msgFront('RESPONSE', answer)}{@render msgFront('RESPONSE', answer)}</div>
 		</section>
 
 		<section class="sheet">
-			<p class="sheetnote">
-				flip sides · duplex reverse of the faces page (long edge) · cut on the FACES' lines — these bleed on purpose
-			</p>
 			<div class="pair">{@render msgBack('REQUEST', ctin, q.length)}{@render msgBack('REQUEST', ctin, q.length)}</div>
 			<div class="pair">{@render msgBack('RESPONSE', ctout, answer.length)}{@render msgBack('RESPONSE', ctout, answer.length)}</div>
 		</section>
 
 		<section class="sheet">
-			<p class="sheetnote">model fingerprint · cardstock — the backing</p>
 			<div class="pair">
 				{@render fpCard(2, ROLES[2], short(digests[2]), INK.C, st.cells[2], st.heights[2], HOME[2], true, 'llama-1.1b')}
 				{@render fpCard(2, ROLES[2], short(digests[2]), INK.C, st.cells[2], st.heights[2], HOME[2], true, 'llama-1.1b')}
@@ -303,9 +298,6 @@
 
 		{#if media !== 'stock'}
 		<section class="sheet">
-			<p class="sheetnote">
-				the three films: input, output, and the impostor · transparency · 100% scale
-			</p>
 			<div class="pair">
 				{@render fpCard(0, ROLES[0], short(digests[0]), INK.A, st.cells[0], st.heights[0], HOME[0], false)}
 				{@render fpCard(0, ROLES[0], short(digests[0]), INK.A, st.cells[0], st.heights[0], HOME[0], false)}
@@ -352,26 +344,12 @@
 		   evenly instead of piling up as a lopsided right margin */
 		align-items: center;
 	}
-	.sheet .sheetnote {
-		align-self: flex-start;
-	}
 	/* two copies of each card, side by side: one print run yields two decks.
 	   The columns are identical, so the duplex flip still lands every back on
 	   a front of the same card. */
 	.pair {
 		display: flex;
 		gap: 2mm;
-	}
-	p {
-		margin: 0;
-	}
-	.sheetnote {
-		font-size: 8pt;
-		color: #555;
-		letter-spacing: 0.12em;
-		text-transform: uppercase;
-		margin: 0;
-		align-self: flex-start;
 	}
 	.card {
 		display: block;
