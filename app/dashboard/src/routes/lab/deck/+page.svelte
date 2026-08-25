@@ -49,7 +49,10 @@
 	/**
 	 * ?media=stock prints only the cardstock pages, ?media=film only the
 	 * transparency sheet -- two documents, because the two stocks go through
-	 * the printer separately anyway. Default is everything.
+	 * the printer separately anyway. ?media=reds is the shade-calibration
+	 * sheet: three pairs of the impostor card, each pair in a different
+	 * candidate red, on ONE piece of film -- the winning pair is already two
+	 * cut-ready cards, so the test print costs nothing. Default is everything.
 	 */
 	let media = $state('all');
 	let ready = $state(false);
@@ -277,7 +280,7 @@
 
 <div class="page">
 	{#if ready}
-		{#if media !== 'film'}
+		{#if media !== 'film' && media !== 'reds'}
 		<section class="sheet">
 			<div class="pair">{@render msgFront('REQUEST', q)}{@render msgFront('REQUEST', q)}</div>
 			<div class="pair">{@render msgFront('RESPONSE', answer)}{@render msgFront('RESPONSE', answer)}</div>
@@ -296,7 +299,7 @@
 		</section>
 		{/if}
 
-		{#if media !== 'stock'}
+		{#if media !== 'stock' && media !== 'reds'}
 		<section class="sheet">
 			<div class="pair">
 				{@render fpCard(0, ROLES[0], short(digests[0]), INK.A, st.cells[0], st.heights[0], HOME[0], false)}
@@ -311,6 +314,21 @@
 				{@render fpCard(1, ROLES[1], xDigest, INK.X, xCells, st.heights[1], HOME[1], false)}
 			</div>
 		</section>
+		{/if}
+
+		{#if media === 'reds'}
+			<section class="sheet">
+				{#each ['#b71c30', '#b0203e', '#a4133c'] as red (red)}
+					<div>
+						<!-- shade tag lives OUTSIDE the cut line: gone once the cards are cut -->
+						<p class="redtag">{red}</p>
+						<div class="pair">
+							{@render fpCard(1, ROLES[1], xDigest, red, xCells, st.heights[1], HOME[1], false)}
+							{@render fpCard(1, ROLES[1], xDigest, red, xCells, st.heights[1], HOME[1], false)}
+						</div>
+					</div>
+				{/each}
+			</section>
 		{/if}
 	{/if}
 </div>
@@ -350,6 +368,12 @@
 	.pair {
 		display: flex;
 		gap: 2mm;
+	}
+	.redtag {
+		margin: 0 0 1mm;
+		font-size: 8pt;
+		color: #777;
+		letter-spacing: 0.1em;
 	}
 	.card {
 		display: block;
