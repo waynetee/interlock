@@ -159,16 +159,21 @@
 
 <svelte:head><title>Interlock hand deck</title></svelte:head>
 
-{#snippet paper(base: string, id: string, dot: string)}
+{#snippet paper(base: string, id: string, dot: string, bleed = 0)}
 	<!-- SVG fills, not CSS backgrounds, so the stock prints even with
-	     "background graphics" off: a soft paper tone under a fine dot grain -->
+	     "background graphics" off: a soft paper tone under a fine dot grain.
+	     `bleed` extends the stock past the cut line (the svg overflows on
+	     purpose), so a printer whose printable area sits off-centre cannot
+	     leave a white sliver on a duplexed back. -->
 	<defs>
 		<pattern id={id} width="3.5" height="3.5" patternUnits="userSpaceOnUse">
 			<circle cx="1.75" cy="1.75" r="0.17" fill={dot} />
 		</pattern>
 	</defs>
-	<rect x="0.3" y="0.3" width={CW - 0.6} height={CH - 0.6} rx={CR} fill={base} />
-	<rect x="0.3" y="0.3" width={CW - 0.6} height={CH - 0.6} rx={CR} fill="url(#{id})" />
+	<rect x={0.3 - bleed} y={0.3 - bleed} width={CW - 0.6 + 2 * bleed}
+		height={CH - 0.6 + 2 * bleed} rx={CR} fill={base} />
+	<rect x={0.3 - bleed} y={0.3 - bleed} width={CW - 0.6 + 2 * bleed}
+		height={CH - 0.6 + 2 * bleed} rx={CR} fill="url(#{id})" />
 {/snippet}
 
 {#snippet outline()}
@@ -224,7 +229,7 @@
 )}
 	<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
 		{#if opaque}
-			{@render paper('#f9ecd2', 'stock-paper', 'rgba(24,24,24,0.055)')}
+			{@render paper('#fbf4e6', 'stock-paper', 'rgba(24,24,24,0.055)')}
 		{/if}
 		{@render outline()}
 		{@render slot(slotIdx, role, digest, ink, sub)}
@@ -234,7 +239,7 @@
 
 {#snippet msgFront(label: string, big: string)}
 	<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
-		{@render paper('#f9ecd2', 'stock-paper', 'rgba(24,24,24,0.055)')}
+		{@render paper('#fbf4e6', 'stock-paper', 'rgba(24,24,24,0.055)')}
 		{@render outline()}
 		<text x="6" y="12" class="t-eyebrow">{label}</text>
 		<line x1="6" y1="15.5" x2={CW - 6} y2="15.5" stroke="#000" stroke-width="0.3" />
@@ -245,9 +250,12 @@
 {/snippet}
 
 {#snippet msgBack(label: string, hex: string, plainLen: number)}
-	<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
-		{@render paper('#f9ecd2', 'stock-paper', 'rgba(24,24,24,0.055)')}
-		{@render outline()}
+	<!-- no dashed outline here on purpose: the cut follows the FACE side's
+	     lines, and a cut line on a duplexed back would only advertise the
+	     printer's offset. The bleed absorbs it instead. -->
+	<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}"
+		style="overflow:visible">
+		{@render paper('#fbf4e6', 'stock-paper', 'rgba(24,24,24,0.055)', 3)}
 		<text x="6" y="12" class="t-eyebrow">{label} · ENCRYPTED</text>
 		<!-- closed padlock: modest, clear of the rule -->
 		<g
@@ -278,7 +286,7 @@
 
 		<section class="sheet">
 			<p class="sheetnote">
-				flip sides · duplex reverse of the faces page (long edge), or glue back-to-back
+				flip sides · duplex reverse of the faces page (long edge) · cut on the FACES' lines — these bleed on purpose
 			</p>
 			<div class="pair">{@render msgBack('REQUEST', ctin, q.length)}{@render msgBack('REQUEST', ctin, q.length)}</div>
 			<div class="pair">{@render msgBack('RESPONSE', ctout, answer.length)}{@render msgBack('RESPONSE', ctout, answer.length)}</div>
