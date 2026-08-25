@@ -116,20 +116,18 @@
 		return out;
 	}
 	/**
-	 * The flip side's hex, illustrative rather than exhaustive: big chunky lines
-	 * off the front of the real ciphertext, ending in an ellipsis. The full
-	 * bytes are on the wire and in the transcript; the card's job is to LOOK
-	 * like ciphertext from across a table.
+	 * The flip side's hex, illustrative rather than exhaustive: as many
+	 * characters of the real ciphertext as the plaintext has, at the same
+	 * measure and size, so the flip reads as THE SAME MESSAGE in its other
+	 * form -- equal weight, different alphabet. An ellipsis marks a cut; a
+	 * ciphertext shorter than its plaintext is shown whole.
 	 */
-	function hexBig(h: string, lines = 6, per = 12) {
-		const s = '0x' + h.toUpperCase();
+	function hexBig(h: string, plainLen: number) {
+		let s = '0x' + h.toUpperCase();
+		if (s.length > plainLen) s = s.slice(0, plainLen - 1) + '…';
+		const per = 20;
 		const out: string[] = [];
-		for (let i = 0; i < lines && i * per < s.length; i++)
-			out.push(s.slice(i * per, (i + 1) * per));
-		// an ellipsis only where there really is more: a short ciphertext is
-		// shown whole, and a lone '…' line is nobody's idea of bytes
-		if (s.length > lines * per)
-			out[out.length - 1] = out[out.length - 1].slice(0, per - 1) + '…';
+		for (let i = 0; i < s.length; i += per) out.push(s.slice(i, i + per));
 		return out;
 	}
 
@@ -227,31 +225,31 @@
 		{@render outline()}
 		<text x="6" y="12" class="t-eyebrow">{label}</text>
 		<line x1="6" y1="15.5" x2={CW - 6} y2="15.5" stroke="#000" stroke-width="0.3" />
-		{#each wrap(big, 22) as line, i (i)}
-			<text x="6" y={30 + i * 8.6} class="t-big">{line}</text>
+		{#each wrap(big, 20) as line, i (i)}
+			<text x="6" y={30 + i * 10} class="t-big">{line}</text>
 		{/each}
 	</svg>
 {/snippet}
 
-{#snippet msgBack(label: string, hex: string)}
+{#snippet msgBack(label: string, hex: string, plainLen: number)}
 	<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
 		{@render paper('#f6f3ec', 'stock-paper', 'rgba(24,24,24,0.055)')}
 		{@render outline()}
 		<text x="6" y="12" class="t-eyebrow">{label} · ENCRYPTED</text>
-		<!-- closed padlock: sized to the header band, sitting on its rule -->
+		<!-- closed padlock: modest, clear of the rule -->
 		<g
-			transform="translate({CW - 15},4.6)"
+			transform="translate({CW - 13},6)"
 			fill="none"
 			stroke="#000"
-			stroke-width="0.85"
+			stroke-width="0.75"
 			stroke-linecap="round"
 		>
-			<rect x="0" y="4.6" width="9" height="6.3" rx="0.9" />
-			<path d="M 2.1 4.6 V 2.8 a 2.4 2.4 0 0 1 4.8 0 v 1.8" />
+			<rect x="0" y="3.6" width="7" height="5" rx="0.8" />
+			<path d="M 1.6 3.6 V 2.2 a 1.9 1.9 0 0 1 3.8 0 v 1.4" />
 		</g>
-		<line x1="6" y1="15.5" x2={CW - 6} y2="15.5" stroke="#000" stroke-width="0.3" />
-		{#each hexBig(hex, 4, 16) as row, i (i)}
-			<text x="6" y={30 + i * 8.6} class="t-ct">{row}</text>
+		<line x1="6" y1="15.5" x2={CW - 17} y2="15.5" stroke="#000" stroke-width="0.3" />
+		{#each hexBig(hex, plainLen) as row, i (i)}
+			<text x="6" y={30 + i * 10} class="t-ct">{row}</text>
 		{/each}
 	</svg>
 {/snippet}
@@ -306,8 +304,8 @@
 			<p class="sheetnote">
 				page 3 · flip sides · duplex reverse of page 2 (long edge), or glue back-to-back
 			</p>
-			<div class="pair">{@render msgBack('REQUEST', ctin)}{@render msgBack('REQUEST', ctin)}</div>
-			<div class="pair">{@render msgBack('RESPONSE', ctout)}{@render msgBack('RESPONSE', ctout)}</div>
+			<div class="pair">{@render msgBack('REQUEST', ctin, q.length)}{@render msgBack('REQUEST', ctin, q.length)}</div>
+			<div class="pair">{@render msgBack('RESPONSE', ctout, answer.length)}{@render msgBack('RESPONSE', ctout, answer.length)}</div>
 		</section>
 
 		<section class="sheet">
@@ -444,14 +442,14 @@
 		font-weight: 700;
 	}
 	.t-big {
-		font-size: 5.6px;
+		font-size: 6.6px;
 		font-weight: 700;
 		letter-spacing: 0.05px;
 	}
 	.t-ct {
-		font-size: 5.6px;
+		font-size: 6.6px;
 		font-weight: 700;
-		letter-spacing: 0.3px;
+		letter-spacing: 0.05px;
 	}
 	.t-name {
 		font-size: 4.6px;
