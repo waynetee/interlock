@@ -60,29 +60,28 @@
 	const HOME = $derived(homes(st));
 
 	// ── card geometry, mm ──────────────────────────────────────────────────────
-	const CW = 85;
-	const CH = 64;
+	const CW = 63;
+	const CH = 94;
 	const CR = 3;
-	const PATW = 77;
+	const PATW = 55;
 	const P = $derived(PATW / grid.cols);
 	const X0 = (CW - PATW) / 2;
-	const Y0 = 24;
+	const Y0 = 44;
 	const PILE = $derived(grid.rows + 2 * SLACK);
 
 	// Three greens with real distance between them: films read apart in the
 	// hand, overlaps darken toward the backing, and the word stays the one
 	// white thing. Red is reserved for the impostor.
 	const INK = { A: '#5ea44b', B: '#2e7d43', C: '#14532d', X: '#c62828' };
-	const NAMES = ['A', 'B', 'C'] as const;
 	const ROLES = ['INPUT', 'OUTPUT', 'MODEL'];
 	/** header slots: left / centre / right, identical on every card */
 	const SLOT = [
-		{ x: 6, anchor: 'start' },
+		{ x: 4, anchor: 'start' },
 		{ x: CW / 2, anchor: 'middle' },
-		{ x: CW - 6, anchor: 'end' }
+		{ x: CW - 4, anchor: 'end' }
 	];
 	const digests = $derived([req, rsp, model]);
-	const short = (h: string) => '0x' + h.slice(0, 12).toUpperCase();
+	const short = (h: string) => '0x' + h.slice(0, 8).toUpperCase();
 
 	// ── the impostor ───────────────────────────────────────────────────────────
 	/** deterministic scramble: B's geometry, nobody's share */
@@ -101,13 +100,7 @@
 	}
 	const xCells = $derived(scrambleCells(st.heights[1] * grid.cols));
 	const xDigest = $derived(
-		'0x' +
-			rsp
-				.slice(0, 12)
-				.split('')
-				.reverse()
-				.join('')
-				.toUpperCase()
+		'0x' + rsp.slice(0, 8).split('').reverse().join('').toUpperCase()
 	);
 
 	// ── text layout helpers ────────────────────────────────────────────────────
@@ -123,12 +116,18 @@
 		if (line) out.push(line);
 		return out;
 	}
-	/** hex in 4-char groups, 7 groups a row — the shape of bytes, not a word */
-	function hexRows(h: string) {
-		const g = h.toUpperCase().match(/.{1,4}/g) ?? [];
-		const rows: string[] = [];
-		for (let i = 0; i < g.length; i += 7) rows.push(g.slice(i, i + 7).join(' '));
-		return rows;
+	/**
+	 * The flip side's hex, illustrative rather than exhaustive: big chunky lines
+	 * off the front of the real ciphertext, ending in an ellipsis. The full
+	 * bytes are on the wire and in the transcript; the card's job is to LOOK
+	 * like ciphertext from across a table.
+	 */
+	function hexBig(h: string, lines = 6, per = 12) {
+		const s = '0x' + h.toUpperCase();
+		const out: string[] = [];
+		for (let i = 0; i < lines; i++) out.push(s.slice(i * per, (i + 1) * per));
+		out[out.length - 1] = out[out.length - 1].slice(0, per - 1) + '…';
+		return out;
 	}
 
 	onMount(() => {
@@ -184,10 +183,8 @@
 	{/each}
 {/snippet}
 
-{#snippet slot(i: number, name: string, role: string, digest: string, ink: string)}
-	<text x={SLOT[i].x} y="8" text-anchor={SLOT[i].anchor} class="t-name" fill={ink}
-		>{name} · {role}</text
-	>
+{#snippet slot(i: number, role: string, digest: string, ink: string)}
+	<text x={SLOT[i].x} y="8" text-anchor={SLOT[i].anchor} class="t-name" fill={ink}>{role}</text>
 	<text x={SLOT[i].x} y="11.6" text-anchor={SLOT[i].anchor} class="t-hex" fill={ink}
 		>{digest}</text
 	>
@@ -216,36 +213,34 @@
 	</g>
 {/snippet}
 
-{#snippet msgFront(label: string, big: string, note: string)}
+{#snippet msgFront(label: string, big: string)}
 	<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
 		{@render outline()}
 		<rect x="0.3" y="0.3" width={CW - 0.6} height={CH - 0.6} rx={CR} fill="#fff" />
 		{@render outline()}
-		<text x="7" y="11" class="t-eyebrow">{label}</text>
-		<line x1="7" y1="14" x2={CW - 7} y2="14" stroke="#000" stroke-width="0.3" />
-		{#each wrap(big, 20) as line, i (i)}
-			<text x="7" y={26 + i * 9} class="t-big">{line}</text>
+		<text x="6" y="12" class="t-eyebrow">{label}</text>
+		<line x1="6" y1="15.5" x2={CW - 6} y2="15.5" stroke="#000" stroke-width="0.3" />
+		{#each wrap(big, 14) as line, i (i)}
+			<text x="6" y={30 + i * 8.6} class="t-big">{line}</text>
 		{/each}
-		<text x="7" y={CH - 6} class="t-note">{note}</text>
 	</svg>
 {/snippet}
 
-{#snippet msgBack(label: string, hex: string, note: string)}
+{#snippet msgBack(label: string, hex: string)}
 	<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
 		{@render outline()}
 		<rect x="0.3" y="0.3" width={CW - 0.6} height={CH - 0.6} rx={CR} fill="#fff" />
 		{@render outline()}
-		<text x="7" y="11" class="t-eyebrow">{label} · SEALED</text>
+		<text x="6" y="12" class="t-eyebrow">{label} · ENCRYPTED</text>
 		<!-- closed padlock -->
-		<g transform="translate({CW - 13},6)" fill="none" stroke="#000" stroke-width="0.7">
+		<g transform="translate({CW - 9.5},6.5)" fill="none" stroke="#000" stroke-width="0.7">
 			<rect x="0" y="3.4" width="6" height="4.6" rx="0.6" />
 			<path d="M 1.4 3.4 V 2 a 1.6 1.6 0 0 1 3.2 0 v 1.4" />
 		</g>
-		<line x1="7" y1="14" x2={CW - 7} y2="14" stroke="#000" stroke-width="0.3" />
-		{#each hexRows(hex) as row, i (i)}
-			<text x="7" y={23 + i * 6.4} class="t-ct">{row}</text>
+		<line x1="6" y1="15.5" x2={CW - 6} y2="15.5" stroke="#000" stroke-width="0.3" />
+		{#each hexBig(hex) as row, i (i)}
+			<text x="6" y={30 + i * 8.6} class="t-ct">{row}</text>
 		{/each}
-		<text x="7" y={CH - 6} class="t-note">{note}</text>
 	</svg>
 {/snippet}
 
@@ -253,7 +248,7 @@
 	<section class="cover">
 		<h1>The hand deck</h1>
 		<p>
-			Six cards, 85 × 64 mm, that tell the run in the audience's hands. The two message cards are
+			Six cards, 63 × 94 mm, that tell the run in the audience's hands. The two message cards are
 			double-sided: the words on the face, and on the flip the <em>actual ciphertext bytes</em> that
 			crossed the cable for this exchange — the only form the datacenter's wire ever saw them in.
 			The fingerprint cards stack: lay the two green films on the solid model card, corners flush,
@@ -284,44 +279,36 @@
 			<div><dt>question</dt><dd>{q}</dd></div>
 			<div><dt>answer</dt><dd>{answer}</dd></div>
 			<div><dt>word</dt><dd>{word} · {grid.rows} × {grid.cols} cells at {P.toFixed(2)} mm</dd></div>
-			<div><dt>digests</dt><dd>A {short(req)} · B {short(rsp)} · C {short(model)}</dd></div>
+			<div><dt>digests</dt><dd>IN {short(req)} · OUT {short(rsp)} · MODEL {short(model)}</dd></div>
 		</dl>
 	</section>
 
 	{#if ready}
 		<section class="sheet">
 			<p class="sheetnote">page 2 · message card faces · white cardstock</p>
-			{@render msgFront('REQUEST', q, 'what you asked — in the clear only on your machine')}
-			{@render msgFront('RESPONSE', answer, 'what came back — readable only once your key opens it')}
+			{@render msgFront('REQUEST', q)}
+			{@render msgFront('RESPONSE', answer)}
 		</section>
 
 		<section class="sheet">
 			<p class="sheetnote">
 				page 3 · flip sides · duplex reverse of page 2 (long edge), or glue back-to-back
 			</p>
-			{@render msgBack(
-				'REQUEST',
-				ctin,
-				'AES-128-GCM · ' + ctin.length / 2 + ' bytes · all the wire ever saw'
-			)}
-			{@render msgBack(
-				'RESPONSE',
-				ctout,
-				'AES-128-GCM · ' + ctout.length / 2 + ' bytes · same key, other stream'
-			)}
+			{@render msgBack('REQUEST', ctin)}
+			{@render msgBack('RESPONSE', ctout)}
 		</section>
 
 		<section class="sheet">
 			<p class="sheetnote">page 4 · input + output fingerprints · transparency film · 100% scale</p>
 			<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
 				{@render outline()}
-				{@render slot(0, 'A', ROLES[0], short(digests[0]), INK.A)}
+				{@render slot(0, ROLES[0], short(digests[0]), INK.A)}
 				{@render ticks(INK.A)}
 				{@render film(st.cells[0], st.heights[0], HOME[0], INK.A)}
 			</svg>
 			<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
 				{@render outline()}
-				{@render slot(1, 'B', ROLES[1], short(digests[1]), INK.B)}
+				{@render slot(1, ROLES[1], short(digests[1]), INK.B)}
 				{@render ticks(INK.B)}
 				{@render film(st.cells[1], st.heights[1], HOME[1], INK.B)}
 			</svg>
@@ -333,15 +320,9 @@
 				{@render outline()}
 				<rect x="0.3" y="0.3" width={CW - 0.6} height={CH - 0.6} rx={CR} fill="#fff" />
 				{@render outline()}
-				{@render slot(2, 'C', ROLES[2], short(digests[2]), INK.C)}
+				{@render slot(2, ROLES[2], short(digests[2]), INK.C)}
 				{@render ticks(INK.C)}
 				{@render film(st.cells[2], st.heights[2], HOME[2], INK.C)}
-				<text x="7" y={CH - 11} class="t-note"
-					>committed before anything ran</text
-				>
-				<text x="7" y={CH - 6} class="t-note"
-					>films on top, corners flush · the word is the verdict</text
-				>
 			</svg>
 		</section>
 
@@ -349,7 +330,7 @@
 			<p class="sheetnote">page 6 · the impostor · transparency film · 100% scale</p>
 			<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
 				{@render outline()}
-				{@render slot(1, 'B', ROLES[1], xDigest, INK.X)}
+				{@render slot(1, ROLES[1], xDigest, INK.X)}
 				{@render ticks(INK.X)}
 				{@render film(xCells, st.heights[1], HOME[1], INK.X)}
 			</svg>
@@ -449,31 +430,27 @@
 		font-family: var(--font-mono, ui-monospace, monospace);
 	}
 	.t-eyebrow {
-		font-size: 3.4px;
-		letter-spacing: 0.6px;
+		font-size: 3.2px;
+		letter-spacing: 0.35px;
 		font-weight: 700;
 	}
 	.t-big {
-		font-size: 6.2px;
+		font-size: 5.6px;
 		font-weight: 700;
 		letter-spacing: 0.05px;
 	}
 	.t-ct {
-		font-size: 3.3px;
-		letter-spacing: 0.25px;
-	}
-	.t-note {
-		font-size: 2.2px;
-		fill: #555;
-		letter-spacing: 0.1px;
+		font-size: 5.6px;
+		font-weight: 700;
+		letter-spacing: 0.3px;
 	}
 	.t-name {
-		font-size: 3.4px;
+		font-size: 2.8px;
 		font-weight: 700;
-		letter-spacing: 0.35px;
+		letter-spacing: 0.3px;
 	}
 	.t-hex {
-		font-size: 2.6px;
+		font-size: 2.2px;
 		font-weight: 600;
 	}
 	@media screen {

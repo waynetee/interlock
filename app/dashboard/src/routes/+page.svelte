@@ -140,7 +140,7 @@
 		let h = (hex || '').toUpperCase().replace(/[^0-9A-F]/g, '');
 		if (!h) h = 'A7F03C9E5B21D48C6E90F17B24A8D35E';
 		while (h.length < n) h += h;
-		return h.slice(0, Math.max(10, n));
+		return '0x' + h.slice(0, Math.max(10, n));
 	}
 
 	/** a long answer still has to fit the chip; the full text lands in the corner */
@@ -195,7 +195,7 @@
 
 		pktSealed = true;
 		scrambleTo(cipherOf(d.ct_in, pktText.length));
-		caption = 'It is sealed before it touches the cable.';
+		caption = 'It is encrypted before it touches the cable.';
 		log(`SEAL   ${d.n_tokens} tok → ${(d.ct_in ?? '').length / 2}B`);
 		if (!(await step(1000, gen))) return;
 
@@ -218,16 +218,26 @@
 	}
 
 	async function runResponse(d: any, text: string, gen: number) {
+		// The answer exists in the clear HERE first: the cluster generates it,
+		// and only then does it get encrypted for the trip back. Showing that is
+		// honest -- the datacenter necessarily holds the plaintext it produced --
+		// and it is the beat that makes "encrypted on the wire" legible: you see
+		// the words exist, then boil into bytes, then travel.
 		phase = 'gen';
-		caption = 'The GPU cluster runs the model and seals the answer.';
+		pktSealed = false;
+		pktText = '';
+		pktX = STOP[2];
+		pktShown = true;
+		caption = 'The GPU cluster generates the answer…';
+		scrambleTo(clip(text), 900);
+		if (!(await step(1500, gen))) return;
+
+		pktSealed = true;
+		scrambleTo(cipherOf(d.ct_out, Math.min(clip(text).length, 44)));
+		caption = '…and encrypts it for the trip back.';
 		if (!(await step(1100, gen))) return;
 
 		phase = 'rsp';
-		pktSealed = true;
-		pktText = cipherOf(d.ct_out, Math.min(clip(text).length, 44));
-		pktX = STOP[2];
-		pktShown = true;
-		if (!(await step(600, gen))) return;
 		pktX = STOP[1];
 		hotSpark = false;
 		hotFpga = true;
