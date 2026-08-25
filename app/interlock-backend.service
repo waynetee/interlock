@@ -27,6 +27,11 @@ Environment=PRELOAD_MODEL=1
 Environment=DEMO_SELF_POLICY=1
 Environment=ENROLL_DIR=/home/spark/v2/VerInf/.enroll
 Environment=ENROLL_LEDGER=0
+# The demo must run with no internet at all: weights and tokenizer are local
+# directories, and these stop transformers/huggingface_hub from even trying the
+# network (a hub reachability probe can stall a load for its full timeout).
+Environment=HF_HUB_OFFLINE=1
+Environment=TRANSFORMERS_OFFLINE=1
 # The FAST prover is the demo default: ~30 s a run, key binding and weld at full
 # strength, the forward pass spot-checked at one (token, layer). Unset, the
 # backend falls back to the sound prover (interlock_challenge.py, ~3.5 min),

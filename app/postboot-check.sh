@@ -50,11 +50,14 @@ sio=$(curl -s -m 10 -o /dev/null -w '%{http_code}' \
 [ "$sio" = "200" ] && ok "socket.io handshake" || bad "socket.io -> ${sio:-no answer}"
 
 echo
-echo "control-plane tunnel (Pi -> orchestrator)"
-systemctl is-enabled interlock-tunnel.service >/dev/null 2>&1 \
-  && ok "enabled at boot" || bad "NOT enabled at boot"
+echo "control-plane tunnel (optional -- the agent talks to the AP directly)"
+# The Pi rides the Spark's own hotspot and dials http://10.42.0.1:80, so the
+# demo needs no internet on either box. The reverse-ssh tunnel is kept only as
+# the admin/fallback path for when the Pi is on an isolated venue LAN; without
+# internet it restart-loops, which is expected and must not fail this check.
 systemctl is-active interlock-tunnel.service >/dev/null 2>&1 \
-  && ok "active" || bad "not active -- the Pi cannot reach the orchestrator"
+  && note "tunnel up (internet available)" \
+  || note "tunnel down (fine offline; agent path is the AP)"
 
 echo
 echo "proof backend"
