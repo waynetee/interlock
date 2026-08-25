@@ -340,7 +340,12 @@
 		display: flex;
 		flex-direction: column;
 		gap: 6mm;
-		align-items: flex-start;
+		/* centred, so the slack between pair width and printable width splits
+		   evenly instead of piling up as a lopsided right margin */
+		align-items: center;
+	}
+	.sheet .sheetnote {
+		align-self: flex-start;
 	}
 	/* two copies of each card, side by side: one print run yields two decks.
 	   The columns are identical, so the duplex flip still lands every back on
