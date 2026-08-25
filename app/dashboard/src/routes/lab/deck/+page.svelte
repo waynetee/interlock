@@ -60,13 +60,13 @@
 	const HOME = $derived(homes(st));
 
 	// ── card geometry, mm ──────────────────────────────────────────────────────
-	const CW = 63;
-	const CH = 94;
+	const CW = 94;
+	const CH = 63;
 	const CR = 3;
-	const PATW = 55;
+	const PATW = 86;
 	const P = $derived(PATW / grid.cols);
 	const X0 = (CW - PATW) / 2;
-	const Y0 = 44;
+	const Y0 = 27;
 	const PILE = $derived(grid.rows + 2 * SLACK);
 
 	// Three greens with real distance between them: films read apart in the
@@ -220,7 +220,7 @@
 		{@render outline()}
 		<text x="6" y="12" class="t-eyebrow">{label}</text>
 		<line x1="6" y1="15.5" x2={CW - 6} y2="15.5" stroke="#000" stroke-width="0.3" />
-		{#each wrap(big, 14) as line, i (i)}
+		{#each wrap(big, 22) as line, i (i)}
 			<text x="6" y={30 + i * 8.6} class="t-big">{line}</text>
 		{/each}
 	</svg>
@@ -238,7 +238,7 @@
 			<path d="M 1.4 3.4 V 2 a 1.6 1.6 0 0 1 3.2 0 v 1.4" />
 		</g>
 		<line x1="6" y1="15.5" x2={CW - 6} y2="15.5" stroke="#000" stroke-width="0.3" />
-		{#each hexBig(hex) as row, i (i)}
+		{#each hexBig(hex, 4, 16) as row, i (i)}
 			<text x="6" y={30 + i * 8.6} class="t-ct">{row}</text>
 		{/each}
 	</svg>
@@ -248,7 +248,7 @@
 	<section class="cover">
 		<h1>The hand deck</h1>
 		<p>
-			Six cards, 63 × 94 mm, that tell the run in the audience's hands. The two message cards are
+			Six cards, 94 × 63 mm (landscape), that tell the run in the audience's hands. The two message cards are
 			double-sided: the words on the face, and on the flip the <em>actual ciphertext bytes</em> that
 			crossed the cable for this exchange — the only form the datacenter's wire ever saw them in.
 			The fingerprint cards stack: lay the two green films on the solid model card, corners flush,
