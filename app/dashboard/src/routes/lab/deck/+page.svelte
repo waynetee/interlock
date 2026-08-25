@@ -297,7 +297,7 @@
 		<section class="sheet">
 			<p class="sheetnote">page 5 · model fingerprint · cardstock — the backing</p>
 			<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
-				{@render paper('#eaf2e9', 'stock-moss', 'rgba(20,83,45,0.09)')}
+				{@render paper('#f6f3ec', 'stock-paper', 'rgba(24,24,24,0.055)')}
 				{@render outline()}
 				{@render slot(2, ROLES[2], short(digests[2]), INK.C)}
 				{@render film(st.cells[2], st.heights[2], HOME[2], INK.C)}
