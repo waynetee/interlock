@@ -261,61 +261,33 @@
 {/snippet}
 
 <div class="page">
-	<section class="cover">
-		<h1>The hand deck</h1>
-		<p>
-			Six cards, 94 × 63 mm landscape, printed two-up — one print run yields two decks — that tell the run in the audience's hands. The two message cards are
-			double-sided: the words on the face, and on the flip the <em>actual ciphertext bytes</em> that
-			crossed the cable for this exchange — the only form the datacenter's wire ever saw them in.
-			The fingerprint cards stack: lay the two green films on the solid model card, corners flush,
-			and the ground closes everywhere except the word — <strong>{word}</strong> reads out in white.
-			Then swap the green OUTPUT film for the red one (an answer the certifier never fingerprinted):
-			the ground never closes, no word comes, and the red shows exactly where the lie sits.
-		</p>
-		<h2>Print</h2>
-		<ul>
-			<li><strong>Page 2</strong> — message card faces: cardstock.</li>
-			<li>
-				<strong>Page 3</strong> — message card flip sides: print as the REVERSE of page 2 (duplex,
-				flip on long edge), or print single-sided and glue back-to-back. The cards sit in one
-				centred column so a long-edge flip lands each back on its own face.
-			</li>
-			<li><strong>Page 4</strong> — INPUT + OUTPUT fingerprints: transparency film, 100% scale.</li>
-			<li><strong>Page 5</strong> — MODEL fingerprint: cardstock (it is the backing).</li>
-			<li><strong>Page 6</strong> — the red impostor: transparency film, 100% scale.</li>
-		</ul>
-		<p class="fine">
-			Never “fit to page” — it changes the cell pitch between sheets and the films stop
-			registering. Cut on the dashed lines; a guillotine keeps edges square, and square edges are
-			the registration: the cards are printed pre-seated, so corners flush = patterns aligned,
-			and the corner ticks on the grid frame stack into a single crisp mark when you have it
-			right.
-		</p>
-		<dl>
-			<div><dt>question</dt><dd>{q}</dd></div>
-			<div><dt>answer</dt><dd>{answer}</dd></div>
-			<div><dt>word</dt><dd>{word} · {grid.rows} × {grid.cols} cells at {P.toFixed(2)} mm</dd></div>
-			<div><dt>digests</dt><dd>IN {short(req)} · OUT {short(rsp)} · MODEL (llama-1.1b) {short(model)}</dd></div>
-		</dl>
-	</section>
-
 	{#if ready}
 		<section class="sheet">
-			<p class="sheetnote">page 2 · message card faces · cardstock</p>
+			<p class="sheetnote">page 1 · message card faces · cardstock</p>
 			<div class="pair">{@render msgFront('REQUEST', q)}{@render msgFront('REQUEST', q)}</div>
 			<div class="pair">{@render msgFront('RESPONSE', answer)}{@render msgFront('RESPONSE', answer)}</div>
 		</section>
 
 		<section class="sheet">
 			<p class="sheetnote">
-				page 3 · flip sides · duplex reverse of page 2 (long edge), or glue back-to-back
+				page 2 · flip sides · duplex reverse of page 1 (long edge), or glue back-to-back
 			</p>
 			<div class="pair">{@render msgBack('REQUEST', ctin, q.length)}{@render msgBack('REQUEST', ctin, q.length)}</div>
 			<div class="pair">{@render msgBack('RESPONSE', ctout, answer.length)}{@render msgBack('RESPONSE', ctout, answer.length)}</div>
 		</section>
 
 		<section class="sheet">
-			<p class="sheetnote">page 4 · input + output fingerprints · transparency film · 100% scale</p>
+			<p class="sheetnote">page 3 · model fingerprint · cardstock — the backing</p>
+			<div class="pair">
+				{@render fpCard(2, ROLES[2], short(digests[2]), INK.C, st.cells[2], st.heights[2], HOME[2], true, 'llama-1.1b')}
+				{@render fpCard(2, ROLES[2], short(digests[2]), INK.C, st.cells[2], st.heights[2], HOME[2], true, 'llama-1.1b')}
+			</div>
+		</section>
+
+		<section class="sheet">
+			<p class="sheetnote">
+				page 4 · the three films: input, output, and the impostor · transparency · 100% scale
+			</p>
 			<div class="pair">
 				{@render fpCard(0, ROLES[0], short(digests[0]), INK.A, st.cells[0], st.heights[0], HOME[0], false)}
 				{@render fpCard(0, ROLES[0], short(digests[0]), INK.A, st.cells[0], st.heights[0], HOME[0], false)}
@@ -324,23 +296,12 @@
 				{@render fpCard(1, ROLES[1], short(digests[1]), INK.B, st.cells[1], st.heights[1], HOME[1], false)}
 				{@render fpCard(1, ROLES[1], short(digests[1]), INK.B, st.cells[1], st.heights[1], HOME[1], false)}
 			</div>
-		</section>
-
-		<section class="sheet">
-			<p class="sheetnote">page 5 · model fingerprint · cardstock — the backing</p>
-			<div class="pair">
-				{@render fpCard(2, ROLES[2], short(digests[2]), INK.C, st.cells[2], st.heights[2], HOME[2], true, 'llama-1.1b')}
-				{@render fpCard(2, ROLES[2], short(digests[2]), INK.C, st.cells[2], st.heights[2], HOME[2], true, 'llama-1.1b')}
-			</div>
-		</section>
-
-		<section class="sheet">
-			<p class="sheetnote">page 6 · the impostor · transparency film · 100% scale</p>
 			<div class="pair">
 				{@render fpCard(1, ROLES[1], xDigest, INK.X, xCells, st.heights[1], HOME[1], false)}
 				{@render fpCard(1, ROLES[1], xDigest, INK.X, xCells, st.heights[1], HOME[1], false)}
 			</div>
 		</section>
+
 	{/if}
 </div>
 
@@ -365,56 +326,6 @@
 	section:last-child {
 		break-after: auto;
 	}
-	h1 {
-		font-size: 20pt;
-		letter-spacing: 0.06em;
-		margin: 0 0 6mm;
-	}
-	h2 {
-		font-size: 11pt;
-		letter-spacing: 0.12em;
-		text-transform: uppercase;
-		margin: 6mm 0 2mm;
-	}
-	p,
-	ul {
-		max-width: 150mm;
-		font-size: 10pt;
-		line-height: 1.6;
-		margin: 0 0 4mm;
-	}
-	ul {
-		padding-left: 5mm;
-	}
-	li {
-		margin-bottom: 1.5mm;
-	}
-	.fine {
-		font-size: 8.5pt;
-		color: #444;
-	}
-	dl {
-		display: grid;
-		gap: 1.5mm;
-		margin: 6mm 0;
-		font-size: 9pt;
-	}
-	dl div {
-		display: flex;
-		gap: 4mm;
-	}
-	dt {
-		width: 24mm;
-		color: #555;
-		text-transform: uppercase;
-		letter-spacing: 0.12em;
-		flex-shrink: 0;
-	}
-	dd {
-		margin: 0;
-		font-weight: 600;
-		overflow-wrap: anywhere;
-	}
 	.sheet {
 		display: flex;
 		flex-direction: column;
@@ -427,6 +338,9 @@
 	.pair {
 		display: flex;
 		gap: 2mm;
+	}
+	p {
+		margin: 0;
 	}
 	.sheetnote {
 		font-size: 8pt;
