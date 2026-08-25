@@ -1,6 +1,6 @@
 <script lang="ts">
 	/**
-	 * /lab/deck — six hand cards, 94 × 63 mm landscape, for narrating the demo.
+	 * /lab/deck — six hand cards, 95 × 64 mm landscape, for narrating the demo.
 	 *
 	 * Two message cards (double-sided: plaintext on the face, the run's REAL
 	 * ciphertext on the flip), three fingerprint cards in three greens, and one
@@ -65,8 +65,8 @@
 	const HOME = $derived(homes(st));
 
 	// ── card geometry, mm ──────────────────────────────────────────────────────
-	const CW = 94;
-	const CH = 63;
+	const CW = 95;
+	const CH = 64;
 	const CR = 0;
 	const PATW = 86;
 	const P = $derived(PATW / grid.cols);
@@ -224,7 +224,7 @@
 )}
 	<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
 		{#if opaque}
-			{@render paper('#f8f0df', 'stock-paper', 'rgba(24,24,24,0.055)')}
+			{@render paper('#f9ecd2', 'stock-paper', 'rgba(24,24,24,0.055)')}
 		{/if}
 		{@render outline()}
 		{@render slot(slotIdx, role, digest, ink, sub)}
@@ -234,7 +234,7 @@
 
 {#snippet msgFront(label: string, big: string)}
 	<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
-		{@render paper('#f8f0df', 'stock-paper', 'rgba(24,24,24,0.055)')}
+		{@render paper('#f9ecd2', 'stock-paper', 'rgba(24,24,24,0.055)')}
 		{@render outline()}
 		<text x="6" y="12" class="t-eyebrow">{label}</text>
 		<line x1="6" y1="15.5" x2={CW - 6} y2="15.5" stroke="#000" stroke-width="0.3" />
@@ -246,7 +246,7 @@
 
 {#snippet msgBack(label: string, hex: string, plainLen: number)}
 	<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
-		{@render paper('#f8f0df', 'stock-paper', 'rgba(24,24,24,0.055)')}
+		{@render paper('#f9ecd2', 'stock-paper', 'rgba(24,24,24,0.055)')}
 		{@render outline()}
 		<text x="6" y="12" class="t-eyebrow">{label} · ENCRYPTED</text>
 		<!-- closed padlock: modest, clear of the rule -->
