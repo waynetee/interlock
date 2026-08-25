@@ -493,6 +493,14 @@
 	let goingDown = $state(false);
 
 	function shutdown() {
+		// A dead link must refuse, not pretend: pressing this with the socket
+		// down used to arm, confirm, paint the "Powering off" curtain -- and
+		// emit into nothing, leaving two healthy machines behind a black
+		// screen that said otherwise.
+		if (!connected) {
+			log('SHUTDOWN ignored: no link to the orchestrator');
+			return;
+		}
 		if (!armDown) {
 			armDown = true;
 			clearTimeout(downTimer);
@@ -501,7 +509,9 @@
 		}
 		clearTimeout(downTimer);
 		armDown = false;
-		goingDown = true;
+		// goingDown is set by beat:shutdown -- the server's own acknowledgement
+		// -- never optimistically here, so the curtain only falls when the
+		// order has actually been received.
 		// The token is checked server-side, so a stray `demo:shutdown` from a console
 		// or a replayed frame cannot power the rack off by itself.
 		socket?.emit('demo:shutdown', { confirm: 'POWER OFF' });
@@ -728,10 +738,10 @@
 							? 'border-fault bg-fault/20 text-fault'
 							: 'border-border text-muted-foreground/60 hover:border-fault hover:text-fault'
 					)}
-					disabled={goingDown}
+					disabled={goingDown || !connected}
 					onclick={shutdown}
 				>
-					{armDown ? 'press again to power off' : 'shut down'}
+					{armDown ? 'press again to power off' : connected ? 'shut down' : 'no link'}
 				</button>
 				<button
 					class="t-tag border border-border px-4 py-2 font-mono text-muted-foreground uppercase transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
