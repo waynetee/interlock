@@ -167,10 +167,16 @@ def generate(req_header: bytes, req_ciphertext: bytes):
     return req_header, rsp_ct                        # keep req header -> client matches rid
 
 
-_HANDLED = set()          # rids already answered (duplicate-delivery guard)
+# Duplicate-delivery guard AND result cache: rid -> the RESULT bytes once one
+# was sent, None while a challenge is still running. It used to be a bare set,
+# which ate retries whole: a RESULT frame lost past all of send_confirmed's
+# retries left the client timing out and the rid unprovable forever, and a
+# second `/prove` on the same chat turn was a guaranteed silent timeout. Now a
+# repeat of an answered rid gets its RESULT again.
+_HANDLED = {}
 
 
-def handle_challenge(send, header, body, store, key=KEY):
+def handle_challenge(send_raw, header, body, store, key=KEY):
     """Handle one in-band CHALLENGE. `send(mtype, bytes)` emits a spaced control reply.
 
     body = request_id(8) || req_cert_DATA(148) || rsp_cert_DATA(148).
@@ -179,18 +185,35 @@ def handle_challenge(send, header, body, store, key=KEY):
     are DONE below. The ZKP AGENT fills (e) plaintext match, (f) proof verify, (g)
     binding — see HANDOFF-ZKP.md and spec §6."""
     if len(body) < 8 + 2 * CERT_DATA_LEN:
-        send(T_STATUS, b"bring-up: body carries no certs (%dB)" % len(body))
-        send(T_RESULT, b"INCOMPLETE: send request_id||req_cert||rsp_cert to run the chain")
+        send_raw(T_STATUS, b"bring-up: body carries no certs (%dB)" % len(body))
+        send_raw(T_RESULT, b"INCOMPLETE: send request_id||req_cert||rsp_cert to run the chain")
         return
     rid = int.from_bytes(body[0:8], "big")
-    # Ignore a repeat of a challenge already answered. send_confirmed retries whenever
-    # it cannot confirm delivery, and a frame the device DID accept but whose FIRST_ARR
-    # we missed arrives twice -- which would otherwise start a second multi-minute proof
-    # and queue the first RESULT behind it, past the client's timeout.
+    # A repeat of a challenge: send_confirmed retries whenever it cannot confirm
+    # delivery, and a frame the device DID accept but whose FIRST_ARR we missed
+    # arrives twice -- which must not start a second multi-minute proof. But a
+    # repeat can also mean the RESULT itself was lost, so an ANSWERED rid gets
+    # its cached RESULT again rather than silence; only a rid still mid-proof is
+    # ignored outright.
     if rid in _HANDLED:
-        print("[challenge] rid=%d already answered; ignoring duplicate" % rid, flush=True)
+        prev = _HANDLED[rid]
+        if prev is None:
+            print("[challenge] rid=%d still running; ignoring duplicate" % rid, flush=True)
+        else:
+            print("[challenge] rid=%d already answered; re-sending its RESULT" % rid,
+                  flush=True)
+            send_raw(T_RESULT, prev)
         return
-    _HANDLED.add(rid)
+    _HANDLED[rid] = None
+    while len(_HANDLED) > 256:                   # oldest rids are dead conversations
+        _HANDLED.pop(next(iter(_HANDLED)))
+
+    def send(mt, b):
+        # Every RESULT that leaves here is cached under its rid, so the whole
+        # body below can keep saying `send(T_RESULT, ...)` and forget about it.
+        if mt == T_RESULT:
+            _HANDLED[rid] = bytes(b)
+        send_raw(mt, b)
     req_cert = parse_cert_data(body[8:8 + CERT_DATA_LEN])
     rsp_cert = parse_cert_data(body[8 + CERT_DATA_LEN:8 + 2 * CERT_DATA_LEN])
     # Optional trailing verifier seed (see infcli.do_challenge). Absent from older
@@ -449,6 +472,13 @@ def main():
                     handle_challenge(send, header, body, store)
                 except Exception as e:                 # never take the server down
                     print("[challenge] failed: %s: %s" % (type(e).__name__, e), flush=True)
+                    # A crashed challenge must stay retryable: leaving its
+                    # in-progress marker would eat every future attempt at this
+                    # rid in silence. A rid that already answered keeps its cache.
+                    if len(body) >= 8:
+                        _rid = int.from_bytes(body[0:8], "big")
+                        if _HANDLED.get(_rid) is None:
+                            _HANDLED.pop(_rid, None)
             continue
 
         try:                                               # ----- inference -----
