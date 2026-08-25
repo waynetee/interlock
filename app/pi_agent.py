@@ -266,14 +266,7 @@ class Agent:
             msg = "%s: %s" % (type(e).__name__, e)
             self.emit("ev:error", {"stage": "prompt", "error": msg})
             print("[agent] prompt failed: %s" % msg, flush=True)
-            # A failure at the wire layer means the port is dead or its bootstrap
-            # is void (the board was power-cycled mid-session). Drop the cache and
-            # declare a fault, so the server disables Run and re-warms -- without
-            # this, every later prompt fails identically while the wire shows
-            # healthy, which is how one bad run becomes a bad afternoon.
-            if "bootstrap" in msg or "no sync" in msg.lower():
-                infcli._PORT["p"] = None
-                self.emit("ev:wire_fault", {"error": msg})
+            self._maybe_wire_fault(msg)
         finally:
             self.lock.release()
 
@@ -293,11 +286,29 @@ class Agent:
             self.emit("ev:proof_result", {"rid": rid, "result": res,
                                           "secs": round(time.time() - t0, 1)})
         except Exception as e:
-            self.emit("ev:error", {"stage": "challenge",
-                                   "error": "%s: %s" % (type(e).__name__, e)})
-            print("[agent] challenge failed: %s: %s" % (type(e).__name__, e), flush=True)
+            msg = "%s: %s" % (type(e).__name__, e)
+            self.emit("ev:error", {"stage": "challenge", "error": msg})
+            print("[agent] challenge failed: %s" % msg, flush=True)
+            self._maybe_wire_fault(msg)
         finally:
             self.lock.release()
+
+    # Every string the wire layer raises when the PORT is the problem, as opposed
+    # to the request: a voided bootstrap (board power-cycled mid-session), a dead
+    # sync stream, or send_confirmed exhausting its attempts against latched
+    # placement. The first cut matched only the first two, so an exhausted
+    # send_confirmed left the wire showing healthy while every prompt burned its
+    # full retry budget and failed -- one bad run becoming a bad afternoon.
+    WIRE_FAULT_MARKS = ("bootstrap", "no sync", "send_confirmed", "placement",
+                        "flywheel")
+
+    def _maybe_wire_fault(self, msg):
+        """Drop the cached port and declare a fault when the failure was the
+        wire's, so the server disables Run and the re-warm loop takes over."""
+        low = msg.lower()
+        if any(m in low for m in self.WIRE_FAULT_MARKS):
+            infcli._PORT["p"] = None
+            self.emit("ev:wire_fault", {"error": msg})
 
     def run(self, url):
         while True:

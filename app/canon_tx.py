@@ -110,7 +110,7 @@ class CanonPort:
         if tuned:
             self._tune()
         # REQ ids must be globally monotonic across runs; RSP ids reset per bucket.
-        self.next_id = int(time.time() * 1e6) * 2 if req else 2
+        self.next_id = self._req_id_seed() if req else 2
         self.cur_bkt = self.last_edge_ns = None
         self.period_ns = 1_000_000.0
         self.decl_shift = None
@@ -152,6 +152,48 @@ class CanonPort:
         self._thread = None
 
     # ---------------------------------------------------------------- setup
+
+    # Where the REQ-id floor persists, and how many ids a run may claim above it.
+    # 2^21 ids is ~1M sends -- and only ~1 s of microsecond-clock headroom, so a
+    # healthy clock overtakes the written floor almost immediately and the file
+    # changes nothing. It exists for the unhealthy clock.
+    ID_FLOOR_FILE = os.environ.get(
+        "ILK_IDFLOOR_FILE", os.path.expanduser("~/.interlock/req_id_floor"))
+    ID_FLOOR_RESERVE = 1 << 21
+
+    def _req_id_seed(self):
+        """First REQ ident for this process: the clock, floored by the last run.
+
+        The device's REQ-side prev_id high-water mark never resets, so idents
+        must be monotonic ACROSS runs -- and the microsecond clock alone cannot
+        promise that on a Pi: no RTC, so a boot that outruns NTP starts with a
+        stale clock, seeds ids below the high-water mark, and every frame is
+        rejected in silence (bootstrap fails with only the prev_id hint to go
+        on). So each start also reads the floor the previous run wrote, takes
+        the max, and writes a new floor above what it might use. One file read
+        and one atomic write, at open only -- nothing on the send path."""
+        clock = int(time.time() * 1e6) * 2
+        floor = 0
+        try:
+            with open(self.ID_FLOOR_FILE) as fh:
+                floor = int(fh.read().strip() or 0)
+        except (OSError, ValueError):
+            pass
+        nid = max(clock, floor)
+        try:
+            os.makedirs(os.path.dirname(self.ID_FLOOR_FILE), exist_ok=True)
+            tmp = self.ID_FLOOR_FILE + ".tmp"
+            with open(tmp, "w") as fh:
+                fh.write("%d\n" % (nid + self.ID_FLOOR_RESERVE))
+            os.replace(tmp, self.ID_FLOOR_FILE)
+        except OSError as e:
+            self._log("WARNING: cannot persist the REQ id floor (%s) -- a clock "
+                      "regression across restarts will strand the ids below the "
+                      "device's high-water mark" % e)
+        if nid > clock:
+            self._log("REQ ids seeded from the floor file, %+d over the clock -- "
+                      "the clock is behind (NTP not synced yet?)" % (nid - clock))
+        return nid
 
     def _tune(self):
         """RT priority + core pinning. Failure is fatal for timing accuracy, so
