@@ -196,28 +196,31 @@
 	}
 
 	/**
-	 * The proof, as something you can watch. Each sliding strip ratchets through the
-	 * positions open to it, one row at a time — which is what a piece of film does
-	 * under a thumb — on its own interval, so the three are never in step and it
-	 * reads as three independent searches rather than one scripted move. It runs for
-	 * as long as the prover does; nothing here knows how long that will be.
+	 * The proof, as something you can watch. Each sliding strip GLIDES through
+	 * its travel on its own period — a triangle sweep, out and back — and the
+	 * paint path renders fractional offsets, so the search reads as film
+	 * physically sliding rather than clicking through detents. The two sweeps
+	 * share no period, so they are never in step. It runs for as long as the
+	 * prover does; nothing here knows how long that will be.
 	 */
 	function hunt() {
-		const STEP = [95, 135, 0];
+		const PERIOD = [2600, 3400, 0];
 		const t0 = performance.now();
 		const step = (now: number) => {
 			const t = now - t0;
 			shift = [0, 1, 2].map((i) => {
 				const span = travel(st, i);
-				if (!span || !STEP[i]) return shift[i];
-				return (Math.floor(t / STEP[i]) + i * 2) % (span + 1);
+				if (!span || !PERIOD[i]) return shift[i];
+				const ph = (t / PERIOD[i] + i * 0.37) % 1;
+				const tri = ph < 0.5 ? ph * 2 : 2 - ph * 2;
+				return tri * span;
 			});
 			raf = requestAnimationFrame(step);
 		};
 		raf = requestAnimationFrame(step);
 	}
 
-	/** and the landing: staggered, eased, and quantised to whole rows on arrival */
+	/** and the landing: staggered, eased, smooth in flight, exact on arrival */
 	function settle() {
 		const to = homes(st);
 		const from = [...shift];
@@ -228,7 +231,7 @@
 			shift = from.map((f, i) => {
 				const lane = Math.max(0, Math.min(1, (k - i * 0.1) / 0.8));
 				const e = 1 - Math.pow(1 - lane, 3);
-				return Math.round(f + (to[i] - f) * e);
+				return f + (to[i] - f) * e;
 			});
 			if (k < 1) {
 				raf = requestAnimationFrame(step);
@@ -371,6 +374,29 @@
 			ghost(ctx, PITCH);
 			return;
 		}
+		// Film in motion is drawn at its TRUE fractional offset, one translucent
+		// layer per strip; the exact share-composite colouring (glow for doubled
+		// cells, the lamp read) resumes the moment the strips rest on whole rows.
+		const frac = sel.some((i) => Math.abs(shift[i] - Math.round(shift[i])) > 1e-4);
+		if (frac && blend < 0.999) {
+			for (const i of [2, 0, 1]) {
+				if (!shown[i]) continue;
+				const hue = i === ROGUE && !pass ? FAULT : HUES[i];
+				const off = Math.max(0, Math.min(travel(st, i), shift[i])) * PITCH;
+				const strip = st.cells[i];
+				ctx.fillStyle = hue;
+				for (let r = 0; r < st.heights[i]; r++) {
+					for (let c = 0; c < grid.cols; c++) {
+						const l = strip[r * grid.cols + c];
+						if (!l) continue;
+						ctx.globalAlpha = [0, 0.55, 0.68, 0.8, 0.92][l];
+						ctx.fillRect(c * PITCH, off + r * PITCH, CELL, CELL);
+					}
+				}
+			}
+			ctx.globalAlpha = 1;
+			return;
+		}
 		for (let r = 0; r < st.pile; r++) {
 			for (let c = 0; c < grid.cols; c++) {
 				const by = sel.filter((k) => view[r * grid.cols + c] & (1 << k));
@@ -420,7 +446,7 @@
 	let stripCv = $state<(HTMLCanvasElement | null)[]>([null, null, null]);
 
 	$effect(() => {
-		void [view, blend, sel, pass, PITCH, shimmer];
+		void [view, shift, blend, sel, pass, PITCH, shimmer];
 		paintPile(pileCv);
 	});
 	$effect(() => {

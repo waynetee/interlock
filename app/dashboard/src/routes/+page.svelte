@@ -543,19 +543,13 @@
 	 * label rides as the stage tooltip for whoever is running the demo.
 	 */
 	const banner = $derived(
-		simRun || simMode
+		tampered
 			? {
-					tag: 'Simulated',
-					tone: 'caution' as const,
-					say: `no hardware connected — everything on this screen is made up by the browser${armed ? ', with the tamper switch on' : ''}`
+					tag: 'Tampered',
+					tone: 'fault' as const,
+					say: 'the cluster is claiming an answer the certifier never saw — this fails every time'
 				}
-			: tampered
-				? {
-						tag: 'Tampered',
-						tone: 'fault' as const,
-						say: 'the cluster is claiming an answer the certifier never saw — this fails every time'
-					}
-				: null
+			: null
 	);
 
 	/**
@@ -896,13 +890,23 @@
 	</main>
 
 	{#if goingDown}
-		<div
-			class="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-background/95 backdrop-blur-sm"
-		>
-			<span class="t-big font-mono tracking-[0.14em] text-fault uppercase">Powering off</span>
-			<p class="t-lead max-w-[34ch] text-center text-muted-foreground">
-				Both machines are halting. This screen is served by one of them, so it will go dark.
-			</p>
+		<!-- CRT power-off: the lit field collapses to a scanline, the scanline to
+		     a point, and a faint power glyph breathes until the machine serving
+		     this page actually dies and takes the screen with it. -->
+		<div class="fixed inset-0 z-50 overflow-hidden bg-black">
+			<div class="ilk-crt"></div>
+			<svg
+				class="ilk-powerglyph"
+				viewBox="0 0 24 24"
+				fill="none"
+				stroke="currentColor"
+				stroke-width="1.6"
+				stroke-linecap="round"
+				aria-label="powering off"
+			>
+				<path d="M12 3v8" />
+				<path d="M7.2 6.4a7.5 7.5 0 1 0 9.6 0" />
+			</svg>
 		</div>
 	{/if}
 </div>

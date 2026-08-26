@@ -262,3 +262,67 @@
 		font-variant-numeric: tabular-nums;
 	}
 }
+
+/* ---------------------------------------------------------------------------
+ * Power-off. A CRT dying: the lit field collapses to a scanline, the scanline
+ * to a point, and a faint power glyph breathes while the machines actually
+ * halt -- the page going dark mid-breath IS the confirmation.
+ * ------------------------------------------------------------------------- */
+@keyframes ilk-crtoff {
+	0% {
+		transform: scale(1, 1);
+		opacity: 1;
+	}
+	45% {
+		transform: scale(1, 0.006);
+		opacity: 1;
+	}
+	65% {
+		transform: scale(0.5, 0.004);
+	}
+	100% {
+		transform: scale(0.002, 0.002);
+		opacity: 0.9;
+	}
+}
+.ilk-crt {
+	position: absolute;
+	inset: 0;
+	transform-origin: 50% 50%;
+	background: radial-gradient(
+		ellipse at center,
+		color-mix(in oklab, var(--signal) 60%, white) 0%,
+		color-mix(in oklab, var(--signal) 25%, var(--background)) 55%,
+		var(--background) 100%
+	);
+	animation: ilk-crtoff 850ms cubic-bezier(0.55, 0, 0.85, 0.4) both;
+}
+@keyframes ilk-powerpulse {
+	0%,
+	100% {
+		opacity: 0.1;
+	}
+	50% {
+		opacity: 0.32;
+	}
+}
+.ilk-powerglyph {
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	width: clamp(40px, 5vw, 72px);
+	transform: translate(-50%, -50%);
+	color: var(--muted-foreground);
+	opacity: 0;
+	animation: ilk-powerpulse 2.6s ease-in-out 1.2s infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+	.ilk-crt {
+		animation: none;
+		opacity: 0;
+	}
+	.ilk-powerglyph {
+		animation: none;
+		opacity: 0.25;
+	}
+}
