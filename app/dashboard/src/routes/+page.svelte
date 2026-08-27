@@ -99,6 +99,10 @@
 	let promptText = $state('');
 	let answer = $state('');
 	let verdict = $state<Verdict | null>(null);
+	/** a run that died: the server's own words, shown until the next run starts */
+	let runFault = $state('');
+	/** a run is dispatched but nothing has come back yet — say so, after a beat */
+	let waiting = $state(false);
 
 	const short = (h: string | null, n = 8) => (h ? h.slice(0, n).toUpperCase() : '—');
 	/** the run's narration, on the console rather than on the lid */
@@ -176,6 +180,7 @@
 		chipA = chipB = 'hidden';
 		modelShown = false;
 		proving = false;
+		runFault = '';
 		promptText = '';
 		answer = '';
 		verdict = null;
@@ -388,8 +393,16 @@
 			queue(() => runVerdict(d, gen));
 		});
 		socket.on('beat:proof_status', (d: any) => log(`PROVE  ${String(d.line).trim()}`));
+		// A run that dies must SAY so. This used to write a caption that no longer
+		// renders, which read as "I pressed PROMPT and nothing happened" -- the
+		// worst possible answer. The banner strip carries it now.
+		socket.on('wire:busy', () => {
+			runFault =
+				'the wire is still finishing the previous run — give it a moment and press PROMPT again, or press RESET';
+			log('BUSY   run refused: previous run still holds the wire');
+		});
 		socket.on('beat:error', (d: any) => {
-			caption = 'Something went wrong. Press RESET and try again.';
+			runFault = d.error ?? 'something went wrong on the wire — press PROMPT to try again';
 			log(`ERROR  ${d.error ?? ''}`);
 			proving = false;
 			busy = false;
@@ -566,13 +579,21 @@
 	 * label rides as the stage tooltip for whoever is running the demo.
 	 */
 	const banner = $derived(
-		tampered
-			? {
-					tag: 'Tampered',
-					tone: 'fault' as const,
-					say: 'the cluster is claiming an answer the certifier never saw — this fails every time'
-				}
-			: null
+		runFault
+			? { tag: 'Fault', tone: 'fault' as const, say: runFault }
+			: tampered
+				? {
+						tag: 'Tampered',
+						tone: 'fault' as const,
+						say: 'the cluster is claiming an answer the certifier never saw — this fails every time'
+					}
+				: waiting
+					? {
+							tag: 'Working',
+							tone: 'caution' as const,
+							say: 'the question is on the wire — a stalled board can take a minute to report back'
+						}
+					: null
 	);
 
 	/**
@@ -587,6 +608,19 @@
 	);
 	/** the far end is doing something you cannot see: say so with a sweep, not a word */
 	const working = $derived(phase === 'gen' || phase === 'prove');
+	// A dispatched run whose first beat has not landed is invisible, and on a
+	// stalling wire that invisibility can last a minute. After a grace period
+	// (so a healthy run never flashes it) the strip says the run is in flight.
+	$effect(() => {
+		if (busy && phase === 'idle') {
+			const t = setTimeout(() => (waiting = true), 1500);
+			return () => {
+				clearTimeout(t);
+				waiting = false;
+			};
+		}
+		waiting = false;
+	});
 	/** and your own machine lights up for the two moments the key is in use —
 	 * not for the whole time the delivered answer sits parked there */
 	const hotHome = $derived(pktShown && pktX === STOP[0] && (phase === 'req' || phase === 'rsp'));

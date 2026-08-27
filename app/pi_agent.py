@@ -106,6 +106,12 @@ class Agent:
     # seconds with a fresh port and a clean lock -- which is exactly what the
     # human restart did, minus the human.
     PROMPT_DEADLINE_S = 120.0
+    # Warm bootstraps the port, and a bootstrap ridden through a link flap has
+    # been seen to take ~2 minutes legitimately -- but also to hang forever
+    # when the board's Pi-facing port dropped carrier mid-warm (observed
+    # 2026-08-27: warm stranded 13 minutes holding the lock, every later run
+    # refused, until a human restarted the agent). Generous, then covered.
+    WARM_DEADLINE_S = 300.0
 
     def _watch(self):
         while True:
@@ -172,6 +178,10 @@ class Agent:
             seconds later, in front of the audience. Report it instead, so the
             wire shows as faulted before anyone can press anything."""
             t0 = time.time()
+            # the watchdog covers warm too: a warm stranded in a native wait
+            # holds the single-flight lock forever, and the only clean exit is
+            # the same one a hung prompt gets -- die, restart, rebind
+            self.job = ("warm", time.monotonic() + self.WARM_DEADLINE_S)
             try:
                 with self.warm_lock:
                     p = infcli.canon_port(self.a)
@@ -195,6 +205,8 @@ class Agent:
                 print("[agent] warm FAILED: %s" % msg, flush=True)
                 self.emit("ev:wire_fault", {"error": msg})
                 return
+            finally:
+                self.job = None
             self.emit("ev:warm", {"secs": round(time.time() - t0, 1)})
 
         @sio.on("cmd:prompt", namespace=NS)
