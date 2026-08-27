@@ -174,12 +174,12 @@
 		scrRaf = requestAnimationFrame(tick);
 	}
 
-	/** the payload's ciphertext, capped to ONE line of the card -- a window onto
-	 * the real bytes, not all of them */
+	/** the payload's ciphertext, cut to the plaintext's own length: the sealed
+	 * card wraps to the same lines the words did, so nothing grows or shrinks */
 	function cipherOf(hex: string | undefined, n: number) {
 		let h = (hex || '').toUpperCase().replace(/[^0-9A-F]/g, '');
 		if (!h) h = 'A7F03C9E5B21D48C6E90F17B24A8D35E';
-		const k = Math.min(16, Math.max(10, n));
+		const k = Math.max(10, n);
 		while (h.length < k) h += h;
 		return '0x' + h.slice(0, k);
 	}
