@@ -67,9 +67,9 @@
 	 * at the moment they are sealed and back at the moment they are opened.
 	 */
 	const STOP = [
-		{ x: 13, y: 44 },
-		{ x: 38, y: 44 },
-		{ x: 81.5, y: 34 } // the center of the GPU cluster: generation happens IN there
+		{ x: 11, y: 44 },
+		{ x: 39, y: 44 },
+		{ x: 81.5, y: 40 } // the center of the GPU cluster: generation happens IN there
 	];
 	let pktX = $state(STOP[0]);
 	let pktText = $state('');
@@ -101,8 +101,6 @@
 	let verdict = $state<Verdict | null>(null);
 	/** a run that died: the server's own words, shown until the next run starts */
 	let runFault = $state('');
-	/** a run is dispatched but nothing has come back yet — say so, after a beat */
-	let waiting = $state(false);
 
 	const short = (h: string | null, n = 8) => (h ? h.slice(0, n).toUpperCase() : '—');
 	/** the run's narration, on the console rather than on the lid */
@@ -587,13 +585,7 @@
 						tone: 'fault' as const,
 						say: 'the cluster is claiming an answer the certifier never saw — this fails every time'
 					}
-				: waiting
-					? {
-							tag: 'Working',
-							tone: 'caution' as const,
-							say: 'the question is on the wire — a stalled board can take a minute to report back'
-						}
-					: null
+				: null
 	);
 
 	/**
@@ -608,19 +600,6 @@
 	);
 	/** the far end is doing something you cannot see: say so with a sweep, not a word */
 	const working = $derived(phase === 'gen' || phase === 'prove');
-	// A dispatched run whose first beat has not landed is invisible, and on a
-	// stalling wire that invisibility can last a minute. After a grace period
-	// (so a healthy run never flashes it) the strip says the run is in flight.
-	$effect(() => {
-		if (busy && phase === 'idle') {
-			const t = setTimeout(() => (waiting = true), 1500);
-			return () => {
-				clearTimeout(t);
-				waiting = false;
-			};
-		}
-		waiting = false;
-	});
 	/** and your own machine lights up for the two moments the key is in use —
 	 * not for the whole time the delivered answer sits parked there */
 	const hotHome = $derived(pktShown && pktX === STOP[0] && (phase === 'req' || phase === 'rsp'));
@@ -644,21 +623,26 @@
 	// spaced ~11.5% so the stack never collides with itself.
 	const CHIP = {
 		A: {
-			held: { x: 38, y: 74.5 },
-			drop: { x: 38, y: 88 },
+			held: { x: 39, y: 74.5 },
+			drop: { x: 39, y: 88 },
 			run: { x: 81.5, y: 88 },
-			dock: { x: 81.5, y: 40 }
+			dock: { x: 81.5, y: 47 }
 		},
 		B: {
-			held: { x: 38, y: 57.5 },
-			drop: { x: 38, y: 88 },
+			held: { x: 39, y: 57.5 },
+			drop: { x: 39, y: 88 },
 			run: { x: 81.5, y: 88 },
-			dock: { x: 81.5, y: 31 }
+			dock: { x: 81.5, y: 37 }
 		}
 	};
-	const HUEA = '#b6e04c';
-	const HUEB = '#3fd2ea';
-	const HUEC = '#c98cf6';
+	// Three shades of one green, the way the printed cards ink them: the input
+	// film lightest, the output deeper, the model commitment deepest — the same
+	// family so the stack reads as one instrument, stepped so the three strips
+	// stay tellable apart. (The print inks are darker; these are the same
+	// ordering rebalanced for a dark panel.)
+	const HUEA = '#a5d94e';
+	const HUEB = '#4fb05f';
+	const HUEC = '#2a8a52';
 	/** one width for a film everywhere it appears, so landing IS combining --
 	 * nothing resizes between the flight and the stack */
 	const FILMW = 'clamp(180px,24vw,440px)';
@@ -899,7 +883,7 @@
 			     it stamps rack up inside it until the proof calls for them -->
 			<div
 				class={cn(
-					'absolute top-[8%] h-[76%] w-[clamp(260px,31vw,520px)] -translate-x-1/2 border bg-background transition-all duration-300',
+					'absolute top-[8%] h-[76%] w-[clamp(280px,34vw,560px)] -translate-x-1/2 border bg-background transition-all duration-300',
 					hotFpga ? 'border-signal' : 'border-border'
 				)}
 				style="left:{STOP[1].x}%"
@@ -915,7 +899,7 @@
 			     the films rise into this box from below. -->
 			<div
 				class={cn(
-					'absolute top-[8%] right-[3%] left-[66%] h-[52%] flex flex-col overflow-hidden border bg-background transition-all duration-500',
+					'absolute top-[8%] right-[3%] left-[66%] h-[66%] flex flex-col overflow-hidden border bg-background transition-all duration-500',
 					verdict
 						? verdict.verdict === 'PASS'
 							? 'border-verified'
@@ -1000,7 +984,7 @@
 			     character but never reshapes the envelope. -->
 			<div
 				class={cn(
-					'absolute z-10 flex w-[clamp(230px,24vw,420px)] -translate-x-1/2 -translate-y-1/2 items-start gap-2 border px-3 py-1.5 font-mono transition-all duration-[900ms] ease-in-out motion-reduce:transition-none',
+					'absolute z-10 flex w-[clamp(170px,17vw,300px)] -translate-x-1/2 -translate-y-1/2 items-start gap-2 border px-3 py-1.5 font-mono transition-all duration-[900ms] ease-in-out motion-reduce:transition-none',
 					pktSealed
 						? 'border-border bg-muted text-muted-foreground'
 						: 'border-signal bg-[color-mix(in_srgb,var(--signal)_14%,var(--background))] text-signal',
