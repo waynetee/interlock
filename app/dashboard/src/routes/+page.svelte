@@ -706,13 +706,13 @@
 		held: SLOT_FRESH,
 		drop: { x: 39, y: 92 },
 		run: { x: 81.5, y: 92 },
-		dock: { x: 81.5, y: 45.3, dy: 1 }
+		dock: { x: 81.5, y: 39.7, dy: 1 }
 	};
 	const CHIP_A = $derived({
 		held: chipB === 'hidden' ? SLOT_FRESH : SLOT_PUSHED,
 		drop: { x: 39, y: 92 },
 		run: { x: 81.5, y: 92 },
-		dock: { x: 81.5, y: 45.3, dy: -1 }
+		dock: { x: 81.5, y: 39.7, dy: -1 }
 	});
 	/** a chip's top style: plain %, or % plus a whole number of stack rows */
 	const chipTop = (at: { y: number; dy?: number }) =>
@@ -967,7 +967,7 @@
 			     it stamps rack up inside it until the proof calls for them -->
 			<div
 				class={cn(
-					'absolute top-[5%] h-[81%] w-[26cqw] -translate-x-1/2 border bg-background transition-all duration-300',
+					'absolute top-[5%] h-[81%] w-[30cqw] -translate-x-1/2 border bg-background transition-all duration-300',
 					hotFpga ? 'border-signal' : 'border-border'
 				)}
 				style="left:{STOP[1].x}%"
@@ -983,7 +983,7 @@
 			     the films rise into this box from below. -->
 			<div
 				class={cn(
-					'absolute top-[5%] right-[1%] left-[64%] h-[72%] flex flex-col overflow-hidden border bg-background transition-all duration-500',
+					'absolute top-[5%] right-[1%] left-[64%] h-[62%] flex flex-col overflow-hidden border bg-background transition-all duration-500',
 					verdict
 						? verdict.verdict === 'PASS'
 							? 'border-verified'
@@ -1111,23 +1111,24 @@
 						>{sealing}…</span
 					>
 				{/if}
-				{#if pktSealed}
-					<!-- the padlock EXISTS only while the payload is sealed: encryption
-					     snaps it on, decryption takes it away. There is no open-lock
-					     glyph -- absence is the open state. -->
-					<svg
-						viewBox="0 0 24 24"
-						class="mt-[0.15em] size-[1.15em] shrink-0 text-[#d9a13b]"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="2.4"
-						aria-hidden="true"
-						transition:scale={{ duration: 260 }}
-					>
-						<rect x="4" y="11" width="16" height="10" rx="1.5" />
-						<path d="M8 11V7a4 4 0 0 1 8 0v4" />
-					</svg>
-				{/if}
+				<!-- the padlock's SEAT is always there, so sealing never rewraps the
+				     text; the lock itself exists only while the payload is sealed --
+				     there is no open-lock glyph, absence is the open state -->
+				<span class="mt-[0.15em] inline-block size-[1.15em] shrink-0" aria-hidden="true">
+					{#if pktSealed}
+						<svg
+							viewBox="0 0 24 24"
+							class="size-full text-[#d9a13b]"
+							fill="none"
+							stroke="currentColor"
+							stroke-width="2.4"
+							transition:scale={{ duration: 260 }}
+						>
+							<rect x="4" y="11" width="16" height="10" rx="1.5" />
+							<path d="M8 11V7a4 4 0 0 1 8 0v4" />
+						</svg>
+					{/if}
+				</span>
 				<!-- ciphertext has no spaces to break on, so it breaks anywhere;
 				     plaintext keeps its words whole -->
 				<span
@@ -1150,6 +1151,7 @@
 					? '0ms'
 					: '900ms'} ease-in-out"
 			>
+				<span class="mt-[0.15em] inline-block size-[1.15em] shrink-0" aria-hidden="true"></span>
 				<span class="min-w-0 flex-1 text-[1.25cqw] leading-snug break-words">{gqText}</span>
 				{#if processing}
 					<!-- the busy bar: the model is running on this request -->
