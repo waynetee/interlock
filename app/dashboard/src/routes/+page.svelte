@@ -70,7 +70,7 @@
 	// One y for the whole journey: the card rides the cable's height everywhere,
 	// including inside the cluster -- it moves left to right and never bobs.
 	const STOP = [
-		{ x: 11, y: 41 },
+		{ x: 19, y: 41 },
 		{ x: 39, y: 41 },
 		{ x: 81.5, y: 41 }
 	];
@@ -99,6 +99,8 @@
 	let modelShown = $state(false);
 	/** the proof is in flight: the register hunts for the seat until this clears */
 	let proving = $state(false);
+	/** when the hunt began: the verdict must let it run ~3s before settling */
+	let proveT0 = 0;
 	let promptText = $state('');
 	let answer = $state('');
 	let verdict = $state<Verdict | null>(null);
@@ -181,6 +183,7 @@
 		chipA = chipB = 'hidden';
 		modelShown = false;
 		proving = false;
+		proveT0 = 0;
 		runFault = '';
 		promptText = '';
 		answer = '';
@@ -313,6 +316,7 @@
 		// that takes -- the animation is paced by the prover, not a timer.
 		chipB = 'gone';
 		proving = true;
+		proveT0 = performance.now();
 		caption = 'Now it has to prove all three came from the promised model.';
 		if (!(await t(100))) return;
 		chipA = 'docked';
@@ -324,6 +328,13 @@
 		// A verdict for a run that has already been superseded -- Reset pressed, or a
 		// second Prompt -- must not repaint the panel it is no longer about.
 		if (gen !== generation) return;
+		// the sliding is the drama: even when the prover has already ruled, the
+		// sheets get their ~3 seconds of hunting before the word is allowed to
+		// develop
+		if (proving && proveT0 && !frozen()) {
+			const left = 3000 - (performance.now() - proveT0);
+			if (left > 0 && !(await step(left, gen))) return;
+		}
 		verdict = d.result as Verdict;
 		phase = 'done';
 		proving = false;
@@ -604,19 +615,6 @@
 	);
 	/** the far end is doing something you cannot see: say so with a sweep, not a word */
 	const working = $derived(phase === 'gen' || phase === 'prove');
-	// which run of cable the payload is actually on: the left one between the
-	// globe and the certifier, the right one between the certifier and the
-	// cluster (pktX already points at the leg's destination)
-	const leftFlow = $derived(
-		pktShown &&
-			((phase === 'req' && pktX !== STOP[2]) || (phase === 'rsp' && pktX === STOP[0]))
-	);
-	const rightFlow = $derived(
-		pktShown &&
-			(phase === 'gen' ||
-				(phase === 'req' && pktX === STOP[2]) ||
-				(phase === 'rsp' && pktX === STOP[1]))
-	);
 	/** and your own machine lights up for the two moments the key is in use —
 	 * not for the whole time the delivered answer sits parked there */
 	const hotHome = $derived(pktShown && pktX === STOP[0] && (phase === 'req' || phase === 'rsp'));
@@ -860,40 +858,24 @@
 				style="background-image:linear-gradient(to right,var(--grid) 1px,transparent 1px),linear-gradient(to bottom,var(--grid) 1px,transparent 1px);background-size:44px 44px"
 			></div>
 
-			<!-- the drop from the globe turns a true 90° corner into the cable: the
-			     vertical starts at the globe and the horizontal starts AT the bend,
-			     never extending past it into a T -->
-			<div class="absolute top-[28%] h-[13%] w-px bg-border" style="left:{STOP[0].x}%"></div>
+			<!-- the cable, in two plain runs: globe's side → certifier's left wall,
+			     and certifier's right wall → the cluster. No bend — the globe is big
+			     enough that the wire simply leaves its side — and no neon: the
+			     payload card itself is the traffic. -->
+			<div class="absolute top-[41%] right-[70%] left-[9%] h-px bg-border"></div>
+			<div class="absolute top-[41%] right-[33%] left-[48%] h-px bg-border"></div>
 
-			<!-- the cable, in two separate runs: bend → certifier's left wall, and
-			     certifier's right wall → the cluster. Each lights up only while the
-			     payload is actually on it. -->
-			<div class="absolute top-[41%] right-[70%] left-[11%] h-px bg-border"></div>
-			<div class="absolute top-[41%] right-[36%] left-[48%] h-px bg-border"></div>
+			<!-- your machine: a globe sitting ON the wire, big enough that the cable
+			     simply leaves its side — no bend, no drop -->
 			<div
 				class={cn(
-					'absolute top-[41%] right-[70%] left-[11%] h-[2px] transition-opacity duration-500',
-					leftFlow ? 'ilk-flow opacity-80' : 'opacity-0'
-				)}
-			></div>
-			<div
-				class={cn(
-					'absolute top-[41%] right-[36%] left-[48%] h-[2px] transition-opacity duration-500',
-					rightFlow ? 'ilk-flow opacity-80' : 'opacity-0'
-				)}
-			></div>
-
-			<!-- your machine: a globe at the end of the wire, and the only key -->
-			<div
-				class={cn(
-					'absolute top-[14%] flex -translate-x-1/2 flex-col items-center gap-1.5 transition-colors duration-300',
+					'absolute top-[41%] left-[6%] -translate-x-1/2 -translate-y-1/2 transition-colors duration-300',
 					hotHome ? 'text-signal' : 'text-muted-foreground'
 				)}
-				style="left:{STOP[0].x}%"
 			>
 				<svg
 					viewBox="0 0 24 24"
-					class="w-[clamp(2.6rem,4.2vw,4.2rem)] transition-all duration-300"
+					class="w-[clamp(3.6rem,6vw,6.4rem)] transition-all duration-300"
 					fill="none"
 					stroke="currentColor"
 					stroke-width="1.3"
@@ -915,8 +897,8 @@
 				)}
 				style="left:{STOP[1].x}%"
 			>
-				<div class="pt-[1.6vh] text-center">
-					<div class="t-body font-mono font-semibold tracking-[0.05em]">NETWORK CERTIFIER</div>
+				<div class="flex flex-col items-center border-b border-border px-3 py-1.5">
+					<span class="t-body font-mono font-semibold tracking-[0.05em]">NETWORK CERTIFIER</span>
 				</div>
 			</div>
 
@@ -978,24 +960,28 @@
 							{@const on = i === 2 ? !!regModel : i === 0 ? !!regReq : !!regRsp}
 							{@const ink = i === 2 ? HUEC : i === 0 ? HUEA : failB ? 'var(--fault)' : HUEB}
 							{@const home = i === 1 ? filmStrips.slack : 0}
+							<!-- Every sheet is drawn in the SAME pile-sized coordinate space,
+							     its cells already at their home rows: registration is exact by
+							     construction, instead of asking three separately-scaled boxes
+							     to agree to the pixel. Cells are exactly 1x1 with crisp edges,
+							     because a 5% overdraw that hides hairlines inside one sheet
+							     reads as a shadow the moment sheets stack. -->
 							<svg
-								viewBox="0 0 {DEFAULT_GRID.cols} {filmStrips.heights[i]}"
+								viewBox="0 0 {DEFAULT_GRID.cols} {filmStrips.pile}"
 								preserveAspectRatio="none"
+								shape-rendering="crispEdges"
 								class={cn(
-									'absolute left-0 w-full transition-opacity duration-400',
+									'absolute inset-0 h-full w-full transition-opacity duration-400',
 									on ? 'opacity-100' : 'opacity-0',
 									proving && i === 0 && 'ilk-hunt-a',
 									proving && i === 1 && 'ilk-hunt-b'
 								)}
-								style="top:{(home / filmStrips.pile) * 100}%;height:{(filmStrips.heights[i] /
-									filmStrips.pile) *
-									100}%"
 								aria-hidden="true"
 							>
 								{#each { length: filmStrips.heights[i] } as _r, r (r)}
 									{#each { length: DEFAULT_GRID.cols } as _c, c (c)}
 										{#if filmStrips.cells[i][r * DEFAULT_GRID.cols + c] > 0}
-											<rect x={c} y={r} width="1.05" height="1.05" fill={ink} />
+											<rect x={c} y={home + r} width="1" height="1" fill={ink} />
 										{/if}
 									{/each}
 								{/each}
@@ -1013,7 +999,7 @@
 					'absolute z-10 flex w-[clamp(170px,17vw,300px)] -translate-x-1/2 -translate-y-1/2 items-start gap-2 border px-3 py-1.5 font-mono transition-all duration-[900ms] ease-in-out motion-reduce:transition-none',
 					pktSealed
 						? 'border-[#d9a13b] bg-muted text-muted-foreground'
-						: 'border-signal bg-[color-mix(in_srgb,var(--signal)_14%,var(--background))] text-signal',
+						: 'border-border bg-muted text-foreground',
 					pktShown ? 'opacity-100' : 'opacity-0'
 				)}
 				style="left:{pktX.x}%;top:{pktX.y}%"
