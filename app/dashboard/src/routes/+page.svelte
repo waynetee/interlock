@@ -106,8 +106,16 @@
 	let verdict = $state<Verdict | null>(null);
 	/** a run that died: the server's own words, shown until the next run starts */
 	let runFault = $state('');
-	/** the cluster is chewing on the sealed request: the card wears a busy bar */
+	/** the cluster is chewing on the decrypted request: the ghost wears a busy bar */
 	let processing = $state(false);
+	/** the word on the card while a key operation runs */
+	let sealing = $state<'' | 'encrypting' | 'decrypting'>('');
+	/** kill the card's transition for one frame, for pixel-identical swaps */
+	let pktInstant = $state(false);
+	/** the request's ghost: holds the decrypted question while the model runs */
+	let gqShown = $state(false);
+	let gqText = $state('');
+	let gqY = $state(41);
 
 	const short = (h: string | null, n = 8) => (h ? h.slice(0, n).toUpperCase() : '—');
 	/** the run's narration, on the console rather than on the lid */
@@ -187,6 +195,11 @@
 		proving = false;
 		proveT0 = 0;
 		processing = false;
+		sealing = '';
+		pktInstant = false;
+		gqShown = false;
+		gqText = '';
+		gqY = 41;
 		runFault = '';
 		promptText = '';
 		answer = '';
@@ -215,10 +228,12 @@
 		if (!(await step(1200, gen))) return;
 
 		pktSealed = true;
+		sealing = 'encrypting';
 		scrambleTo(cipherOf(d.ct_in, pktText.length));
 		caption = 'It is encrypted before it touches the cable.';
 		log(`SEAL   ${d.n_tokens} tok → ${(d.ct_in ?? '').length / 2}B`);
 		if (!(await step(1500, gen))) return;
+		sealing = '';
 
 		pktX = STOP[1];
 		hotFpga = true;
@@ -248,24 +263,50 @@
 		phase = 'gen';
 		pktX = STOP[2];
 		pktShown = true;
-		// beat one: the sealed request is WORKED ON -- a busy bar chews across
-		// the card while the model runs
+		// beat one: the request is DECRYPTED first -- the model cannot read
+		// ciphertext, and only the datacenter holds this session's key
+		sealing = 'decrypting';
+		pktSealed = false;
+		scrambleTo(clip(asked || promptText), 1200);
+		caption = 'Inside the cluster the request is decrypted…';
+		if (!(await step(2100, gen))) return;
+		sealing = '';
+
+		// beat two: the plaintext request hands off to its ghost (pixel-identical,
+		// so the swap is invisible), slides aside, and the model RUNS on it
+		gqText = pktText;
+		gqY = 41;
+		gqShown = true;
+		pktInstant = true;
+		pktShown = false;
+		if (!(await step(60, gen))) return;
+		gqY = 32.5;
 		processing = true;
-		caption = 'The GPU cluster processes the sealed request…';
-		if (!(await step(frozen() ? 30 : 3000, gen))) return;
+		caption = '…the model runs on the decrypted request…';
+		if (!(await step(frozen() ? 30 : 2800, gen))) return;
 		processing = false;
 
-		// beat two: only inside the datacenter does the text exist in the clear
-		// -- the request opens and transforms into the answer, in place
-		pktSealed = false;
-		scrambleTo(clip(text), 1300);
-		caption = '…the answer exists in the clear only in here…';
-		if (!(await step(2300, gen))) return;
+		// beat three: a NEW box -- the response -- is generated beneath it
+		pktText = '';
+		pktX = { x: 81.5, y: 49.5 };
+		if (!(await step(60, gen))) return;
+		pktInstant = false;
+		pktShown = true;
+		scrambleTo(clip(text), 1400);
+		caption = '…and a response is generated…';
+		if (!(await step(2400, gen))) return;
 
+		// the request has served; the response takes the center
+		gqShown = false;
+		pktX = STOP[2];
+		if (!(await step(1000, gen))) return;
+
+		sealing = 'encrypting';
 		pktSealed = true;
 		scrambleTo(cipherOf(d.ct_out, clip(text).length));
-		caption = '…and is encrypted for the trip back.';
-		if (!(await step(1600, gen))) return;
+		caption = '…and it is encrypted for the trip back.';
+		if (!(await step(1700, gen))) return;
+		sealing = '';
 
 		phase = 'rsp';
 		pktX = STOP[1];
@@ -284,9 +325,11 @@
 		hotFpga = false;
 		if (!(await step(1500, gen))) return;
 		pktSealed = false;
+		sealing = 'decrypting';
 		scrambleTo(clip(text));
 		caption = 'Only your machine holds the key that opens it.';
 		if (!(await step(1500, gen))) return;
+		sealing = '';
 		// the opened answer STAYS parked at your machine through the proof --
 		// delivery is a state the storyboard keeps on screen, not a flash
 		answer = text;
@@ -673,7 +716,7 @@
 	});
 	/** a chip's top style: plain %, or % plus a whole number of stack rows */
 	const chipTop = (at: { y: number; dy?: number }) =>
-		at.dy ? `calc(${at.y}% + ${at.dy} * min(${FILMW},30vw) / ${DEFAULT_GRID.cols})` : `${at.y}%`;
+		at.dy ? `calc(${at.y}% + ${at.dy} * ${FILMW} / ${DEFAULT_GRID.cols})` : `${at.y}%`;
 	// Three shades of one green, the way the printed cards ink them: the input
 	// film lightest, the output deeper, the model commitment deepest — the same
 	// family so the stack reads as one instrument, stepped so the three strips
@@ -684,7 +727,7 @@
 	const HUEC = '#5fae4c';
 	/** one width for a film everywhere it appears, so landing IS combining --
 	 * nothing resizes between the flight and the stack */
-	const FILMW = 'clamp(180px,24vw,440px)';
+	const FILMW = '24cqw';
 	const failB = $derived(!!verdict && verdict.verdict !== 'PASS');
 	// The films' own cell patterns — the same strips the register is composing,
 	// derived from the same digests, so what flies is what lands.
@@ -759,7 +802,10 @@
 	pos: Record<'held' | 'drop' | 'run' | 'dock', { x: number; y: number; dy?: number }>,
 	bad: boolean
 )}
-	{@const at = pos[state === 'hidden' ? 'held' : state === 'docked' || state === 'gone' ? 'dock' : state]}
+	{@const at =
+		state === 'hidden'
+			? { x: pos.held.x, y: pos.held.y - 5 }
+			: pos[state === 'docked' || state === 'gone' ? 'dock' : state]}
 	{@const ink = bad ? 'var(--fault)' : hue}
 	{@const rows = filmStrips.heights[idx]}
 	<!-- The chip is anchored on its STRIP (the label floats above and takes no
@@ -769,7 +815,7 @@
 	<div
 		class={cn(
 			'absolute z-20 -translate-x-1/2 -translate-y-1/2 transition-all duration-[1400ms] ease-in-out motion-reduce:transition-none',
-			state === 'hidden' && 'scale-75 opacity-0 duration-[600ms]',
+			state === 'hidden' && 'opacity-0 duration-[600ms]',
 			state === 'held' && 'opacity-100 duration-[600ms]',
 			// the U, leg by leg: ease into the drop, run the trench flat-out,
 			// ease off rising into the cluster
@@ -782,7 +828,7 @@
 	>
 		<span
 			class={cn(
-				'absolute bottom-full left-1/2 mb-1.5 -translate-x-1/2 font-mono text-[clamp(0.8rem,1vw,1.2rem)] whitespace-nowrap uppercase transition-opacity duration-300',
+				'absolute bottom-full left-1/2 mb-[0.4cqw] -translate-x-1/2 font-mono text-[1cqw] whitespace-nowrap uppercase transition-opacity duration-300',
 				(state === 'docked' || state === 'gone') && 'opacity-0'
 			)}
 			style="color:{ink}">{role} · {hex ? '0x' + short(hex, 8) : '—'}</span
@@ -875,13 +921,16 @@
 			proof runs in there.
 		-->
 		<div class="flex min-h-0 flex-1 items-center justify-center">
+			<!-- the stage is its own measure: everything inside is sized in cqw,
+			     fractions of THIS box's width, so a small screen gets the same
+			     picture smaller rather than a big picture cropped -->
 			<section
 				class="relative aspect-video max-h-full w-full overflow-hidden border border-border bg-card"
-				style="max-width:min(100%, calc((100vh - 100px) * 16 / 9))"
+				style="max-width:min(100%, calc((100vh - 100px) * 16 / 9));container-type:inline-size"
 			>
 			<div
 				class="pointer-events-none absolute inset-0 opacity-50"
-				style="background-image:linear-gradient(to right,var(--grid) 1px,transparent 1px),linear-gradient(to bottom,var(--grid) 1px,transparent 1px);background-size:44px 44px"
+				style="background-image:linear-gradient(to right,var(--grid) 1px,transparent 1px),linear-gradient(to bottom,var(--grid) 1px,transparent 1px);background-size:3cqw 3cqw"
 			></div>
 
 			<!-- the wire: an L from the globe -- straight down, one hard 90° corner,
@@ -901,7 +950,7 @@
 			>
 				<svg
 					viewBox="0 0 24 24"
-					class="w-[clamp(3rem,5vw,5.2rem)] transition-all duration-300"
+					class="w-[5cqw] transition-all duration-300"
 					fill="none"
 					stroke="currentColor"
 					stroke-width="1.3"
@@ -918,13 +967,13 @@
 			     it stamps rack up inside it until the proof calls for them -->
 			<div
 				class={cn(
-					'absolute top-[5%] h-[81%] w-[clamp(240px,26vw,500px)] -translate-x-1/2 border bg-background transition-all duration-300',
+					'absolute top-[5%] h-[81%] w-[26cqw] -translate-x-1/2 border bg-background transition-all duration-300',
 					hotFpga ? 'border-signal' : 'border-border'
 				)}
 				style="left:{STOP[1].x}%"
 			>
-				<div class="flex flex-col items-center border-b border-border px-3 py-1.5">
-					<span class="t-body font-mono font-semibold tracking-[0.05em]">NETWORK CERTIFIER</span>
+				<div class="flex flex-col items-center border-b border-border px-[0.8cqw] py-[0.5cqw]">
+					<span class="font-mono text-[1.15cqw] font-semibold tracking-[0.05em]">NETWORK CERTIFIER</span>
 				</div>
 			</div>
 
@@ -944,12 +993,12 @@
 							: 'border-border'
 				)}
 			>
-				<div class="flex shrink-0 flex-col items-center gap-0.5 border-b border-border px-3 py-1.5">
-					<span class="t-body font-mono font-semibold tracking-[0.05em]">GPU CLUSTER</span>
+				<div class="flex shrink-0 flex-col items-center gap-0.5 border-b border-border px-[0.8cqw] py-[0.5cqw]">
+					<span class="font-mono text-[1.15cqw] font-semibold tracking-[0.05em]">GPU CLUSTER</span>
 					{#if clusterStatus}
 						<span
 							class={cn(
-								't-tag font-mono uppercase',
+								'font-mono text-[0.9cqw] tracking-[0.16em] uppercase',
 								verdict
 									? verdict.verdict === 'PASS'
 										? 'text-verified'
@@ -989,8 +1038,12 @@
 								shape-rendering="crispEdges"
 								class={cn(
 									'absolute inset-0 h-full w-full',
-									i === 2 && 'transition-opacity duration-[600ms]',
-									on ? 'opacity-100' : 'opacity-0',
+									i === 2 && 'transition-[opacity,transform] duration-[700ms]',
+									on
+										? 'translate-y-0 opacity-100'
+										: i === 2
+											? '-translate-y-[16%] opacity-0'
+											: 'opacity-0',
 									proving && i === 0 && 'ilk-hunt-a',
 									proving && i === 1 && 'ilk-hunt-b'
 								)}
@@ -1006,12 +1059,12 @@
 							</svg>
 							{/each}
 						</div>
-						<div class="absolute inset-x-0 top-full mt-[1.6vh] flex flex-col items-center gap-1">
+						<div class="absolute inset-x-0 top-full mt-[1.2cqw] flex flex-col items-center gap-[0.35cqw]">
 							{#if verdict}
 								<!-- the verdict collapses the ledger into its one-line reading -->
 								<span
 									class={cn(
-										'font-mono text-[clamp(0.78rem,0.95vw,1.15rem)] whitespace-nowrap uppercase',
+										'font-mono text-[1cqw] whitespace-nowrap uppercase',
 										verdict.verdict === 'PASS' ? 'text-verified' : 'text-fault'
 									)}
 									>{verdict.verdict === 'PASS'
@@ -1026,7 +1079,7 @@
 								] as [role, hex, ink] (role)}
 									<span
 										class={cn(
-											'font-mono text-[clamp(0.72rem,0.88vw,1.05rem)] whitespace-nowrap uppercase transition-opacity duration-500',
+											'font-mono text-[0.9cqw] whitespace-nowrap uppercase transition-opacity duration-500',
 											hex ? 'opacity-100' : 'opacity-0'
 										)}
 										style="color:{ink}">{role} · {hex ? '0x' + short(hex, 6) : '—'}</span
@@ -1042,7 +1095,8 @@
 			     character but never reshapes the envelope. -->
 			<div
 				class={cn(
-					'absolute z-10 flex w-[clamp(170px,17vw,300px)] -translate-x-1/2 -translate-y-1/2 items-start gap-2 border px-3 py-1.5 font-mono transition-all duration-[1400ms] ease-in-out motion-reduce:transition-none',
+					'absolute z-10 flex w-[17cqw] -translate-x-1/2 -translate-y-1/2 items-start gap-[0.6cqw] border px-[0.9cqw] py-[0.45cqw] font-mono ease-in-out motion-reduce:transition-none',
+					pktInstant ? 'transition-none' : 'transition-all duration-[1400ms]',
 					pktSealed
 						? 'border-[#d9a13b] bg-muted text-muted-foreground'
 						: 'border-border bg-muted text-foreground',
@@ -1050,6 +1104,13 @@
 				)}
 				style="left:{pktX.x}%;top:{pktX.y}%"
 			>
+				{#if sealing}
+					<!-- the key operation, named while it runs -->
+					<span
+						class="absolute bottom-full left-0 mb-[0.35cqw] font-mono text-[0.85cqw] tracking-[0.14em] uppercase text-[#d9a13b]"
+						>{sealing}…</span
+					>
+				{/if}
 				{#if pktSealed}
 					<!-- the padlock EXISTS only while the payload is sealed: encryption
 					     snaps it on, decryption takes it away. There is no open-lock
@@ -1071,14 +1132,28 @@
 				     plaintext keeps its words whole -->
 				<span
 					class={cn(
-						'min-w-0 flex-1 text-[clamp(0.95rem,1.15vw,1.4rem)] leading-snug',
+						'min-w-0 flex-1 text-[1.25cqw] leading-snug',
 						pktSealed ? 'break-all' : 'break-words'
 					)}
 					>{pktText}</span
 				>
+			</div>
+
+			<!-- the request's ghost: pixel-identical to the open payload card, it
+			     holds the decrypted question while the model runs on it -->
+			<div
+				class={cn(
+					'absolute z-10 flex w-[17cqw] -translate-x-1/2 -translate-y-1/2 items-start gap-[0.6cqw] border border-border bg-muted px-[0.9cqw] py-[0.45cqw] font-mono text-foreground',
+					gqShown ? 'opacity-100' : 'pointer-events-none opacity-0'
+				)}
+				style="left:81.5%;top:{gqY}%;transition:top 900ms ease-in-out, opacity {gqShown
+					? '0ms'
+					: '900ms'} ease-in-out"
+			>
+				<span class="min-w-0 flex-1 text-[1.25cqw] leading-snug break-words">{gqText}</span>
 				{#if processing}
-					<!-- the busy bar: the sealed request is being worked on in place -->
-					<div class="ilk-proc pointer-events-none absolute inset-x-0 bottom-0 h-[3px]"></div>
+					<!-- the busy bar: the model is running on this request -->
+					<div class="ilk-proc pointer-events-none absolute inset-x-0 bottom-0 h-[0.25cqw]"></div>
 				{/if}
 			</div>
 
