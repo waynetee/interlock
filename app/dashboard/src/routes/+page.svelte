@@ -70,7 +70,7 @@
 	// One y for the whole journey: the card rides the cable's height everywhere,
 	// including inside the cluster -- it moves left to right and never bobs.
 	const STOP = [
-		{ x: 19, y: 41 },
+		{ x: 15, y: 41 },
 		{ x: 39, y: 41 },
 		{ x: 81.5, y: 41 }
 	];
@@ -106,6 +106,8 @@
 	let verdict = $state<Verdict | null>(null);
 	/** a run that died: the server's own words, shown until the next run starts */
 	let runFault = $state('');
+	/** the cluster is chewing on the sealed request: the card wears a busy bar */
+	let processing = $state(false);
 
 	const short = (h: string | null, n = 8) => (h ? h.slice(0, n).toUpperCase() : '—');
 	/** the run's narration, on the console rather than on the lid */
@@ -134,7 +136,7 @@
 	 */
 	let scrRaf = 0;
 	const HEXCHARS = '0123456789ABCDEF';
-	function scrambleTo(target: string, ms = 650) {
+	function scrambleTo(target: string, ms = 900) {
 		cancelAnimationFrame(scrRaf);
 		if (frozen()) {
 			pktText = target;
@@ -184,6 +186,7 @@
 		modelShown = false;
 		proving = false;
 		proveT0 = 0;
+		processing = false;
 		runFault = '';
 		promptText = '';
 		answer = '';
@@ -209,30 +212,31 @@
 		pktText = asked || promptText;
 		pktShown = true;
 		caption = 'A question leaves your machine.';
-		if (!(await step(800, gen))) return;
+		if (!(await step(1200, gen))) return;
 
 		pktSealed = true;
 		scrambleTo(cipherOf(d.ct_in, pktText.length));
 		caption = 'It is encrypted before it touches the cable.';
 		log(`SEAL   ${d.n_tokens} tok → ${(d.ct_in ?? '').length / 2}B`);
-		if (!(await step(1000, gen))) return;
+		if (!(await step(1500, gen))) return;
 
 		pktX = STOP[1];
 		hotFpga = true;
-		if (!(await step(950, gen))) return;
+		if (!(await step(1500, gen))) return;
 		reqFp = d.request_digest ?? null;
 		// the film drops into the certifier's lower slot and STAYS there: traffic
 		// moves on, the evidence does not
 		chipA = 'held';
 		caption = 'The certifier stamps a fingerprint off the sealed bytes and keeps it.';
 		log(`CERT   inbound  ${short(reqFp, 16)} audit=${d.request_audit ? 'PASS' : 'FAIL'}`);
-		if (!(await step(frozen() ? 30 : 1100, gen))) return;
+		if (!(await step(frozen() ? 30 : 1600, gen))) return;
 
 		pktX = STOP[2];
 		hotFpga = false;
 		hotSpark = true;
-		if (!(await step(950, gen))) return;
-		pktShown = false;
+		if (!(await step(1500, gen))) return;
+		// the sealed request STAYS in the cluster: the next beat works on it in
+		// place, processing it into the answer
 	}
 
 	async function runResponse(d: any, text: string, gen: number) {
@@ -242,39 +246,47 @@
 		// and it is the beat that makes "encrypted on the wire" legible: you see
 		// the words exist, then boil into bytes, then travel.
 		phase = 'gen';
-		pktSealed = false;
-		pktText = '';
 		pktX = STOP[2];
 		pktShown = true;
-		caption = 'The GPU cluster generates the answer…';
-		scrambleTo(clip(text), 900);
-		if (!(await step(1500, gen))) return;
+		// beat one: the sealed request is WORKED ON -- a busy bar chews across
+		// the card while the model runs
+		processing = true;
+		caption = 'The GPU cluster processes the sealed request…';
+		if (!(await step(frozen() ? 30 : 3000, gen))) return;
+		processing = false;
+
+		// beat two: only inside the datacenter does the text exist in the clear
+		// -- the request opens and transforms into the answer, in place
+		pktSealed = false;
+		scrambleTo(clip(text), 1300);
+		caption = '…the answer exists in the clear only in here…';
+		if (!(await step(2300, gen))) return;
 
 		pktSealed = true;
 		scrambleTo(cipherOf(d.ct_out, clip(text).length));
-		caption = '…and encrypts it for the trip back.';
-		if (!(await step(1100, gen))) return;
+		caption = '…and is encrypted for the trip back.';
+		if (!(await step(1600, gen))) return;
 
 		phase = 'rsp';
 		pktX = STOP[1];
 		hotSpark = false;
 		hotFpga = true;
-		if (!(await step(950, gen))) return;
+		if (!(await step(1500, gen))) return;
 
 		rspFp = d.response_digest ?? null;
 		// second film racks above the first: the certifier now holds both
 		chipB = 'held';
 		caption = 'The answer is fingerprinted on the way out — the certifier holds both.';
 		log(`CERT   outbound ${short(rspFp, 16)} audit=${d.response_audit ? 'PASS' : 'FAIL'}`);
-		if (!(await step(frozen() ? 30 : 1100, gen))) return;
+		if (!(await step(frozen() ? 30 : 1600, gen))) return;
 
 		pktX = STOP[0];
 		hotFpga = false;
-		if (!(await step(950, gen))) return;
+		if (!(await step(1500, gen))) return;
 		pktSealed = false;
 		scrambleTo(clip(text));
 		caption = 'Only your machine holds the key that opens it.';
-		if (!(await step(1000, gen))) return;
+		if (!(await step(1500, gen))) return;
 		// the opened answer STAYS parked at your machine through the proof --
 		// delivery is a state the storyboard keeps on screen, not a flash
 		answer = text;
@@ -288,7 +300,7 @@
 		// promised to run, fixed before anything was sent
 		modelShown = true;
 		caption = 'The cluster reveals the fingerprint of the model it promised to run.';
-		if (!(await step(frozen() ? 30 : 1300, gen))) return;
+		if (!(await step(frozen() ? 30 : 1700, gen))) return;
 
 		// beat two: the certifier releases both films and they ride the U --
 		// down through its floor, along the trench, up into the cluster from
@@ -297,31 +309,32 @@
 		// reads as a conveyor rather than a swap.
 		caption = 'The certifier sends its two fingerprints into the cluster.';
 		const t = (ms: number) => step(frozen() ? 30 : ms, gen);
-		// The two films share one trench, so the spacing is temporal: the input
-		// film only enters the run once the output film is more than a film's
-		// width ahead, and they never overlap until the moment they combine.
-		chipB = 'drop';
-		if (!(await t(650))) return;
-		chipB = 'run';
-		if (!(await t(100))) return;
+		// The two films share one trench, so the spacing is temporal, and the
+		// order is bottom-first: the INPUT film (lower rack, nearer the floor)
+		// leaves first, and the OUTPUT film drops through the slot it vacated --
+		// nothing ever passes through anything, in the rack or in transit.
 		chipA = 'drop';
-		if (!(await t(650))) return;
+		if (!(await t(900))) return;
 		chipA = 'run';
+		if (!(await t(150))) return;
+		chipB = 'drop';
+		if (!(await t(850))) return;
+		chipB = 'run';
 		if (!(await t(400))) return;
-		chipB = 'docked';
-		if (!(await t(800))) return;
+		chipA = 'docked';
+		if (!(await t(1000))) return;
 		// the moment a film lands it is absorbed and the sliding is already
 		// running: travel and hunt are one continuous motion, with no pause
 		// between them. `proving` stays up until the verdict lands however long
 		// that takes -- the animation is paced by the prover, not a timer.
-		chipB = 'gone';
+		chipA = 'gone';
 		proving = true;
 		proveT0 = performance.now();
 		caption = 'Now it has to prove all three came from the promised model.';
 		if (!(await t(100))) return;
-		chipA = 'docked';
-		if (!(await t(800))) return;
-		chipA = 'gone';
+		chipB = 'docked';
+		if (!(await t(1000))) return;
+		chipB = 'gone';
 	}
 
 	async function runVerdict(d: any, gen: number) {
@@ -641,20 +654,28 @@
 	// input film takes that slot on the request pass; when the output film pops
 	// out on the return pass it takes the slot itself, pushing the input film
 	// down a rack.
-	const SLOT_FRESH = { x: 39, y: 56.5 };
-	const SLOT_PUSHED = { x: 39, y: 74 };
+	const SLOT_FRESH = { x: 39, y: 59 };
+	const SLOT_PUSHED = { x: 39, y: 76.5 };
+	// Docks are the sheets' OWN rows in the stack: the stack pile is centered at
+	// stage {81.5, 43}, and each sheet's home center sits dy rows off the pile's
+	// center (input one row up, output one row down). The chip is anchored on
+	// its strip, drawn at the same width and cell size as the stack, so the
+	// landing is pixel-exact: nothing teleports at the handoff.
 	const CHIP_B = {
 		held: SLOT_FRESH,
 		drop: { x: 39, y: 92 },
 		run: { x: 81.5, y: 92 },
-		dock: { x: 81.5, y: 37 }
+		dock: { x: 81.5, y: 43, dy: 1 }
 	};
 	const CHIP_A = $derived({
 		held: chipB === 'hidden' ? SLOT_FRESH : SLOT_PUSHED,
 		drop: { x: 39, y: 92 },
 		run: { x: 81.5, y: 92 },
-		dock: { x: 81.5, y: 47 }
+		dock: { x: 81.5, y: 43, dy: -1 }
 	});
+	/** a chip's top style: plain %, or % plus a whole number of stack rows */
+	const chipTop = (at: { y: number; dy?: number }) =>
+		at.dy ? `calc(${at.y}% + ${at.dy} * min(${FILMW},30vw) / ${DEFAULT_GRID.cols})` : `${at.y}%`;
 	// Three shades of one green, the way the printed cards ink them: the input
 	// film lightest, the output deeper, the model commitment deepest — the same
 	// family so the stack reads as one instrument, stepped so the three strips
@@ -737,46 +758,49 @@
 	hex: string | null,
 	hue: string,
 	state: Chip,
-	pos: Record<'held' | 'drop' | 'run' | 'dock', { x: number; y: number }>,
+	pos: Record<'held' | 'drop' | 'run' | 'dock', { x: number; y: number; dy?: number }>,
 	bad: boolean
 )}
 	{@const at = pos[state === 'hidden' ? 'held' : state === 'docked' || state === 'gone' ? 'dock' : state]}
 	{@const ink = bad ? 'var(--fault)' : hue}
 	{@const rows = filmStrips.heights[idx]}
+	<!-- The chip is anchored on its STRIP (the label floats above and takes no
+	     layout), drawn at the stack's own width with the same crisp 1x1 cells,
+	     so its dock position IS its row in the pile: absorption is a same-frame,
+	     same-pixels swap -- no fade, no teleport. -->
 	<div
 		class={cn(
-			'absolute z-20 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 transition-all duration-[1100ms] ease-in-out motion-reduce:transition-none',
-			state === 'hidden' && 'scale-75 opacity-0',
-			state === 'held' && 'opacity-100 duration-[420ms]',
+			'absolute z-20 -translate-x-1/2 -translate-y-1/2 transition-all duration-[1400ms] ease-in-out motion-reduce:transition-none',
+			state === 'hidden' && 'scale-75 opacity-0 duration-[600ms]',
+			state === 'held' && 'opacity-100 duration-[600ms]',
 			// the U, leg by leg: ease into the drop, run the trench flat-out,
 			// ease off rising into the cluster
-			state === 'drop' && 'opacity-100 duration-[600ms] ease-in',
-			state === 'run' && 'opacity-100 duration-[1000ms] ease-linear',
-			state === 'docked' && 'opacity-100 duration-[800ms] ease-out',
-			state === 'gone' && 'opacity-0 duration-[400ms]'
+			state === 'drop' && 'opacity-100 duration-[850ms] ease-in',
+			state === 'run' && 'opacity-100 duration-[1400ms] ease-linear',
+			state === 'docked' && 'opacity-100 duration-[1000ms] ease-out',
+			state === 'gone' && 'opacity-0 duration-[0ms]'
 		)}
-		style="left:{at.x}%;top:{at.y}%;width:{FILMW}"
+		style="left:{at.x}%;top:{chipTop(at)};width:{FILMW}"
 	>
-		<!-- the name rides along until the film reaches the stack: from there the
-		     strips overlap on purpose, and three labels in one place is scribble -->
 		<span
 			class={cn(
-				'font-mono text-[clamp(0.72rem,0.85vw,1.05rem)] whitespace-nowrap uppercase transition-opacity duration-300',
+				'absolute bottom-full left-1/2 mb-1.5 -translate-x-1/2 font-mono text-[clamp(0.8rem,1vw,1.2rem)] whitespace-nowrap uppercase transition-opacity duration-300',
 				(state === 'docked' || state === 'gone') && 'opacity-0'
 			)}
 			style="color:{ink}">{role} · {hex ? '0x' + short(hex, 8) : '—'}</span
 		>
-		<!-- the strip's actual cells: what flies is what the register composes -->
+		<!-- the strip's actual cells: what flies is what the stack composes -->
 		<svg
 			viewBox="0 0 {DEFAULT_GRID.cols} {rows}"
-			class="w-full"
+			class="block w-full"
 			preserveAspectRatio="none"
+			shape-rendering="crispEdges"
 			aria-hidden="true"
 		>
 			{#each { length: rows } as _r, r (r)}
 				{#each { length: DEFAULT_GRID.cols } as _c, c (c)}
 					{#if filmStrips.cells[idx][r * DEFAULT_GRID.cols + c] > 0}
-						<rect x={c} y={r} width="1.05" height="1.05" fill={ink} />
+						<rect x={c} y={r} width="1" height="1" fill={ink} />
 					{/if}
 				{/each}
 			{/each}
@@ -852,30 +876,34 @@
 			model commitment is revealed and the films slide in to combine — the
 			proof runs in there.
 		-->
-		<section class="relative min-h-0 flex-1 overflow-hidden border border-border bg-card">
+		<div class="flex min-h-0 flex-1 items-center justify-center">
+			<section
+				class="relative aspect-video max-h-full w-full overflow-hidden border border-border bg-card"
+				style="max-width:min(100%, calc((100vh - 100px) * 16 / 9))"
+			>
 			<div
 				class="pointer-events-none absolute inset-0 opacity-50"
 				style="background-image:linear-gradient(to right,var(--grid) 1px,transparent 1px),linear-gradient(to bottom,var(--grid) 1px,transparent 1px);background-size:44px 44px"
 			></div>
 
-			<!-- the cable, in two plain runs: globe's side → certifier's left wall,
-			     and certifier's right wall → the cluster. No bend — the globe is big
-			     enough that the wire simply leaves its side — and no neon: the
-			     payload card itself is the traffic. -->
-			<div class="absolute top-[41%] right-[70%] left-[9%] h-px bg-border"></div>
+			<!-- the wire: an L from the globe -- straight down, one hard 90° corner,
+			     across into the certifier's wall -- and a second run from the
+			     certifier's far wall into the cluster. Plain hairlines: the payload
+			     card itself is the traffic. -->
+			<div class="absolute top-[24%] left-[11%] h-[17%] w-px bg-border"></div>
+			<div class="absolute top-[41%] right-[70%] left-[11%] h-px bg-border"></div>
 			<div class="absolute top-[41%] right-[33%] left-[48%] h-px bg-border"></div>
 
-			<!-- your machine: a globe sitting ON the wire, big enough that the cable
-			     simply leaves its side — no bend, no drop -->
+			<!-- your machine: the globe at the top of the L -->
 			<div
 				class={cn(
-					'absolute top-[41%] left-[6%] -translate-x-1/2 -translate-y-1/2 transition-colors duration-300',
+					'absolute top-[14%] left-[11%] -translate-x-1/2 -translate-y-1/2 transition-colors duration-300',
 					hotHome ? 'text-signal' : 'text-muted-foreground'
 				)}
 			>
 				<svg
 					viewBox="0 0 24 24"
-					class="w-[clamp(3.6rem,6vw,6.4rem)] transition-all duration-300"
+					class="w-[clamp(3rem,5vw,5.2rem)] transition-all duration-300"
 					fill="none"
 					stroke="currentColor"
 					stroke-width="1.3"
@@ -938,25 +966,20 @@
 				</div>
 				<!-- the combine: the three films stacked at true registration, in place
 				     and at film size — landing IS combining, there is no handoff to a
-				     larger instrument. C is the model commitment, revealed when the
-				     proof begins; A and B appear the moment they land. While the prover
-				     runs the two sliders rake against the backing; the verdict snaps
-				     them home, and the stack IS the verdict: three shares that tile
-				     leave the word black, a rogue output leaves noise. -->
-				<div class="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5">
-					<span
-						class={cn(
-							'font-mono text-[clamp(0.72rem,0.85vw,1.05rem)] whitespace-nowrap uppercase transition-opacity duration-400',
-							regModel ? 'opacity-100' : 'opacity-0'
-						)}
-						style="color:{HUEC}"
-						>declared model fingerprint · {regModel ? '0x' + short(regModel, 8) : '—'}</span
-					>
+				     larger instrument. The pile is ANCHORED (center of the box's body,
+				     stage y 43) so the flying chips' docks are its own sheet rows.
+				     Beneath it, a legend keeps all three names on screen through the
+				     sliding, and calls the match when the verdict lands. -->
+				<div class="relative min-h-0 flex-1">
 					<div
-						class="relative w-full"
-						style="max-width:min({FILMW},92%);aspect-ratio:{DEFAULT_GRID.cols}/{filmStrips.pile}"
+						class="absolute top-[53%] left-1/2 w-full -translate-x-1/2 -translate-y-1/2"
+						style="max-width:min({FILMW},92%)"
 					>
-						{#each [2, 0, 1] as i (i)}
+						<div
+							class="relative w-full"
+							style="aspect-ratio:{DEFAULT_GRID.cols}/{filmStrips.pile}"
+						>
+							{#each [2, 0, 1] as i (i)}
 							{@const on = i === 2 ? !!regModel : i === 0 ? !!regReq : !!regRsp}
 							{@const ink = i === 2 ? HUEC : i === 0 ? HUEA : failB ? 'var(--fault)' : HUEB}
 							{@const home = i === 1 ? filmStrips.slack : 0}
@@ -971,7 +994,8 @@
 								preserveAspectRatio="none"
 								shape-rendering="crispEdges"
 								class={cn(
-									'absolute inset-0 h-full w-full transition-opacity duration-400',
+									'absolute inset-0 h-full w-full',
+									i === 2 && 'transition-opacity duration-[600ms]',
 									on ? 'opacity-100' : 'opacity-0',
 									proving && i === 0 && 'ilk-hunt-a',
 									proving && i === 1 && 'ilk-hunt-b'
@@ -986,7 +1010,28 @@
 									{/each}
 								{/each}
 							</svg>
-						{/each}
+							{/each}
+						</div>
+						<div class="absolute inset-x-0 top-full mt-[1.6vh] flex flex-col items-center gap-1">
+							{#each [
+								['DECLARED MODEL FINGERPRINT', regModel, HUEC, true],
+								['INPUT FINGERPRINT', regReq, HUEA, true],
+								['OUTPUT FINGERPRINT', regRsp, failB ? 'var(--fault)' : HUEB, !failB]
+							] as [role, hex, ink, okline] (role)}
+								<span
+									class={cn(
+										'font-mono text-[clamp(0.72rem,0.88vw,1.05rem)] whitespace-nowrap uppercase transition-opacity duration-500',
+										hex ? 'opacity-100' : 'opacity-0'
+									)}
+									style="color:{ink}"
+									>{role} · {hex ? '0x' + short(hex, 6) : '—'}{verdict
+										? okline
+											? ' · MATCH'
+											: ' · MISMATCH'
+										: ''}</span
+								>
+							{/each}
+						</div>
 					</div>
 				</div>
 			</div>
@@ -996,7 +1041,7 @@
 			     character but never reshapes the envelope. -->
 			<div
 				class={cn(
-					'absolute z-10 flex w-[clamp(170px,17vw,300px)] -translate-x-1/2 -translate-y-1/2 items-start gap-2 border px-3 py-1.5 font-mono transition-all duration-[900ms] ease-in-out motion-reduce:transition-none',
+					'absolute z-10 flex w-[clamp(170px,17vw,300px)] -translate-x-1/2 -translate-y-1/2 items-start gap-2 border px-3 py-1.5 font-mono transition-all duration-[1400ms] ease-in-out motion-reduce:transition-none',
 					pktSealed
 						? 'border-[#d9a13b] bg-muted text-muted-foreground'
 						: 'border-border bg-muted text-foreground',
@@ -1030,12 +1075,17 @@
 					)}
 					>{pktText}</span
 				>
+				{#if processing}
+					<!-- the busy bar: the sealed request is being worked on in place -->
+					<div class="ilk-proc pointer-events-none absolute inset-x-0 bottom-0 h-[3px]"></div>
+				{/if}
 			</div>
 
 			<!-- the certifier's two stamps in flight: the strip patterns themselves -->
 			{@render filmchip(0, 'INPUT FINGERPRINT', reqFp, HUEA, chipA, CHIP_A, false)}
 			{@render filmchip(1, 'OUTPUT FINGERPRINT', rspFp, HUEB, chipB, CHIP_B, failB)}
-		</section>
+			</section>
+		</div>
 	</main>
 
 	{#if goingDown}

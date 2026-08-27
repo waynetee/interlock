@@ -160,7 +160,7 @@
 	line-height: 1.35;
 }
 .t-tag {
-	font-size: clamp(0.7rem, 0.82vw, 0.95rem);
+	font-size: clamp(0.78rem, 0.95vw, 1.1rem);
 	letter-spacing: 0.16em;
 }
 
@@ -225,27 +225,43 @@
  * down against the model backing, out of phase with each other so the stack
  * visibly refuses to resolve. Dropping the class transitions them home. */
 .ilk-hunt-a {
-	animation: ilk-hunt-a 1.5s ease-in-out infinite;
+	animation: ilk-hunt-a 1.05s ease-in-out infinite;
 }
 .ilk-hunt-b {
-	animation: ilk-hunt-b 1.9s ease-in-out infinite;
+	animation: ilk-hunt-b 1.35s ease-in-out infinite;
 }
 @keyframes ilk-hunt-a {
 	0%,
 	100% {
-		transform: translateY(-15%);
+		transform: translateY(-24%);
 	}
 	50% {
-		transform: translateY(13%);
+		transform: translateY(20%);
 	}
 }
 @keyframes ilk-hunt-b {
 	0%,
 	100% {
-		transform: translateY(16%);
+		transform: translateY(26%);
 	}
 	55% {
-		transform: translateY(-12%);
+		transform: translateY(-19%);
+	}
+}
+/* the processing bar: a gold segment chewing back and forth along the sealed
+ * request while the model turns it into the response */
+.ilk-proc {
+	background: linear-gradient(90deg, transparent, var(--caution), transparent);
+	background-size: 45% 100%;
+	background-repeat: no-repeat;
+	animation: ilk-proc 1.2s ease-in-out infinite alternate;
+}
+@keyframes ilk-proc {
+	from {
+		background-position: -30% 0;
+	}
+	to {
+		background-position: 130% 0;
 	}
 }
 
@@ -264,7 +280,8 @@
 	.ilk-bloom,
 	.ilk-breathe,
 	.ilk-hunt-a,
-	.ilk-hunt-b {
+	.ilk-hunt-b,
+	.ilk-proc {
 		animation: none;
 	}
 	.ilk-sweep {
