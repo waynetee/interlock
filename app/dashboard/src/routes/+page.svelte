@@ -67,7 +67,7 @@
 	 * answer ride the wire themselves, scrambling into their real ciphertext bytes
 	 * at the moment they are sealed and back at the moment they are opened.
 	 */
-	const STOP = [14, 41, 63];
+	const STOP = [15, 41, 60];
 	let pktX = $state(STOP[0]);
 	let pktText = $state('');
 	let pktSealed = $state(false);
@@ -86,7 +86,7 @@
 	 * 'held' is racked inside the certifier; 'docked' is arrived over the
 	 * register; 'gone' is absorbed into it (the register then shows the strip).
 	 */
-	type Chip = 'hidden' | 'held' | 'docked' | 'gone';
+	type Chip = 'hidden' | 'held' | 'drop' | 'run' | 'docked' | 'gone';
 	let chipA = $state<Chip>('hidden');
 	let chipB = $state<Chip>('hidden');
 	/** the model's own commitment is revealed in the cluster when the proof begins */
@@ -280,14 +280,25 @@
 		caption = 'The cluster reveals the fingerprint of the model it promised to run.';
 		if (!(await step(frozen() ? 30 : 1300, gen))) return;
 
-		// beat two: the certifier releases both films and they slide across
-		// together -- the proof that combines them runs on the Spark, so that is
-		// where they go
+		// beat two: the certifier releases both films and they ride the U --
+		// down through its floor, along the trench, up into the cluster from
+		// below. The proof that combines them runs on the Spark, so that is
+		// where they go. Output leads, input trails a beat behind, so the pair
+		// reads as a conveyor rather than a swap.
 		caption = 'The certifier sends its two fingerprints into the cluster.';
+		const t = (ms: number) => step(frozen() ? 30 : ms, gen);
+		chipB = 'drop';
+		if (!(await t(350))) return;
+		chipA = 'drop';
+		if (!(await t(400))) return;
+		chipB = 'run';
+		if (!(await t(350))) return;
+		chipA = 'run';
+		if (!(await t(700))) return;
 		chipB = 'docked';
-		if (!(await step(frozen() ? 30 : 200, gen))) return;
+		if (!(await t(350))) return;
 		chipA = 'docked';
-		if (!(await step(frozen() ? 30 : 1500, gen))) return;
+		if (!(await t(950))) return;
 		chipA = 'gone';
 		chipB = 'gone';
 		// `proving` is what puts the register into its search, and it stays up until
@@ -599,11 +610,26 @@
 	// the way the storyboard stacks them), then a long slide right into the
 	// cluster at prove time, where the register absorbs them. C never travels —
 	// the model commitment lives in the cluster and is simply revealed there.
-	// a film with its label runs ~10% of stage height: the two slots and the two
-	// docks are spaced 11.5% so the stack never collides with itself
+	// A film's journey is a U: racked inside the certifier (input low, output
+	// above -- the way the storyboard stacks them), then out through the
+	// certifier's floor, along the trench under the stage, and up into the
+	// cluster from below, where the register absorbs it beside the model
+	// commitment. Each leg is its own state so the corners are real corners.
+	// A film with its label runs ~10% of stage height; slots and docks are
+	// spaced ~11.5% so the stack never collides with itself.
 	const CHIP = {
-		A: { held: { x: 41, y: 75 }, dock: { x: 83, y: 48 } },
-		B: { held: { x: 41, y: 63.5 }, dock: { x: 83, y: 34 } }
+		A: {
+			held: { x: 41, y: 68.5 },
+			drop: { x: 41, y: 87 },
+			run: { x: 83, y: 87 },
+			dock: { x: 83, y: 43 }
+		},
+		B: {
+			held: { x: 41, y: 57 },
+			drop: { x: 41, y: 87 },
+			run: { x: 83, y: 87 },
+			dock: { x: 83, y: 31 }
+		}
 	};
 	const HUEA = '#b6e04c';
 	const HUEB = '#3fd2ea';
@@ -678,10 +704,10 @@
 	hex: string | null,
 	hue: string,
 	state: Chip,
-	pos: { held: { x: number; y: number }; dock: { x: number; y: number } },
+	pos: Record<'held' | 'drop' | 'run' | 'dock', { x: number; y: number }>,
 	bad: boolean
 )}
-	{@const at = state === 'held' ? pos.held : pos.dock}
+	{@const at = pos[state === 'hidden' ? 'held' : state === 'docked' || state === 'gone' ? 'dock' : state]}
 	{@const ink = bad ? 'var(--fault)' : hue}
 	{@const rows = filmStrips.heights[idx]}
 	<div
@@ -689,7 +715,11 @@
 			'absolute z-20 flex w-[clamp(110px,12vw,200px)] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 transition-all duration-[1100ms] ease-in-out motion-reduce:transition-none',
 			state === 'hidden' && 'scale-75 opacity-0',
 			state === 'held' && 'opacity-100 duration-[420ms]',
-			state === 'docked' && 'opacity-100',
+			// the U, leg by leg: ease into the drop, run the trench flat-out,
+			// ease off rising into the cluster
+			state === 'drop' && 'opacity-100 duration-[600ms] ease-in',
+			state === 'run' && 'opacity-100 duration-[1000ms] ease-linear',
+			state === 'docked' && 'opacity-100 duration-[800ms] ease-out',
 			state === 'gone' && 'scale-110 opacity-0 duration-[500ms]'
 		)}
 		style="left:{at.x}%;top:{at.y}%"
@@ -792,13 +822,13 @@
 
 			<!-- a drop from your machine down to the cable it is spliced into; the
 			     certifier needs none — the cable runs straight through its body -->
-			<div class="absolute top-[38%] h-[20%] w-px bg-border" style="left:{STOP[0]}%"></div>
+			<div class="absolute top-[30%] h-[18%] w-px bg-border" style="left:{STOP[0]}%"></div>
 
 			<!-- the cable, running from your machine into the cluster's mouth -->
-			<div class="absolute top-[58%] right-[32%] left-[5%] h-px bg-border"></div>
+			<div class="absolute top-[48%] right-[36%] left-[4%] h-px bg-border"></div>
 			<div
 				class={cn(
-					'absolute top-[58%] right-[32%] left-[5%] h-[2px] transition-opacity duration-500',
+					'absolute top-[48%] right-[36%] left-[4%] h-[2px] transition-opacity duration-500',
 					pktShown && (phase === 'req' || phase === 'gen' || phase === 'rsp')
 						? 'ilk-flow opacity-80'
 						: 'opacity-0'
@@ -835,7 +865,7 @@
 			     it stamps rack up inside it until the proof calls for them -->
 			<div
 				class={cn(
-					'absolute top-[6%] h-[76%] w-[clamp(180px,20vw,330px)] -translate-x-1/2 border bg-background transition-all duration-300',
+					'absolute top-[8%] h-[68%] w-[clamp(200px,24vw,380px)] -translate-x-1/2 border bg-background transition-all duration-300',
 					hotFpga ? 'border-signal shadow-[0_0_30px_-4px_var(--signal)]' : 'border-border'
 				)}
 				style="left:{STOP[1]}%"
@@ -846,11 +876,12 @@
 			</div>
 
 			<!-- the GPU cluster: where the model runs, and where the proof combines.
-			     Shorter than the certifier on purpose — the storyboard reads the
-			     certifier as the dominant body on the wire. -->
+			     Top-aligned with the certifier and shorter, the way the storyboard
+			     draws them — the certifier is the dominant body on the wire, and
+			     the films rise into this box from below. -->
 			<div
 				class={cn(
-					'absolute inset-y-[11%] right-[2%] left-[68%] flex flex-col overflow-hidden border bg-background transition-all duration-500',
+					'absolute top-[8%] right-[3%] left-[66%] h-[52%] flex flex-col overflow-hidden border bg-background transition-all duration-500',
 					verdict
 						? verdict.verdict === 'PASS'
 							? 'border-verified shadow-[0_0_40px_-4px_var(--verified)]'
@@ -887,7 +918,7 @@
 			<!-- the payload: the text itself rides the cable, sealed or open -->
 			<div
 				class={cn(
-					'absolute top-[58%] z-10 flex max-w-[38%] -translate-x-1/2 -translate-y-1/2 items-center gap-2 overflow-hidden border px-3 py-1.5 font-mono whitespace-nowrap transition-all duration-[900ms] ease-in-out motion-reduce:transition-none',
+					'absolute top-[48%] z-10 flex max-w-[38%] -translate-x-1/2 -translate-y-1/2 items-center gap-2 overflow-hidden border px-3 py-1.5 font-mono whitespace-nowrap transition-all duration-[900ms] ease-in-out motion-reduce:transition-none',
 					pktSealed
 						? 'border-border bg-muted text-muted-foreground'
 						: 'border-signal bg-[color-mix(in_srgb,var(--signal)_14%,var(--background))] text-signal shadow-[0_0_22px_-3px_var(--signal)]',
