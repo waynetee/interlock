@@ -33,7 +33,6 @@
 	import { cn } from '$lib/utils';
 	import { resolve } from '$app/paths';
 	import { io, type Socket } from 'socket.io-client';
-	import { scale } from 'svelte/transition';
 	import { onDestroy, onMount } from 'svelte';
 
 	type Verdict = { verdict: string; U: string; verify: string; keybind: string };
@@ -169,12 +168,14 @@
 		scrRaf = requestAnimationFrame(tick);
 	}
 
-	/** the payload's ciphertext, cut to the same length so the chip holds its shape */
+	/** the payload's ciphertext, capped to ONE line of the card -- a window onto
+	 * the real bytes, not all of them */
 	function cipherOf(hex: string | undefined, n: number) {
 		let h = (hex || '').toUpperCase().replace(/[^0-9A-F]/g, '');
 		if (!h) h = 'A7F03C9E5B21D48C6E90F17B24A8D35E';
-		while (h.length < n) h += h;
-		return '0x' + h.slice(0, Math.max(10, n));
+		const k = Math.min(16, Math.max(10, n));
+		while (h.length < k) h += h;
+		return '0x' + h.slice(0, k);
 	}
 
 	/** the card wraps now, so the ceiling is about keeping it a card, not a page */
@@ -1105,30 +1106,29 @@
 				style="left:{pktX.x}%;top:{pktX.y}%"
 			>
 				{#if sealing}
-					<!-- the key operation, named while it runs -->
+					<!-- the key operation, named while it runs -- the lock rides beside
+					     the word, closed while sealing, open while opening -->
 					<span
-						class="absolute bottom-full left-0 mb-[0.35cqw] font-mono text-[0.85cqw] tracking-[0.14em] uppercase text-[#d9a13b]"
-						>{sealing}…</span
+						class="absolute bottom-full left-0 mb-[0.35cqw] flex items-center gap-[0.4cqw] font-mono text-[0.85cqw] tracking-[0.14em] uppercase text-[#d9a13b]"
 					>
-				{/if}
-				<!-- the padlock's SEAT is always there, so sealing never rewraps the
-				     text; the lock itself exists only while the payload is sealed --
-				     there is no open-lock glyph, absence is the open state -->
-				<span class="mt-[0.15em] inline-block size-[1.15em] shrink-0" aria-hidden="true">
-					{#if pktSealed}
 						<svg
 							viewBox="0 0 24 24"
-							class="size-full text-[#d9a13b]"
+							class="size-[1.25em] shrink-0"
 							fill="none"
 							stroke="currentColor"
 							stroke-width="2.4"
-							transition:scale={{ duration: 260 }}
+							aria-hidden="true"
 						>
 							<rect x="4" y="11" width="16" height="10" rx="1.5" />
-							<path d="M8 11V7a4 4 0 0 1 8 0v4" />
+							{#if sealing === 'encrypting'}
+								<path d="M8 11V7a4 4 0 0 1 8 0v4" />
+							{:else}
+								<path d="M8 11V7a4 4 0 0 1 7.4-2" />
+							{/if}
 						</svg>
-					{/if}
-				</span>
+						{sealing}…</span
+					>
+				{/if}
 				<!-- ciphertext has no spaces to break on, so it breaks anywhere;
 				     plaintext keeps its words whole -->
 				<span
@@ -1151,7 +1151,6 @@
 					? '0ms'
 					: '900ms'} ease-in-out"
 			>
-				<span class="mt-[0.15em] inline-block size-[1.15em] shrink-0" aria-hidden="true"></span>
 				<span class="min-w-0 flex-1 text-[1.25cqw] leading-snug break-words">{gqText}</span>
 				{#if processing}
 					<!-- the busy bar: the model is running on this request -->
