@@ -66,7 +66,11 @@
 	 * answer ride the wire themselves, scrambling into their real ciphertext bytes
 	 * at the moment they are sealed and back at the moment they are opened.
 	 */
-	const STOP = [13, 38, 60];
+	const STOP = [
+		{ x: 13, y: 44 },
+		{ x: 38, y: 44 },
+		{ x: 81.5, y: 34 } // the center of the GPU cluster: generation happens IN there
+	];
 	let pktX = $state(STOP[0]);
 	let pktText = $state('');
 	let pktSealed = $state(false);
@@ -284,18 +288,21 @@
 		// reads as a conveyor rather than a swap.
 		caption = 'The certifier sends its two fingerprints into the cluster.';
 		const t = (ms: number) => step(frozen() ? 30 : ms, gen);
+		// The two films share one trench, so the spacing is temporal: the input
+		// film only enters the run once the output film is more than a film's
+		// width ahead, and they never overlap until the moment they combine.
 		chipB = 'drop';
-		if (!(await t(350))) return;
-		chipA = 'drop';
-		if (!(await t(400))) return;
+		if (!(await t(650))) return;
 		chipB = 'run';
-		if (!(await t(350))) return;
+		if (!(await t(100))) return;
+		chipA = 'drop';
+		if (!(await t(650))) return;
 		chipA = 'run';
-		if (!(await t(700))) return;
+		if (!(await t(300))) return;
 		chipB = 'docked';
-		if (!(await t(350))) return;
+		if (!(await t(750))) return;
 		chipA = 'docked';
-		if (!(await t(950))) return;
+		if (!(await t(900))) return;
 		chipA = 'gone';
 		chipB = 'gone';
 		// `proving` is what puts the register into its search, and it stays up until
@@ -603,16 +610,16 @@
 	// spaced ~11.5% so the stack never collides with itself.
 	const CHIP = {
 		A: {
-			held: { x: 38, y: 71.5 },
+			held: { x: 38, y: 74.5 },
 			drop: { x: 38, y: 88 },
 			run: { x: 81.5, y: 88 },
-			dock: { x: 81.5, y: 39 }
+			dock: { x: 81.5, y: 40 }
 		},
 		B: {
-			held: { x: 38, y: 57 },
+			held: { x: 38, y: 57.5 },
 			drop: { x: 38, y: 88 },
 			run: { x: 81.5, y: 88 },
-			dock: { x: 81.5, y: 33 }
+			dock: { x: 81.5, y: 31 }
 		}
 	};
 	const HUEA = '#b6e04c';
@@ -620,7 +627,7 @@
 	const HUEC = '#c98cf6';
 	/** one width for a film everywhere it appears, so landing IS combining --
 	 * nothing resizes between the flight and the stack */
-	const FILMW = 'clamp(160px,21vw,380px)';
+	const FILMW = 'clamp(180px,24vw,440px)';
 	/** per-cell brightness, the same ramp the printed films use */
 	const ALPHA = [0, 0.55, 0.68, 0.8, 0.92];
 	const failB = $derived(!!verdict && verdict.verdict !== 'PASS');
@@ -714,15 +721,20 @@
 		)}
 		style="left:{at.x}%;top:{at.y}%;width:{FILMW}"
 	>
-		<span class="t-tag font-mono whitespace-nowrap" style="color:{ink}"
-			>{role} · {hex ? '0x' + short(hex, 8) : '—'}</span
+		<!-- the name rides along until the film reaches the stack: from there the
+		     strips overlap on purpose, and three labels in one place is scribble -->
+		<span
+			class={cn(
+				'font-mono text-[clamp(0.72rem,0.85vw,1.05rem)] whitespace-nowrap uppercase transition-opacity duration-300',
+				(state === 'docked' || state === 'gone') && 'opacity-0'
+			)}
+			style="color:{ink}">{role} · {hex ? '0x' + short(hex, 8) : '—'}</span
 		>
 		<!-- the strip's actual cells: what flies is what the register composes -->
 		<svg
 			viewBox="0 0 {DEFAULT_GRID.cols} {rows}"
 			class="w-full"
 			preserveAspectRatio="none"
-			style="filter:drop-shadow(0 0 6px {ink})"
 			aria-hidden="true"
 		>
 			{#each { length: rows } as _r, r (r)}
@@ -813,7 +825,7 @@
 
 			<!-- a drop from your machine down to the cable it is spliced into; the
 			     certifier needs none — the cable runs straight through its body -->
-			<div class="absolute top-[28%] h-[16%] w-px bg-border" style="left:{STOP[0]}%"></div>
+			<div class="absolute top-[28%] h-[16%] w-px bg-border" style="left:{STOP[0].x}%"></div>
 
 			<!-- the cable, running from your machine into the cluster's mouth -->
 			<div class="absolute top-[44%] right-[36%] left-[4%] h-px bg-border"></div>
@@ -832,14 +844,11 @@
 					'absolute top-[14%] flex -translate-x-1/2 flex-col items-center gap-1.5 transition-colors duration-300',
 					hotHome ? 'text-signal' : 'text-muted-foreground'
 				)}
-				style="left:{STOP[0]}%"
+				style="left:{STOP[0].x}%"
 			>
 				<svg
 					viewBox="0 0 24 24"
-					class={cn(
-						'w-[clamp(2.6rem,4.2vw,4.2rem)] transition-all duration-300',
-						hotHome && 'drop-shadow-[0_0_14px_var(--signal)]'
-					)}
+					class="w-[clamp(2.6rem,4.2vw,4.2rem)] transition-all duration-300"
 					fill="none"
 					stroke="currentColor"
 					stroke-width="1.3"
@@ -856,10 +865,10 @@
 			     it stamps rack up inside it until the proof calls for them -->
 			<div
 				class={cn(
-					'absolute top-[8%] h-[72%] w-[clamp(230px,28vw,460px)] -translate-x-1/2 border bg-background transition-all duration-300',
-					hotFpga ? 'border-signal shadow-[0_0_30px_-4px_var(--signal)]' : 'border-border'
+					'absolute top-[8%] h-[76%] w-[clamp(260px,31vw,520px)] -translate-x-1/2 border bg-background transition-all duration-300',
+					hotFpga ? 'border-signal' : 'border-border'
 				)}
-				style="left:{STOP[1]}%"
+				style="left:{STOP[1].x}%"
 			>
 				<div class="pt-[1.6vh] text-center">
 					<div class="t-body font-mono font-semibold tracking-[0.05em]">NETWORK CERTIFIER</div>
@@ -875,10 +884,10 @@
 					'absolute top-[8%] right-[3%] left-[66%] h-[52%] flex flex-col overflow-hidden border bg-background transition-all duration-500',
 					verdict
 						? verdict.verdict === 'PASS'
-							? 'border-verified shadow-[0_0_40px_-4px_var(--verified)]'
-							: 'border-fault shadow-[0_0_40px_-4px_var(--fault)]'
+							? 'border-verified'
+							: 'border-fault'
 						: hotSpark
-							? 'border-signal shadow-[0_0_30px_-4px_var(--signal)]'
+							? 'border-signal'
 							: 'border-border'
 				)}
 			>
@@ -907,10 +916,18 @@
 				     runs the two sliders rake against the backing; the verdict snaps
 				     them home, and the stack IS the verdict: three shares that tile
 				     leave the word black, a rogue output leaves noise. -->
-				<div class="relative flex min-h-0 flex-1 items-center justify-center">
+				<div class="relative flex min-h-0 flex-1 flex-col items-center justify-center gap-1.5">
+					<span
+						class={cn(
+							'font-mono text-[clamp(0.72rem,0.85vw,1.05rem)] whitespace-nowrap uppercase transition-opacity duration-400',
+							regModel ? 'opacity-100' : 'opacity-0'
+						)}
+						style="color:{HUEC}"
+						>declared model fingerprint · {regModel ? '0x' + short(regModel, 8) : '—'}</span
+					>
 					<div
-						class="relative"
-						style="width:min({FILMW},92%);aspect-ratio:{DEFAULT_GRID.cols}/{filmStrips.pile}"
+						class="relative w-full"
+						style="max-width:min({FILMW},92%);aspect-ratio:{DEFAULT_GRID.cols}/{filmStrips.pile}"
 					>
 						{#each [2, 0, 1] as i (i)}
 							{@const on = i === 2 ? !!regModel : i === 0 ? !!regReq : !!regRsp}
@@ -927,7 +944,7 @@
 								)}
 								style="top:{(home / filmStrips.pile) * 100}%;height:{(filmStrips.heights[i] /
 									filmStrips.pile) *
-									100}%;filter:drop-shadow(0 0 5px {ink})"
+									100}%"
 								aria-hidden="true"
 							>
 								{#each { length: filmStrips.heights[i] } as _r, r (r)}
@@ -949,13 +966,13 @@
 			     character but never reshapes the envelope. -->
 			<div
 				class={cn(
-					'absolute top-[44%] z-10 flex w-[clamp(200px,21vw,360px)] -translate-x-1/2 -translate-y-1/2 items-start gap-2 border px-3 py-1.5 font-mono transition-all duration-[900ms] ease-in-out motion-reduce:transition-none',
+					'absolute z-10 flex w-[clamp(230px,24vw,420px)] -translate-x-1/2 -translate-y-1/2 items-start gap-2 border px-3 py-1.5 font-mono transition-all duration-[900ms] ease-in-out motion-reduce:transition-none',
 					pktSealed
 						? 'border-border bg-muted text-muted-foreground'
-						: 'border-signal bg-[color-mix(in_srgb,var(--signal)_14%,var(--background))] text-signal shadow-[0_0_22px_-3px_var(--signal)]',
+						: 'border-signal bg-[color-mix(in_srgb,var(--signal)_14%,var(--background))] text-signal',
 					pktShown ? 'opacity-100' : 'opacity-0'
 				)}
-				style="left:{pktX}%"
+				style="left:{pktX.x}%;top:{pktX.y}%"
 			>
 				<svg
 					viewBox="0 0 24 24"
@@ -974,14 +991,18 @@
 				</svg>
 				<!-- ciphertext has no spaces to break on, so it breaks anywhere;
 				     plaintext keeps its words whole -->
-				<span class={cn('t-body min-w-0 flex-1', pktSealed ? 'break-all' : 'break-words')}
+				<span
+					class={cn(
+						'min-w-0 flex-1 text-[clamp(0.95rem,1.15vw,1.4rem)] leading-snug',
+						pktSealed ? 'break-all' : 'break-words'
+					)}
 					>{pktText}</span
 				>
 			</div>
 
 			<!-- the certifier's two stamps in flight: the strip patterns themselves -->
-			{@render filmchip(0, 'REQUEST', reqFp, HUEA, chipA, CHIP.A, false)}
-			{@render filmchip(1, 'RESPONSE', rspFp, HUEB, chipB, CHIP.B, failB)}
+			{@render filmchip(0, 'INPUT FINGERPRINT', reqFp, HUEA, chipA, CHIP.A, false)}
+			{@render filmchip(1, 'OUTPUT FINGERPRINT', rspFp, HUEB, chipB, CHIP.B, failB)}
 		</section>
 	</main>
 
