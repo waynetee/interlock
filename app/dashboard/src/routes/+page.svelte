@@ -22,7 +22,6 @@
 	 * model's own commitment, because that is where the proof actually runs. The
 	 * numbers an engineer wants are on the console and in /lab.
 	 */
-	import FingerprintRegister, { type Stage } from '$lib/components/fingerprint-register.svelte';
 	import {
 		build,
 		stencil,
@@ -67,7 +66,7 @@
 	 * answer ride the wire themselves, scrambling into their real ciphertext bytes
 	 * at the moment they are sealed and back at the moment they are opened.
 	 */
-	const STOP = [15, 41, 60];
+	const STOP = [13, 38, 60];
 	let pktX = $state(STOP[0]);
 	let pktText = $state('');
 	let pktSealed = $state(false);
@@ -96,7 +95,6 @@
 	let promptText = $state('');
 	let answer = $state('');
 	let verdict = $state<Verdict | null>(null);
-	let elapsed = $state('');
 
 	const short = (h: string | null, n = 8) => (h ? h.slice(0, n).toUpperCase() : '—');
 	/** the run's narration, on the console rather than on the lid */
@@ -158,8 +156,8 @@
 		return '0x' + h.slice(0, Math.max(10, n));
 	}
 
-	/** a long answer still has to fit the chip; the full text lands in the corner */
-	const clip = (s: string, n = 44) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
+	/** the card wraps now, so the ceiling is about keeping it a card, not a page */
+	const clip = (s: string, n = 120) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 
 	/** Everything a run puts on the screen. The switches are not part of a run. */
 	function clearRun() {
@@ -177,7 +175,6 @@
 		promptText = '';
 		answer = '';
 		verdict = null;
-		elapsed = '';
 		tampered = false;
 		simRun = false;
 		busy = false;
@@ -241,7 +238,7 @@
 		if (!(await step(1500, gen))) return;
 
 		pktSealed = true;
-		scrambleTo(cipherOf(d.ct_out, Math.min(clip(text).length, 44)));
+		scrambleTo(cipherOf(d.ct_out, clip(text).length));
 		caption = '…and encrypts it for the trip back.';
 		if (!(await step(1100, gen))) return;
 
@@ -314,7 +311,6 @@
 		// second Prompt -- must not repaint the panel it is no longer about.
 		if (gen !== generation) return;
 		verdict = d.result as Verdict;
-		elapsed = d.secs ? `${d.secs}s` : '';
 		phase = 'done';
 		proving = false;
 		hotSpark = false;
@@ -359,6 +355,10 @@
 			generation += 1; // orphans any in-flight animation from a previous run
 			chain = Promise.resolve();
 			clearRun();
+			// The server says beat:armed BEFORE beat:start, so the clear above just
+			// ate it. The switch state is this client's own request, so it is the
+			// truth about the run it just launched.
+			tampered = armed;
 			promptText = d?.prompt ?? '';
 			busy = true;
 		});
@@ -541,30 +541,14 @@
 		socket?.emit('demo:shutdown', { confirm: 'POWER OFF' });
 	}
 
-	// ── the register ───────────────────────────────────────────────────────────
-	// Three sheets: the two the certifier stamped on the way past, and the model's
-	// own, which is fixed before anything is sent. They combine inside the GPU
-	// cluster because that is where the proof runs; the register hunts while the
-	// prover does and settles when it rules.
+	// ── the combine ────────────────────────────────────────────────────────────
 	// What the cluster actually HOLDS, as opposed to what exists somewhere on the
 	// stage: the model commitment once the proof reveals it, and the certifier's
-	// films only once the register has absorbed them. The register and the tray
-	// both read these, so nothing shows up inside the cluster before the
-	// storyboard says it arrived.
+	// two films only once they have landed. The stack reads these, so nothing
+	// shows up inside the cluster before the storyboard says it arrived.
 	const regReq = $derived(chipA === 'gone' ? reqFp : null);
 	const regRsp = $derived(chipB === 'gone' ? rspFp : null);
 	const regModel = $derived(modelShown ? modelFp : null);
-	const fpStage = $derived(
-		(verdict
-			? verdict.verdict === 'PASS'
-				? 'pass'
-				: 'fail'
-			: proving
-				? 'searching'
-				: regReq || regModel
-					? 'dealing'
-					: 'idle') as Stage
-	);
 
 	// ── the strip that is never dismissible when it matters ────────────────────
 	/**
@@ -619,20 +603,26 @@
 	// spaced ~11.5% so the stack never collides with itself.
 	const CHIP = {
 		A: {
-			held: { x: 41, y: 68.5 },
-			drop: { x: 41, y: 87 },
-			run: { x: 83, y: 87 },
-			dock: { x: 83, y: 43 }
+			held: { x: 38, y: 71.5 },
+			drop: { x: 38, y: 88 },
+			run: { x: 81.5, y: 88 },
+			dock: { x: 81.5, y: 39 }
 		},
 		B: {
-			held: { x: 41, y: 57 },
-			drop: { x: 41, y: 87 },
-			run: { x: 83, y: 87 },
-			dock: { x: 83, y: 31 }
+			held: { x: 38, y: 57 },
+			drop: { x: 38, y: 88 },
+			run: { x: 81.5, y: 88 },
+			dock: { x: 81.5, y: 33 }
 		}
 	};
 	const HUEA = '#b6e04c';
 	const HUEB = '#3fd2ea';
+	const HUEC = '#c98cf6';
+	/** one width for a film everywhere it appears, so landing IS combining --
+	 * nothing resizes between the flight and the stack */
+	const FILMW = 'clamp(160px,21vw,380px)';
+	/** per-cell brightness, the same ramp the printed films use */
+	const ALPHA = [0, 0.55, 0.68, 0.8, 0.92];
 	const failB = $derived(!!verdict && verdict.verdict !== 'PASS');
 	// The films' own cell patterns — the same strips the register is composing,
 	// derived from the same digests, so what flies is what lands.
@@ -642,7 +632,7 @@
 	const clusterStatus = $derived(
 		verdict
 			? verdict.verdict === 'PASS'
-				? `verified${elapsed ? ' · ' + elapsed : ''}`
+				? 'verified'
 				: 'rejected'
 			: proving
 				? 'aligning the fingerprints…'
@@ -712,7 +702,7 @@
 	{@const rows = filmStrips.heights[idx]}
 	<div
 		class={cn(
-			'absolute z-20 flex w-[clamp(110px,12vw,200px)] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 transition-all duration-[1100ms] ease-in-out motion-reduce:transition-none',
+			'absolute z-20 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 transition-all duration-[1100ms] ease-in-out motion-reduce:transition-none',
 			state === 'hidden' && 'scale-75 opacity-0',
 			state === 'held' && 'opacity-100 duration-[420ms]',
 			// the U, leg by leg: ease into the drop, run the trench flat-out,
@@ -720,9 +710,9 @@
 			state === 'drop' && 'opacity-100 duration-[600ms] ease-in',
 			state === 'run' && 'opacity-100 duration-[1000ms] ease-linear',
 			state === 'docked' && 'opacity-100 duration-[800ms] ease-out',
-			state === 'gone' && 'scale-110 opacity-0 duration-[500ms]'
+			state === 'gone' && 'opacity-0 duration-[400ms]'
 		)}
-		style="left:{at.x}%;top:{at.y}%"
+		style="left:{at.x}%;top:{at.y}%;width:{FILMW}"
 	>
 		<span class="t-tag font-mono whitespace-nowrap" style="color:{ink}"
 			>{role} · {hex ? '0x' + short(hex, 8) : '—'}</span
@@ -737,8 +727,9 @@
 		>
 			{#each { length: rows } as _r, r (r)}
 				{#each { length: DEFAULT_GRID.cols } as _c, c (c)}
-					{#if filmStrips.cells[idx][r * DEFAULT_GRID.cols + c] > 0}
-						<rect x={c} y={r} width="1.05" height="1.05" fill={ink} />
+					{@const v = filmStrips.cells[idx][r * DEFAULT_GRID.cols + c]}
+					{#if v > 0}
+						<rect x={c} y={r} width="1.05" height="1.05" fill={ink} fill-opacity={ALPHA[v]} />
 					{/if}
 				{/each}
 			{/each}
@@ -822,13 +813,13 @@
 
 			<!-- a drop from your machine down to the cable it is spliced into; the
 			     certifier needs none — the cable runs straight through its body -->
-			<div class="absolute top-[30%] h-[18%] w-px bg-border" style="left:{STOP[0]}%"></div>
+			<div class="absolute top-[28%] h-[16%] w-px bg-border" style="left:{STOP[0]}%"></div>
 
 			<!-- the cable, running from your machine into the cluster's mouth -->
-			<div class="absolute top-[48%] right-[36%] left-[4%] h-px bg-border"></div>
+			<div class="absolute top-[44%] right-[36%] left-[4%] h-px bg-border"></div>
 			<div
 				class={cn(
-					'absolute top-[48%] right-[36%] left-[4%] h-[2px] transition-opacity duration-500',
+					'absolute top-[44%] right-[36%] left-[4%] h-[2px] transition-opacity duration-500',
 					pktShown && (phase === 'req' || phase === 'gen' || phase === 'rsp')
 						? 'ilk-flow opacity-80'
 						: 'opacity-0'
@@ -865,7 +856,7 @@
 			     it stamps rack up inside it until the proof calls for them -->
 			<div
 				class={cn(
-					'absolute top-[8%] h-[68%] w-[clamp(200px,24vw,380px)] -translate-x-1/2 border bg-background transition-all duration-300',
+					'absolute top-[8%] h-[72%] w-[clamp(230px,28vw,460px)] -translate-x-1/2 border bg-background transition-all duration-300',
 					hotFpga ? 'border-signal shadow-[0_0_30px_-4px_var(--signal)]' : 'border-border'
 				)}
 				style="left:{STOP[1]}%"
@@ -909,16 +900,56 @@
 						>
 					{/if}
 				</div>
-				<!-- the register: three fingerprints hunting for the seat, then the word.
-				     It is fed only what the cluster HOLDS — the model commitment once
-				     revealed, the films once absorbed — never a value still in transit. -->
-				<FingerprintRegister req={regReq} rsp={regRsp} model={regModel} stage={fpStage} embed />
+				<!-- the combine: the three films stacked at true registration, in place
+				     and at film size — landing IS combining, there is no handoff to a
+				     larger instrument. C is the model commitment, revealed when the
+				     proof begins; A and B appear the moment they land. While the prover
+				     runs the two sliders rake against the backing; the verdict snaps
+				     them home, and the stack IS the verdict: three shares that tile
+				     leave the word black, a rogue output leaves noise. -->
+				<div class="relative flex min-h-0 flex-1 items-center justify-center">
+					<div
+						class="relative"
+						style="width:min({FILMW},92%);aspect-ratio:{DEFAULT_GRID.cols}/{filmStrips.pile}"
+					>
+						{#each [2, 0, 1] as i (i)}
+							{@const on = i === 2 ? !!regModel : i === 0 ? !!regReq : !!regRsp}
+							{@const ink = i === 2 ? HUEC : i === 0 ? HUEA : failB ? 'var(--fault)' : HUEB}
+							{@const home = i === 1 ? filmStrips.slack : 0}
+							<svg
+								viewBox="0 0 {DEFAULT_GRID.cols} {filmStrips.heights[i]}"
+								preserveAspectRatio="none"
+								class={cn(
+									'absolute left-0 w-full transition-opacity duration-400',
+									on ? 'opacity-100' : 'opacity-0',
+									proving && i === 0 && 'ilk-hunt-a',
+									proving && i === 1 && 'ilk-hunt-b'
+								)}
+								style="top:{(home / filmStrips.pile) * 100}%;height:{(filmStrips.heights[i] /
+									filmStrips.pile) *
+									100}%;filter:drop-shadow(0 0 5px {ink})"
+								aria-hidden="true"
+							>
+								{#each { length: filmStrips.heights[i] } as _r, r (r)}
+									{#each { length: DEFAULT_GRID.cols } as _c, c (c)}
+										{@const v = filmStrips.cells[i][r * DEFAULT_GRID.cols + c]}
+										{#if v > 0}
+											<rect x={c} y={r} width="1.05" height="1.05" fill={ink} fill-opacity={ALPHA[v]} />
+										{/if}
+									{/each}
+								{/each}
+							</svg>
+						{/each}
+					</div>
+				</div>
 			</div>
 
-			<!-- the payload: the text itself rides the cable, sealed or open -->
+			<!-- the payload: the text itself rides the cable, sealed or open. Fixed
+			     width, wrapping to as many lines as it needs — sealing swaps every
+			     character but never reshapes the envelope. -->
 			<div
 				class={cn(
-					'absolute top-[48%] z-10 flex max-w-[38%] -translate-x-1/2 -translate-y-1/2 items-center gap-2 overflow-hidden border px-3 py-1.5 font-mono whitespace-nowrap transition-all duration-[900ms] ease-in-out motion-reduce:transition-none',
+					'absolute top-[44%] z-10 flex w-[clamp(200px,21vw,360px)] -translate-x-1/2 -translate-y-1/2 items-start gap-2 border px-3 py-1.5 font-mono transition-all duration-[900ms] ease-in-out motion-reduce:transition-none',
 					pktSealed
 						? 'border-border bg-muted text-muted-foreground'
 						: 'border-signal bg-[color-mix(in_srgb,var(--signal)_14%,var(--background))] text-signal shadow-[0_0_22px_-3px_var(--signal)]',
@@ -928,7 +959,7 @@
 			>
 				<svg
 					viewBox="0 0 24 24"
-					class="size-[1.15em] shrink-0"
+					class="mt-[0.15em] size-[1.15em] shrink-0"
 					fill="none"
 					stroke="currentColor"
 					stroke-width="2.4"
@@ -941,7 +972,11 @@
 						<path d="M8 11V7a4 4 0 0 1 7.4-2" />
 					{/if}
 				</svg>
-				<span class="t-body overflow-hidden">{pktText}</span>
+				<!-- ciphertext has no spaces to break on, so it breaks anywhere;
+				     plaintext keeps its words whole -->
+				<span class={cn('t-body min-w-0 flex-1', pktSealed ? 'break-all' : 'break-words')}
+					>{pktText}</span
+				>
 			</div>
 
 			<!-- the certifier's two stamps in flight: the strip patterns themselves -->

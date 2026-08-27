@@ -221,6 +221,33 @@
 .ilk-breathe {
 	animation: ilk-breathe 2.8s ease-in-out infinite;
 }
+/* The combine hunting: while the prover runs, the two sliding films rake up and
+ * down against the model backing, out of phase with each other so the stack
+ * visibly refuses to resolve. Dropping the class transitions them home. */
+.ilk-hunt-a {
+	animation: ilk-hunt-a 2.7s ease-in-out infinite;
+}
+.ilk-hunt-b {
+	animation: ilk-hunt-b 3.4s ease-in-out infinite;
+}
+@keyframes ilk-hunt-a {
+	0%,
+	100% {
+		transform: translateY(-7%);
+	}
+	50% {
+		transform: translateY(6%);
+	}
+}
+@keyframes ilk-hunt-b {
+	0%,
+	100% {
+		transform: translateY(8%);
+	}
+	55% {
+		transform: translateY(-5%);
+	}
+}
 
 /* On a short panel the pile is what has to survive. The per-sheet previews are the
  * secondary graphic, and under 720px they were taking a third of the register's
@@ -235,7 +262,9 @@
 	.ilk-flow,
 	.ilk-sweep,
 	.ilk-bloom,
-	.ilk-breathe {
+	.ilk-breathe,
+	.ilk-hunt-a,
+	.ilk-hunt-b {
 		animation: none;
 	}
 	.ilk-sweep {
