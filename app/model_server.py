@@ -442,7 +442,22 @@ def main():
             if "bootstrap" not in str(e):
                 raise
             print("[wire] %s -- recovering the port in place" % e, flush=True)
-            port.recover()
+            try:
+                port.recover()
+            except RuntimeError as e2:
+                if "not being fed" in str(e2):
+                    # Sync frames can be on the wire while THIS process's socket
+                    # is blind: an AF_PACKET socket bound during a boot-time NIC
+                    # flap never receives again (observed 2026-08-27 -- tcpdump
+                    # saw the 1 kHz stream, the container did not). No
+                    # in-process recovery can rebind it, so exit and let the
+                    # restart policy start clean. A genuinely quiet board makes
+                    # this a backoff restart loop, which bringup.sh already
+                    # blesses as self-healing once the interlock is powered.
+                    print("[wire] port starved of sync (%s) -- exiting for a "
+                          "clean restart" % e2, flush=True)
+                    sys.exit(3)
+                raise
             return fn(*a)
 
     while True:
