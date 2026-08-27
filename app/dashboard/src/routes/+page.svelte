@@ -70,7 +70,7 @@
 	// One y for the whole journey: the card rides the cable's height everywhere,
 	// including inside the cluster -- it moves left to right and never bobs.
 	const STOP = [
-		{ x: 15, y: 41 },
+		{ x: 11, y: 41 },
 		{ x: 39, y: 41 },
 		{ x: 81.5, y: 41 }
 	];
@@ -626,8 +626,6 @@
 			.replace(/\s*Answer:\s*$/i, '')
 			.trim()
 	);
-	/** the far end is doing something you cannot see: say so with a sweep, not a word */
-	const working = $derived(phase === 'gen' || phase === 'prove');
 	/** and your own machine lights up for the two moments the key is in use —
 	 * not for the whole time the delivered answer sits parked there */
 	const hotHome = $derived(pktShown && pktX === STOP[0] && (phase === 'req' || phase === 'rsp'));
@@ -665,13 +663,13 @@
 		held: SLOT_FRESH,
 		drop: { x: 39, y: 92 },
 		run: { x: 81.5, y: 92 },
-		dock: { x: 81.5, y: 43, dy: 1 }
+		dock: { x: 81.5, y: 45.3, dy: 1 }
 	};
 	const CHIP_A = $derived({
 		held: chipB === 'hidden' ? SLOT_FRESH : SLOT_PUSHED,
 		drop: { x: 39, y: 92 },
 		run: { x: 81.5, y: 92 },
-		dock: { x: 81.5, y: 43, dy: -1 }
+		dock: { x: 81.5, y: 45.3, dy: -1 }
 	});
 	/** a chip's top style: plain %, or % plus a whole number of stack rows */
 	const chipTop = (at: { y: number; dy?: number }) =>
@@ -890,14 +888,14 @@
 			     across into the certifier's wall -- and a second run from the
 			     certifier's far wall into the cluster. Plain hairlines: the payload
 			     card itself is the traffic. -->
-			<div class="absolute top-[24%] left-[11%] h-[17%] w-px bg-border"></div>
+			<div class="absolute top-[21%] left-[11%] h-[20%] w-px bg-border"></div>
 			<div class="absolute top-[41%] right-[70%] left-[11%] h-px bg-border"></div>
-			<div class="absolute top-[41%] right-[33%] left-[48%] h-px bg-border"></div>
+			<div class="absolute top-[41%] right-[35%] left-[48%] h-px bg-border"></div>
 
 			<!-- your machine: the globe at the top of the L -->
 			<div
 				class={cn(
-					'absolute top-[14%] left-[11%] -translate-x-1/2 -translate-y-1/2 transition-colors duration-300',
+					'absolute top-[12%] left-[11%] -translate-x-1/2 -translate-y-1/2 transition-colors duration-300',
 					hotHome ? 'text-signal' : 'text-muted-foreground'
 				)}
 			>
@@ -920,7 +918,7 @@
 			     it stamps rack up inside it until the proof calls for them -->
 			<div
 				class={cn(
-					'absolute top-[8%] h-[78%] w-[clamp(280px,34vw,560px)] -translate-x-1/2 border bg-background transition-all duration-300',
+					'absolute top-[5%] h-[81%] w-[clamp(240px,26vw,500px)] -translate-x-1/2 border bg-background transition-all duration-300',
 					hotFpga ? 'border-signal' : 'border-border'
 				)}
 				style="left:{STOP[1].x}%"
@@ -936,7 +934,7 @@
 			     the films rise into this box from below. -->
 			<div
 				class={cn(
-					'absolute top-[8%] right-[3%] left-[66%] h-[66%] flex flex-col overflow-hidden border bg-background transition-all duration-500',
+					'absolute top-[5%] right-[1%] left-[64%] h-[72%] flex flex-col overflow-hidden border bg-background transition-all duration-500',
 					verdict
 						? verdict.verdict === 'PASS'
 							? 'border-verified'
@@ -946,9 +944,6 @@
 							: 'border-border'
 				)}
 			>
-				{#if working}
-					<div class="ilk-sweep pointer-events-none absolute inset-x-0 h-1/4 bg-signal/10"></div>
-				{/if}
 				<div class="flex shrink-0 flex-col items-center gap-0.5 border-b border-border px-3 py-1.5">
 					<span class="t-body font-mono font-semibold tracking-[0.05em]">GPU CLUSTER</span>
 					{#if clusterStatus}
@@ -970,11 +965,10 @@
 				     stage y 43) so the flying chips' docks are its own sheet rows.
 				     Beneath it, a legend keeps all three names on screen through the
 				     sliding, and calls the match when the verdict lands. -->
-				<div class="relative min-h-0 flex-1">
-					<div
-						class="absolute top-[53%] left-1/2 w-full -translate-x-1/2 -translate-y-1/2"
-						style="max-width:min({FILMW},92%)"
-					>
+				<div
+					class="absolute top-[56%] left-1/2 w-full -translate-x-1/2 -translate-y-1/2"
+					style="max-width:min({FILMW},92%)"
+				>
 						<div
 							class="relative w-full"
 							style="aspect-ratio:{DEFAULT_GRID.cols}/{filmStrips.pile}"
@@ -1013,25 +1007,32 @@
 							{/each}
 						</div>
 						<div class="absolute inset-x-0 top-full mt-[1.6vh] flex flex-col items-center gap-1">
-							{#each [
-								['DECLARED MODEL FINGERPRINT', regModel, HUEC, true],
-								['INPUT FINGERPRINT', regReq, HUEA, true],
-								['OUTPUT FINGERPRINT', regRsp, failB ? 'var(--fault)' : HUEB, !failB]
-							] as [role, hex, ink, okline] (role)}
+							{#if verdict}
+								<!-- the verdict collapses the ledger into its one-line reading -->
 								<span
 									class={cn(
-										'font-mono text-[clamp(0.72rem,0.88vw,1.05rem)] whitespace-nowrap uppercase transition-opacity duration-500',
-										hex ? 'opacity-100' : 'opacity-0'
+										'font-mono text-[clamp(0.78rem,0.95vw,1.15rem)] whitespace-nowrap uppercase',
+										verdict.verdict === 'PASS' ? 'text-verified' : 'text-fault'
 									)}
-									style="color:{ink}"
-									>{role} · {hex ? '0x' + short(hex, 6) : '—'}{verdict
-										? okline
-											? ' · MATCH'
-											: ' · MISMATCH'
-										: ''}</span
+									>{verdict.verdict === 'PASS'
+										? 'INPUT - OUTPUT - DECLARED MODEL MATCH'
+										: 'OUTPUT DOES NOT MATCH THE DECLARED MODEL'}</span
 								>
-							{/each}
-						</div>
+							{:else}
+								{#each [
+									['DECLARED MODEL FINGERPRINT', regModel, HUEC],
+									['INPUT FINGERPRINT', regReq, HUEA],
+									['OUTPUT FINGERPRINT', regRsp, failB ? 'var(--fault)' : HUEB]
+								] as [role, hex, ink] (role)}
+									<span
+										class={cn(
+											'font-mono text-[clamp(0.72rem,0.88vw,1.05rem)] whitespace-nowrap uppercase transition-opacity duration-500',
+											hex ? 'opacity-100' : 'opacity-0'
+										)}
+										style="color:{ink}">{role} · {hex ? '0x' + short(hex, 6) : '—'}</span
+									>
+								{/each}
+							{/if}
 					</div>
 				</div>
 			</div>
