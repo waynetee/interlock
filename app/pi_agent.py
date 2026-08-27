@@ -89,7 +89,40 @@ class Agent:
         # the cache on its way out and takes the good port with it. Serialising
         # makes the second caller find the first one's port and simply re-report it.
         self.warm_lock = threading.Lock()
+        # (name, monotonic deadline) while a wire job holds the lock; None when
+        # idle. The watchdog reads it, the job threads write it.
+        self.job = None
+        threading.Thread(target=self._watch, daemon=True).start()
         self._wire(args)
+
+    # ── the job watchdog ───────────────────────────────────────────────────
+    # A prompt or challenge thread blocked on a dead wire (a board or Spark
+    # rebooted mid-operation) can hold the single-flight lock far longer than
+    # any demo can wait -- observed 2026-08-27, when every PROMPT after a Spark
+    # reboot bounced off a lock a stranded thread still held, until a human
+    # restarted this agent. A thread stuck in a native wait cannot be killed
+    # from Python, so the watchdog does the one clean thing available: declare
+    # the fault and exit. systemd (Restart=always) brings the agent back in
+    # seconds with a fresh port and a clean lock -- which is exactly what the
+    # human restart did, minus the human.
+    PROMPT_DEADLINE_S = 120.0
+
+    def _watch(self):
+        while True:
+            time.sleep(5)
+            job = self.job
+            if job is None or time.monotonic() < job[1]:
+                continue
+            print("[agent] WATCHDOG: %s hung past its deadline -- exiting so "
+                  "systemd restarts the agent clean" % job[0], flush=True)
+            try:
+                self.emit("ev:wire_fault",
+                          {"error": "the agent's %s hung past its deadline; the "
+                                    "agent is restarting itself" % job[0]})
+                time.sleep(1)              # let the emit flush before dying
+            except Exception:
+                pass
+            os._exit(70)
 
     @staticmethod
     def _namespace(args):
@@ -222,6 +255,7 @@ class Agent:
         if not self.lock.acquire(blocking=False):
             self.emit("ev:busy", {"stage": "prompt"})
             return
+        self.job = ("prompt", time.monotonic() + self.PROMPT_DEADLINE_S)
         try:
             t0 = time.time()
             ids = tok.encode_ids(text)
@@ -268,6 +302,7 @@ class Agent:
             print("[agent] prompt failed: %s" % msg, flush=True)
             self._maybe_wire_fault(msg)
         finally:
+            self.job = None
             self.lock.release()
 
     def _do_challenge(self, data):
@@ -275,6 +310,10 @@ class Agent:
         if not self.lock.acquire(blocking=False):
             self.emit("ev:busy", {"stage": "challenge"})
             return
+        # The challenge's own timeout is the ceiling a caller chose; the
+        # watchdog only catches what outlives even that.
+        self.job = ("challenge",
+                    time.monotonic() + self.a.challenge_timeout + 60)
         try:
             t0 = time.time()
             # do_challenge streams the prover's own status lines as they arrive in
@@ -291,6 +330,7 @@ class Agent:
             print("[agent] challenge failed: %s" % msg, flush=True)
             self._maybe_wire_fault(msg)
         finally:
+            self.job = None
             self.lock.release()
 
     # Every string the wire layer raises when the PORT is the problem, as opposed
