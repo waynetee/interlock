@@ -17,9 +17,10 @@
 	 * static: no title, no headings, no explainer copy. The picture IS the
 	 * explanation — the question itself rides the cable, seals into its real
 	 * ciphertext bytes and opens again; the certifier stamps a fingerprint out of
-	 * each passing packet; the fingerprints slide into the GPU cluster and combine
-	 * there, because that is where the proof actually runs. The numbers an engineer
-	 * wants are on the console and in /lab.
+	 * each passing packet and RACKS IT INSIDE ITS OWN BODY; only when the proof
+	 * begins do the films slide into the GPU cluster and combine there, beside the
+	 * model's own commitment, because that is where the proof actually runs. The
+	 * numbers an engineer wants are on the console and in /lab.
 	 */
 	import FingerprintRegister, { type Stage } from '$lib/components/fingerprint-register.svelte';
 	import {
@@ -76,16 +77,20 @@
 	let rspFp = $state<string | null>(null);
 	let modelFp = $state<string | null>(null);
 	/**
-	 * The two fingerprints the certifier mints, as flying FILMS: the strip's own
-	 * cell pattern is stamped out of the certifier as the packet passes, slides
-	 * across into the GPU cluster — because the proof that combines them runs on
-	 * the Spark, not in the cable — and is absorbed into the register there.
-	 * 'out' is the stamp emerging; 'docked' is arrived over the register; 'gone'
-	 * is absorbed into it (the register is then showing the same strip).
+	 * The two fingerprints the certifier mints, as FILMS carrying the strip's own
+	 * cell pattern. Each is stamped as the packet passes and then HELD inside the
+	 * certifier — the input film through generation, both films through delivery —
+	 * because until the proof runs, the certifier is the only party holding them.
+	 * When the proof begins they slide together into the GPU cluster (the proof
+	 * runs on the Spark, not in the cable) and are absorbed into the register.
+	 * 'held' is racked inside the certifier; 'docked' is arrived over the
+	 * register; 'gone' is absorbed into it (the register then shows the strip).
 	 */
-	type Chip = 'hidden' | 'out' | 'docked' | 'gone';
+	type Chip = 'hidden' | 'held' | 'docked' | 'gone';
 	let chipA = $state<Chip>('hidden');
 	let chipB = $state<Chip>('hidden');
+	/** the model's own commitment is revealed in the cluster when the proof begins */
+	let modelShown = $state(false);
 	/** the proof is in flight: the register hunts for the seat until this clears */
 	let proving = $state(false);
 	let promptText = $state('');
@@ -167,6 +172,7 @@
 		cancelAnimationFrame(scrRaf);
 		reqFp = rspFp = null;
 		chipA = chipB = 'hidden';
+		modelShown = false;
 		proving = false;
 		promptText = '';
 		answer = '';
@@ -184,16 +190,6 @@
 		clearRun();
 		armed = false;
 		socket?.emit('demo:reset');
-	}
-
-	/** the film coming out of the certifier, sliding across, and being absorbed */
-	async function emitChip(which: 'A' | 'B', gen: number) {
-		const set = (v: Chip) => (which === 'A' ? (chipA = v) : (chipB = v));
-		set('out');
-		if (!(await step(frozen() ? 30 : 420, gen))) return;
-		set('docked');
-		if (!(await step(frozen() ? 30 : 1300, gen))) return;
-		set('gone');
 	}
 
 	async function runRequest(d: any, gen: number) {
@@ -215,12 +211,12 @@
 		hotFpga = true;
 		if (!(await step(950, gen))) return;
 		reqFp = d.request_digest ?? null;
-		caption = 'The certifier stamps a fingerprint off the sealed bytes as they pass.';
+		// the film drops into the certifier's lower slot and STAYS there: traffic
+		// moves on, the evidence does not
+		chipA = 'held';
+		caption = 'The certifier stamps a fingerprint off the sealed bytes and keeps it.';
 		log(`CERT   inbound  ${short(reqFp, 16)} audit=${d.request_audit ? 'PASS' : 'FAIL'}`);
-		// the stamp and the onward hop overlap on purpose: the certifier never
-		// holds traffic, it reads it on the way past
-		await emitChip('A', gen);
-		if (!(await step(700, gen))) return;
+		if (!(await step(frozen() ? 30 : 1100, gen))) return;
 
 		pktX = STOP[2];
 		hotFpga = false;
@@ -256,10 +252,11 @@
 		if (!(await step(950, gen))) return;
 
 		rspFp = d.response_digest ?? null;
-		caption = 'The answer is fingerprinted on the way out.';
+		// second film racks above the first: the certifier now holds both
+		chipB = 'held';
+		caption = 'The answer is fingerprinted on the way out — the certifier holds both.';
 		log(`CERT   outbound ${short(rspFp, 16)} audit=${d.response_audit ? 'PASS' : 'FAIL'}`);
-		await emitChip('B', gen);
-		if (!(await step(700, gen))) return;
+		if (!(await step(frozen() ? 30 : 1100, gen))) return;
 
 		pktX = STOP[0];
 		hotFpga = false;
@@ -268,7 +265,8 @@
 		scrambleTo(clip(text));
 		caption = 'Only your machine holds the key that opens it.';
 		if (!(await step(1000, gen))) return;
-		pktShown = false;
+		// the opened answer STAYS parked at your machine through the proof --
+		// delivery is a state the storyboard keeps on screen, not a flash
 		answer = text;
 		log(`OPEN   ${text}`);
 	}
@@ -276,13 +274,28 @@
 	async function runProve(gen: number) {
 		phase = 'prove';
 		hotSpark = true;
+		// beat one: the cluster shows its hand -- the commitment to the model it
+		// promised to run, fixed before anything was sent
+		modelShown = true;
+		caption = 'The cluster reveals the fingerprint of the model it promised to run.';
+		if (!(await step(frozen() ? 30 : 1300, gen))) return;
+
+		// beat two: the certifier releases both films and they slide across
+		// together -- the proof that combines them runs on the Spark, so that is
+		// where they go
+		caption = 'The certifier sends its two fingerprints into the cluster.';
+		chipB = 'docked';
+		if (!(await step(frozen() ? 30 : 200, gen))) return;
+		chipA = 'docked';
+		if (!(await step(frozen() ? 30 : 1500, gen))) return;
+		chipA = 'gone';
+		chipB = 'gone';
 		// `proving` is what puts the register into its search, and it stays up until
 		// the verdict lands however long that takes -- the animation is paced by the
 		// prover, not by a timer that guesses at it.
 		proving = true;
-		caption =
-			'Both fingerprints are now in the cluster. It has to prove they came from the promised model.';
-		if (!(await step(1100, gen))) return;
+		caption = 'Now it has to prove all three came from the promised model.';
+		if (!(await step(600, gen))) return;
 	}
 
 	async function runVerdict(d: any, gen: number) {
@@ -522,6 +535,14 @@
 	// own, which is fixed before anything is sent. They combine inside the GPU
 	// cluster because that is where the proof runs; the register hunts while the
 	// prover does and settles when it rules.
+	// What the cluster actually HOLDS, as opposed to what exists somewhere on the
+	// stage: the model commitment once the proof reveals it, and the certifier's
+	// films only once the register has absorbed them. The register and the tray
+	// both read these, so nothing shows up inside the cluster before the
+	// storyboard says it arrived.
+	const regReq = $derived(chipA === 'gone' ? reqFp : null);
+	const regRsp = $derived(chipB === 'gone' ? rspFp : null);
+	const regModel = $derived(modelShown ? modelFp : null);
 	const fpStage = $derived(
 		(verdict
 			? verdict.verdict === 'PASS'
@@ -529,7 +550,7 @@
 				: 'fail'
 			: proving
 				? 'searching'
-				: reqFp
+				: regReq || regModel
 					? 'dealing'
 					: 'idle') as Stage
 	);
@@ -564,25 +585,28 @@
 	);
 	/** the far end is doing something you cannot see: say so with a sweep, not a word */
 	const working = $derived(phase === 'gen' || phase === 'prove');
-	/** and your own machine lights up for the two moments the key is in use */
-	const hotHome = $derived(pktShown && pktX === STOP[0]);
+	/** and your own machine lights up for the two moments the key is in use —
+	 * not for the whole time the delivered answer sits parked there */
+	const hotHome = $derived(pktShown && pktX === STOP[0] && (phase === 'req' || phase === 'rsp'));
 	const TONE = {
 		caution: { bar: 'border-l-caution', text: 'text-caution' },
 		fault: { bar: 'border-l-fault', text: 'text-fault' }
 	};
 
 	// ── the flying films: geometry and dressing ────────────────────────────────
-	// Stage coordinates for a film's journey: minted just under the certifier,
-	// then a long slide right into the cluster, where the register absorbs it.
-	// C never travels — the model commitment was in the cluster before anything
-	// ran, so it only ever appears in the tray.
+	// Stage coordinates for a film's journey: racked inside the certifier's tall
+	// body while it holds them (input in the lower slot, output stacked above it,
+	// the way the storyboard stacks them), then a long slide right into the
+	// cluster at prove time, where the register absorbs them. C never travels —
+	// the model commitment lives in the cluster and is simply revealed there.
+	// a film with its label runs ~10% of stage height: the two slots and the two
+	// docks are spaced 11.5% so the stack never collides with itself
 	const CHIP = {
-		A: { out: { x: 41, y: 54 }, dock: { x: 83, y: 40 } },
-		B: { out: { x: 41, y: 54 }, dock: { x: 83, y: 40 } }
+		A: { held: { x: 41, y: 75 }, dock: { x: 83, y: 48 } },
+		B: { held: { x: 41, y: 63.5 }, dock: { x: 83, y: 34 } }
 	};
 	const HUEA = '#b6e04c';
 	const HUEB = '#3fd2ea';
-	const HUEC = '#c98cf6';
 	const failB = $derived(!!verdict && verdict.verdict !== 'PASS');
 	// The films' own cell patterns — the same strips the register is composing,
 	// derived from the same digests, so what flies is what lands.
@@ -598,7 +622,9 @@
 				? 'aligning the fingerprints…'
 				: phase === 'gen'
 					? 'running the model'
-					: ''
+					: modelShown
+						? 'model commitment on file'
+						: ''
 	);
 </script>
 
@@ -646,41 +672,23 @@
 	</button>
 {/snippet}
 
-{#snippet station(left: number, name: string, sub: string, hot: boolean, big = false)}
-	<div
-		class={cn(
-			'absolute flex -translate-x-1/2 flex-col items-center justify-center gap-1 overflow-hidden border bg-background transition-all duration-300',
-			big
-				? 'top-[8%] h-[38%] w-[clamp(170px,21vw,340px)]'
-				: 'top-[12%] h-[28%] w-[clamp(120px,13vw,220px)]',
-			hot ? 'border-signal shadow-[0_0_30px_-4px_var(--signal)]' : 'border-border'
-		)}
-		style="left:{left}%"
-	>
-		<div class="t-body font-mono font-semibold tracking-[0.05em]">{name}</div>
-		<div class="t-tag px-2 text-center font-mono leading-tight text-muted-foreground uppercase">
-			{sub}
-		</div>
-	</div>
-{/snippet}
-
 {#snippet filmchip(
 	idx: number,
 	role: string,
 	hex: string | null,
 	hue: string,
 	state: Chip,
-	pos: { out: { x: number; y: number }; dock: { x: number; y: number } },
+	pos: { held: { x: number; y: number }; dock: { x: number; y: number } },
 	bad: boolean
 )}
-	{@const at = state === 'out' ? pos.out : pos.dock}
+	{@const at = state === 'held' ? pos.held : pos.dock}
 	{@const ink = bad ? 'var(--fault)' : hue}
 	{@const rows = filmStrips.heights[idx]}
 	<div
 		class={cn(
 			'absolute z-20 flex w-[clamp(110px,12vw,200px)] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-0.5 transition-all duration-[1100ms] ease-in-out motion-reduce:transition-none',
 			state === 'hidden' && 'scale-75 opacity-0',
-			state === 'out' && 'opacity-100 duration-[420ms]',
+			state === 'held' && 'opacity-100 duration-[420ms]',
 			state === 'docked' && 'opacity-100',
 			state === 'gone' && 'scale-110 opacity-0 duration-[500ms]'
 		)}
@@ -769,10 +777,12 @@
 		{/if}
 
 		<!--
-			The stage. Left two thirds: your machine and the certifier on the wire, the
-			payload text travelling between them. Right third: the GPU cluster, a tall
-			box holding the model's own fingerprint and the register the other two
-			slide into — the proof runs in there, so that is where they combine.
+			The stage, laid out to the storyboard. Far left: the globe — your machine
+			at the end of the wire, where the question leaves and the opened answer
+			parks. Center: the certifier, a tall body the cable runs straight
+			through, racking the films it stamps. Right: the GPU cluster, where the
+			model commitment is revealed and the films slide in to combine — the
+			proof runs in there.
 		-->
 		<section class="relative min-h-0 flex-1 overflow-hidden border border-border bg-card">
 			<div
@@ -780,26 +790,67 @@
 				style="background-image:linear-gradient(to right,var(--grid) 1px,transparent 1px),linear-gradient(to bottom,var(--grid) 1px,transparent 1px);background-size:44px 44px"
 			></div>
 
-			<!-- a drop from each machine down to the cable it is spliced into -->
-			<div class="absolute top-[40%] h-[18%] w-px bg-border" style="left:{STOP[0]}%"></div>
-			<div class="absolute top-[46%] h-[12%] w-px bg-border" style="left:{STOP[1]}%"></div>
+			<!-- a drop from your machine down to the cable it is spliced into; the
+			     certifier needs none — the cable runs straight through its body -->
+			<div class="absolute top-[38%] h-[20%] w-px bg-border" style="left:{STOP[0]}%"></div>
 
 			<!-- the cable, running from your machine into the cluster's mouth -->
 			<div class="absolute top-[58%] right-[32%] left-[5%] h-px bg-border"></div>
 			<div
 				class={cn(
 					'absolute top-[58%] right-[32%] left-[5%] h-[2px] transition-opacity duration-500',
-					pktShown ? 'ilk-flow opacity-80' : 'opacity-0'
+					pktShown && (phase === 'req' || phase === 'gen' || phase === 'rsp')
+						? 'ilk-flow opacity-80'
+						: 'opacity-0'
 				)}
 			></div>
 
-			{@render station(STOP[0], 'YOUR MACHINE', 'holds the key', hotHome)}
-			{@render station(STOP[1], 'NETWORK CERTIFIER', 'fingerprints every packet', hotFpga, true)}
-
-			<!-- the GPU cluster: where the model runs, and where the proof combines -->
+			<!-- your machine: a globe at the end of the wire, and the only key -->
 			<div
 				class={cn(
-					'absolute inset-y-[5%] right-[2%] left-[68%] flex flex-col overflow-hidden border bg-background transition-all duration-500',
+					'absolute top-[14%] flex -translate-x-1/2 flex-col items-center gap-1.5 transition-colors duration-300',
+					hotHome ? 'text-signal' : 'text-muted-foreground'
+				)}
+				style="left:{STOP[0]}%"
+			>
+				<svg
+					viewBox="0 0 24 24"
+					class={cn(
+						'w-[clamp(2.6rem,4.2vw,4.2rem)] transition-all duration-300',
+						hotHome && 'drop-shadow-[0_0_14px_var(--signal)]'
+					)}
+					fill="none"
+					stroke="currentColor"
+					stroke-width="1.3"
+					aria-hidden="true"
+				>
+					<circle cx="12" cy="12" r="9" />
+					<ellipse cx="12" cy="12" rx="4.2" ry="9" />
+					<path d="M3 12h18" />
+					<path d="M4.4 7.2h15.2M4.4 16.8h15.2" />
+				</svg>
+			</div>
+
+			<!-- the certifier: a tall body the cable runs straight through; the films
+			     it stamps rack up inside it until the proof calls for them -->
+			<div
+				class={cn(
+					'absolute top-[6%] h-[76%] w-[clamp(180px,20vw,330px)] -translate-x-1/2 border bg-background transition-all duration-300',
+					hotFpga ? 'border-signal shadow-[0_0_30px_-4px_var(--signal)]' : 'border-border'
+				)}
+				style="left:{STOP[1]}%"
+			>
+				<div class="pt-[1.6vh] text-center">
+					<div class="t-body font-mono font-semibold tracking-[0.05em]">NETWORK CERTIFIER</div>
+				</div>
+			</div>
+
+			<!-- the GPU cluster: where the model runs, and where the proof combines.
+			     Shorter than the certifier on purpose — the storyboard reads the
+			     certifier as the dominant body on the wire. -->
+			<div
+				class={cn(
+					'absolute inset-y-[11%] right-[2%] left-[68%] flex flex-col overflow-hidden border bg-background transition-all duration-500',
 					verdict
 						? verdict.verdict === 'PASS'
 							? 'border-verified shadow-[0_0_40px_-4px_var(--verified)]'
@@ -812,46 +863,25 @@
 				{#if working}
 					<div class="ilk-sweep pointer-events-none absolute inset-x-0 h-1/4 bg-signal/10"></div>
 				{/if}
-				<div
-					class="flex shrink-0 items-baseline justify-between gap-2 border-b border-border px-3 py-1.5"
-				>
+				<div class="flex shrink-0 flex-col items-center gap-0.5 border-b border-border px-3 py-1.5">
 					<span class="t-body font-mono font-semibold tracking-[0.05em]">GPU CLUSTER</span>
-					<span
-						class={cn(
-							't-tag font-mono uppercase',
-							verdict
-								? verdict.verdict === 'PASS'
-									? 'text-verified'
-									: 'text-fault'
-								: 'text-muted-foreground'
-						)}>{clusterStatus}</span
-					>
-				</div>
-				<!-- the register: three fingerprints hunting for the seat, then the word -->
-				<FingerprintRegister req={reqFp} rsp={rspFp} model={modelFp} stage={fpStage} embed />
-				<!-- the tray: which fingerprints the cluster is holding -->
-				<div
-					class="flex h-[clamp(2rem,5vh,3rem)] shrink-0 items-center justify-between border-t border-border px-3"
-				>
-					{#each [
-						['REQUEST', reqFp, HUEA],
-						['RESPONSE', rspFp, failB ? 'var(--fault)' : HUEB],
-						['MODEL · llama-1.1b', modelFp, HUEC]
-					] as [role, hex, hue] (role)}
-						<div
+					{#if clusterStatus}
+						<span
 							class={cn(
-								'flex flex-col transition-opacity duration-500',
-								hex ? 'opacity-100' : 'opacity-25'
-							)}
+								't-tag font-mono uppercase',
+								verdict
+									? verdict.verdict === 'PASS'
+										? 'text-verified'
+										: 'text-fault'
+									: 'text-muted-foreground'
+							)}>{clusterStatus}</span
 						>
-							<span class="t-tag font-mono" style="color:{hue}">{role}</span>
-							<span
-								class="tabular font-mono text-[clamp(0.6rem,0.7vw,0.85rem)] leading-tight font-semibold"
-								style="color:{hue}">{hex ? '0x' + short(hex, 8) : '—'}</span
-							>
-						</div>
-					{/each}
+					{/if}
 				</div>
+				<!-- the register: three fingerprints hunting for the seat, then the word.
+				     It is fed only what the cluster HOLDS — the model commitment once
+				     revealed, the films once absorbed — never a value still in transit. -->
+				<FingerprintRegister req={regReq} rsp={regRsp} model={regModel} stage={fpStage} embed />
 			</div>
 
 			<!-- the payload: the text itself rides the cable, sealed or open -->
@@ -860,7 +890,7 @@
 					'absolute top-[58%] z-10 flex max-w-[38%] -translate-x-1/2 -translate-y-1/2 items-center gap-2 overflow-hidden border px-3 py-1.5 font-mono whitespace-nowrap transition-all duration-[900ms] ease-in-out motion-reduce:transition-none',
 					pktSealed
 						? 'border-border bg-muted text-muted-foreground'
-						: 'border-signal bg-signal/15 text-signal shadow-[0_0_22px_-3px_var(--signal)]',
+						: 'border-signal bg-[color-mix(in_srgb,var(--signal)_14%,var(--background))] text-signal shadow-[0_0_22px_-3px_var(--signal)]',
 					pktShown ? 'opacity-100' : 'opacity-0'
 				)}
 				style="left:{pktX}%"
