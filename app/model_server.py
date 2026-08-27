@@ -460,9 +460,25 @@ def main():
                 raise
             return fn(*a)
 
+    # A blind socket is SILENT, not broken: an AF_PACKET socket bound across a
+    # NIC flap or a board power-cycle can sit forever seeing nothing while the
+    # host watches the 1 kHz stream arrive (observed 2026-08-27, twice: the
+    # request was certified by the FPGA and this loop never heard it). The
+    # send-side heal cannot fire -- nothing arrives, so nothing is ever sent.
+    # So the receive side checks the flywheel pulse: sync edges stamp
+    # port.last_edge_ns ~1000x a second, and a long silence means blind socket
+    # or quiet board -- either way, exit and let the restart policy rebind.
+    # (On a genuinely dead board this is the same blessed backoff loop as the
+    # send-side exit.)
+    IDLE_SYNC_S = 30.0
     while True:
-        data = port.recv()                       # canonical DATA: CANON_HDR || app bytes
+        data = port.recv(timeout=5)              # canonical DATA: CANON_HDR || app bytes
         if data is None:
+            age_s = (time.monotonic_ns() - port.last_edge_ns) / 1e9
+            if age_s > IDLE_SYNC_S:
+                print("[wire] no sync edge in %.0fs -- blind socket or quiet "
+                      "board; exiting for a clean restart" % age_s, flush=True)
+                sys.exit(3)
             continue
         # Retain first: the audit must account for every packet the device committed
         # in the period, including bring-up probes that carry no app header.

@@ -33,6 +33,7 @@
 	import { cn } from '$lib/utils';
 	import { resolve } from '$app/paths';
 	import { io, type Socket } from 'socket.io-client';
+	import { scale } from 'svelte/transition';
 	import { onDestroy, onMount } from 'svelte';
 
 	type Verdict = { verdict: string; U: string; verify: string; keybind: string };
@@ -303,19 +304,20 @@
 		chipA = 'drop';
 		if (!(await t(650))) return;
 		chipA = 'run';
-		if (!(await t(300))) return;
+		if (!(await t(400))) return;
 		chipB = 'docked';
-		if (!(await t(750))) return;
-		chipA = 'docked';
-		if (!(await t(900))) return;
-		chipA = 'gone';
+		if (!(await t(800))) return;
+		// the moment a film lands it is absorbed and the sliding is already
+		// running: travel and hunt are one continuous motion, with no pause
+		// between them. `proving` stays up until the verdict lands however long
+		// that takes -- the animation is paced by the prover, not a timer.
 		chipB = 'gone';
-		// `proving` is what puts the register into its search, and it stays up until
-		// the verdict lands however long that takes -- the animation is paced by the
-		// prover, not by a timer that guesses at it.
 		proving = true;
 		caption = 'Now it has to prove all three came from the promised model.';
-		if (!(await step(600, gen))) return;
+		if (!(await t(100))) return;
+		chipA = 'docked';
+		if (!(await t(800))) return;
+		chipA = 'gone';
 	}
 
 	async function runVerdict(d: any, gen: number) {
@@ -636,20 +638,25 @@
 	// commitment. Each leg is its own state so the corners are real corners.
 	// A film with its label runs ~10% of stage height; slots and docks are
 	// spaced ~11.5% so the stack never collides with itself.
-	const CHIP = {
-		A: {
-			held: { x: 39, y: 75 },
-			drop: { x: 39, y: 92 },
-			run: { x: 81.5, y: 92 },
-			dock: { x: 81.5, y: 47 }
-		},
-		B: {
-			held: { x: 39, y: 57.5 },
-			drop: { x: 39, y: 92 },
-			run: { x: 81.5, y: 92 },
-			dock: { x: 81.5, y: 37 }
-		}
+	// The mint slot sits RIGHT UNDER the cable, where the passing payload is:
+	// each film pops out directly beneath the packet it was stamped from. The
+	// input film takes that slot on the request pass; when the output film pops
+	// out on the return pass it takes the slot itself, pushing the input film
+	// down a rack.
+	const SLOT_FRESH = { x: 39, y: 56.5 };
+	const SLOT_PUSHED = { x: 39, y: 74 };
+	const CHIP_B = {
+		held: SLOT_FRESH,
+		drop: { x: 39, y: 92 },
+		run: { x: 81.5, y: 92 },
+		dock: { x: 81.5, y: 37 }
 	};
+	const CHIP_A = $derived({
+		held: chipB === 'hidden' ? SLOT_FRESH : SLOT_PUSHED,
+		drop: { x: 39, y: 92 },
+		run: { x: 81.5, y: 92 },
+		dock: { x: 81.5, y: 47 }
+	});
 	// Three shades of one green, the way the printed cards ink them: the input
 	// film lightest, the output deeper, the model commitment deepest — the same
 	// family so the stack reads as one instrument, stepped so the three strips
@@ -1005,27 +1012,29 @@
 				class={cn(
 					'absolute z-10 flex w-[clamp(170px,17vw,300px)] -translate-x-1/2 -translate-y-1/2 items-start gap-2 border px-3 py-1.5 font-mono transition-all duration-[900ms] ease-in-out motion-reduce:transition-none',
 					pktSealed
-						? 'border-border bg-muted text-muted-foreground'
+						? 'border-[#d9a13b] bg-muted text-muted-foreground'
 						: 'border-signal bg-[color-mix(in_srgb,var(--signal)_14%,var(--background))] text-signal',
 					pktShown ? 'opacity-100' : 'opacity-0'
 				)}
 				style="left:{pktX.x}%;top:{pktX.y}%"
 			>
-				<svg
-					viewBox="0 0 24 24"
-					class="mt-[0.15em] size-[1.15em] shrink-0"
-					fill="none"
-					stroke="currentColor"
-					stroke-width="2.4"
-					aria-hidden="true"
-				>
-					<rect x="4" y="11" width="16" height="10" rx="1.5" />
-					{#if pktSealed}
+				{#if pktSealed}
+					<!-- the padlock EXISTS only while the payload is sealed: encryption
+					     snaps it on, decryption takes it away. There is no open-lock
+					     glyph -- absence is the open state. -->
+					<svg
+						viewBox="0 0 24 24"
+						class="mt-[0.15em] size-[1.15em] shrink-0 text-[#d9a13b]"
+						fill="none"
+						stroke="currentColor"
+						stroke-width="2.4"
+						aria-hidden="true"
+						transition:scale={{ duration: 260 }}
+					>
+						<rect x="4" y="11" width="16" height="10" rx="1.5" />
 						<path d="M8 11V7a4 4 0 0 1 8 0v4" />
-					{:else}
-						<path d="M8 11V7a4 4 0 0 1 7.4-2" />
-					{/if}
-				</svg>
+					</svg>
+				{/if}
 				<!-- ciphertext has no spaces to break on, so it breaks anywhere;
 				     plaintext keeps its words whole -->
 				<span
@@ -1038,8 +1047,8 @@
 			</div>
 
 			<!-- the certifier's two stamps in flight: the strip patterns themselves -->
-			{@render filmchip(0, 'INPUT FINGERPRINT', reqFp, HUEA, chipA, CHIP.A, false)}
-			{@render filmchip(1, 'OUTPUT FINGERPRINT', rspFp, HUEB, chipB, CHIP.B, failB)}
+			{@render filmchip(0, 'INPUT FINGERPRINT', reqFp, HUEA, chipA, CHIP_A, false)}
+			{@render filmchip(1, 'OUTPUT FINGERPRINT', rspFp, HUEB, chipB, CHIP_B, failB)}
 		</section>
 	</main>
 

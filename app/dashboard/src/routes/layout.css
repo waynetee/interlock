@@ -225,27 +225,27 @@
  * down against the model backing, out of phase with each other so the stack
  * visibly refuses to resolve. Dropping the class transitions them home. */
 .ilk-hunt-a {
-	animation: ilk-hunt-a 2.7s ease-in-out infinite;
+	animation: ilk-hunt-a 1.5s ease-in-out infinite;
 }
 .ilk-hunt-b {
-	animation: ilk-hunt-b 3.4s ease-in-out infinite;
+	animation: ilk-hunt-b 1.9s ease-in-out infinite;
 }
 @keyframes ilk-hunt-a {
 	0%,
 	100% {
-		transform: translateY(-7%);
+		transform: translateY(-15%);
 	}
 	50% {
-		transform: translateY(6%);
+		transform: translateY(13%);
 	}
 }
 @keyframes ilk-hunt-b {
 	0%,
 	100% {
-		transform: translateY(8%);
+		transform: translateY(16%);
 	}
 	55% {
-		transform: translateY(-5%);
+		transform: translateY(-12%);
 	}
 }
 
