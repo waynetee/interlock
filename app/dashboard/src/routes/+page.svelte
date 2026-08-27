@@ -152,20 +152,24 @@
 			return;
 		}
 		const from = pktText;
-		const n = Math.max(from.length, target.length);
 		const t0 = performance.now();
 		const tick = (now: number) => {
 			const k = Math.min(1, (now - t0) / ms);
-			const head = Math.floor(k * n);
-			let s = '';
-			for (let i = 0; i < n; i++) {
-				if (i < head) s += target[i] ?? '';
-				else if (i < head + 3) s += HEXCHARS[(Math.random() * 16) | 0];
-				else s += from[i] ?? '';
+			// the string's LENGTH morphs smoothly between the two forms, so the
+			// wrap point drifts as the head advances instead of the whole tail
+			// hanging on and snapping away at the end
+			const len = Math.round(from.length + (target.length - from.length) * k);
+			const head = Math.floor(k * Math.max(len, target.length));
+			let out = target.slice(0, Math.min(head, len));
+			while (out.length < len) {
+				const i = out.length;
+				out +=
+					i < head + 3
+						? HEXCHARS[(Math.random() * 16) | 0]
+						: (from[i] ?? HEXCHARS[(Math.random() * 16) | 0]);
 			}
-			pktText = s;
+			pktText = k >= 1 ? target : out;
 			if (k < 1) scrRaf = requestAnimationFrame(tick);
-			else pktText = target;
 		};
 		scrRaf = requestAnimationFrame(tick);
 	}
@@ -373,15 +377,15 @@
 		// leaves first, and the OUTPUT film drops through the slot it vacated --
 		// nothing ever passes through anything, in the rack or in transit.
 		chipA = 'drop';
-		if (!(await t(900))) return;
+		if (!(await t(600))) return;
 		chipA = 'run';
-		if (!(await t(150))) return;
+		if (!(await t(100))) return;
 		chipB = 'drop';
-		if (!(await t(850))) return;
+		if (!(await t(600))) return;
 		chipB = 'run';
-		if (!(await t(400))) return;
+		if (!(await t(300))) return;
 		chipA = 'docked';
-		if (!(await t(1000))) return;
+		if (!(await t(650))) return;
 		// the moment a film lands it is absorbed and the sliding is already
 		// running: travel and hunt are one continuous motion, with no pause
 		// between them. `proving` stays up until the verdict lands however long
@@ -392,7 +396,7 @@
 		caption = 'Now it has to prove all three came from the promised model.';
 		if (!(await t(100))) return;
 		chipB = 'docked';
-		if (!(await t(1000))) return;
+		if (!(await t(650))) return;
 		chipB = 'gone';
 	}
 
@@ -835,9 +839,9 @@
 			state === 'held' && 'opacity-100 duration-[600ms]',
 			// the U, leg by leg: ease into the drop, run the trench flat-out,
 			// ease off rising into the cluster
-			state === 'drop' && 'opacity-100 duration-[850ms] ease-in',
-			state === 'run' && 'opacity-100 duration-[1400ms] ease-linear',
-			state === 'docked' && 'opacity-100 duration-[1000ms] ease-out',
+			state === 'drop' && 'opacity-100 duration-[550ms] ease-in',
+			state === 'run' && 'opacity-100 duration-[900ms] ease-linear',
+			state === 'docked' && 'opacity-100 duration-[650ms] ease-out',
 			state === 'gone' && 'opacity-0 duration-[0ms]'
 		)}
 		style="left:{at.x}%;top:{chipTop(at)};width:{FILMW}"
@@ -1075,7 +1079,7 @@
 							</svg>
 							{/each}
 						</div>
-						<div class="absolute inset-x-0 top-full mt-[1.2cqw] flex flex-col items-center gap-[0.35cqw]">
+						<div class="absolute inset-x-0 top-full mt-[3cqw] flex flex-col items-center gap-[0.35cqw]">
 							{#if verdict}
 								<!-- the verdict collapses the ledger into its one-line reading -->
 								<span
@@ -1146,9 +1150,11 @@
 				{/if}
 				<!-- ciphertext has no spaces to break on, so it breaks anywhere;
 				     plaintext keeps its words whole -->
+				<!-- a constant two-line well: sealing, opening, and typing change the
+				     words, never the box -->
 				<span
 					class={cn(
-						'min-w-0 flex-1 text-[1.25cqw] leading-snug',
+						'min-h-[2lh] min-w-0 flex-1 text-[1.25cqw] leading-snug',
 						pktSealed ? 'break-all' : 'break-words'
 					)}
 					>{pktText}</span
@@ -1166,7 +1172,7 @@
 					? '0ms'
 					: '900ms'} ease-in-out"
 			>
-				<span class="min-w-0 flex-1 text-[1.25cqw] leading-snug break-words">{gqText}</span>
+				<span class="min-h-[2lh] min-w-0 flex-1 text-[1.25cqw] leading-snug break-words">{gqText}</span>
 				{#if processing}
 					<!-- the busy bar: the model is running on this request -->
 					<div class="ilk-proc pointer-events-none absolute inset-x-0 bottom-0 h-[0.25cqw]"></div>
