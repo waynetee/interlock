@@ -66,10 +66,12 @@
 	 * answer ride the wire themselves, scrambling into their real ciphertext bytes
 	 * at the moment they are sealed and back at the moment they are opened.
 	 */
+	// One y for the whole journey: the card rides the cable's height everywhere,
+	// including inside the cluster -- it moves left to right and never bobs.
 	const STOP = [
-		{ x: 11, y: 44 },
-		{ x: 39, y: 44 },
-		{ x: 81.5, y: 40 } // the center of the GPU cluster: generation happens IN there
+		{ x: 11, y: 41 },
+		{ x: 39, y: 41 },
+		{ x: 81.5, y: 41 }
 	];
 	let pktX = $state(STOP[0]);
 	let pktText = $state('');
@@ -600,6 +602,19 @@
 	);
 	/** the far end is doing something you cannot see: say so with a sweep, not a word */
 	const working = $derived(phase === 'gen' || phase === 'prove');
+	// which run of cable the payload is actually on: the left one between the
+	// globe and the certifier, the right one between the certifier and the
+	// cluster (pktX already points at the leg's destination)
+	const leftFlow = $derived(
+		pktShown &&
+			((phase === 'req' && pktX !== STOP[2]) || (phase === 'rsp' && pktX === STOP[0]))
+	);
+	const rightFlow = $derived(
+		pktShown &&
+			(phase === 'gen' ||
+				(phase === 'req' && pktX === STOP[2]) ||
+				(phase === 'rsp' && pktX === STOP[1]))
+	);
 	/** and your own machine lights up for the two moments the key is in use —
 	 * not for the whole time the delivered answer sits parked there */
 	const hotHome = $derived(pktShown && pktX === STOP[0] && (phase === 'req' || phase === 'rsp'));
@@ -623,15 +638,15 @@
 	// spaced ~11.5% so the stack never collides with itself.
 	const CHIP = {
 		A: {
-			held: { x: 39, y: 74.5 },
-			drop: { x: 39, y: 88 },
-			run: { x: 81.5, y: 88 },
+			held: { x: 39, y: 75 },
+			drop: { x: 39, y: 92 },
+			run: { x: 81.5, y: 92 },
 			dock: { x: 81.5, y: 47 }
 		},
 		B: {
 			held: { x: 39, y: 57.5 },
-			drop: { x: 39, y: 88 },
-			run: { x: 81.5, y: 88 },
+			drop: { x: 39, y: 92 },
+			run: { x: 81.5, y: 92 },
 			dock: { x: 81.5, y: 37 }
 		}
 	};
@@ -640,14 +655,12 @@
 	// family so the stack reads as one instrument, stepped so the three strips
 	// stay tellable apart. (The print inks are darker; these are the same
 	// ordering rebalanced for a dark panel.)
-	const HUEA = '#a5d94e';
-	const HUEB = '#4fb05f';
-	const HUEC = '#2a8a52';
+	const HUEA = '#9ad161';
+	const HUEB = '#7cc055';
+	const HUEC = '#5fae4c';
 	/** one width for a film everywhere it appears, so landing IS combining --
 	 * nothing resizes between the flight and the stack */
 	const FILMW = 'clamp(180px,24vw,440px)';
-	/** per-cell brightness, the same ramp the printed films use */
-	const ALPHA = [0, 0.55, 0.68, 0.8, 0.92];
 	const failB = $derived(!!verdict && verdict.verdict !== 'PASS');
 	// The films' own cell patterns — the same strips the register is composing,
 	// derived from the same digests, so what flies is what lands.
@@ -757,9 +770,8 @@
 		>
 			{#each { length: rows } as _r, r (r)}
 				{#each { length: DEFAULT_GRID.cols } as _c, c (c)}
-					{@const v = filmStrips.cells[idx][r * DEFAULT_GRID.cols + c]}
-					{#if v > 0}
-						<rect x={c} y={r} width="1.05" height="1.05" fill={ink} fill-opacity={ALPHA[v]} />
+					{#if filmStrips.cells[idx][r * DEFAULT_GRID.cols + c] > 0}
+						<rect x={c} y={r} width="1.05" height="1.05" fill={ink} />
 					{/if}
 				{/each}
 			{/each}
@@ -841,18 +853,26 @@
 				style="background-image:linear-gradient(to right,var(--grid) 1px,transparent 1px),linear-gradient(to bottom,var(--grid) 1px,transparent 1px);background-size:44px 44px"
 			></div>
 
-			<!-- a drop from your machine down to the cable it is spliced into; the
-			     certifier needs none — the cable runs straight through its body -->
-			<div class="absolute top-[28%] h-[16%] w-px bg-border" style="left:{STOP[0].x}%"></div>
+			<!-- the drop from the globe turns a true 90° corner into the cable: the
+			     vertical starts at the globe and the horizontal starts AT the bend,
+			     never extending past it into a T -->
+			<div class="absolute top-[28%] h-[13%] w-px bg-border" style="left:{STOP[0].x}%"></div>
 
-			<!-- the cable, running from your machine into the cluster's mouth -->
-			<div class="absolute top-[44%] right-[36%] left-[4%] h-px bg-border"></div>
+			<!-- the cable, in two separate runs: bend → certifier's left wall, and
+			     certifier's right wall → the cluster. Each lights up only while the
+			     payload is actually on it. -->
+			<div class="absolute top-[41%] right-[70%] left-[11%] h-px bg-border"></div>
+			<div class="absolute top-[41%] right-[36%] left-[48%] h-px bg-border"></div>
 			<div
 				class={cn(
-					'absolute top-[44%] right-[36%] left-[4%] h-[2px] transition-opacity duration-500',
-					pktShown && (phase === 'req' || phase === 'gen' || phase === 'rsp')
-						? 'ilk-flow opacity-80'
-						: 'opacity-0'
+					'absolute top-[41%] right-[70%] left-[11%] h-[2px] transition-opacity duration-500',
+					leftFlow ? 'ilk-flow opacity-80' : 'opacity-0'
+				)}
+			></div>
+			<div
+				class={cn(
+					'absolute top-[41%] right-[36%] left-[48%] h-[2px] transition-opacity duration-500',
+					rightFlow ? 'ilk-flow opacity-80' : 'opacity-0'
 				)}
 			></div>
 
@@ -883,7 +903,7 @@
 			     it stamps rack up inside it until the proof calls for them -->
 			<div
 				class={cn(
-					'absolute top-[8%] h-[76%] w-[clamp(280px,34vw,560px)] -translate-x-1/2 border bg-background transition-all duration-300',
+					'absolute top-[8%] h-[78%] w-[clamp(280px,34vw,560px)] -translate-x-1/2 border bg-background transition-all duration-300',
 					hotFpga ? 'border-signal' : 'border-border'
 				)}
 				style="left:{STOP[1].x}%"
@@ -967,9 +987,8 @@
 							>
 								{#each { length: filmStrips.heights[i] } as _r, r (r)}
 									{#each { length: DEFAULT_GRID.cols } as _c, c (c)}
-										{@const v = filmStrips.cells[i][r * DEFAULT_GRID.cols + c]}
-										{#if v > 0}
-											<rect x={c} y={r} width="1.05" height="1.05" fill={ink} fill-opacity={ALPHA[v]} />
+										{#if filmStrips.cells[i][r * DEFAULT_GRID.cols + c] > 0}
+											<rect x={c} y={r} width="1.05" height="1.05" fill={ink} />
 										{/if}
 									{/each}
 								{/each}
