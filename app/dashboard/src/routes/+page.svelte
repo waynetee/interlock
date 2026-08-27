@@ -69,10 +69,12 @@
 	// One y for the whole journey: the card rides the cable's height everywhere,
 	// including inside the cluster -- it moves left to right and never bobs.
 	const STOP = [
-		{ x: 11, y: 41 },
+		{ x: 11, y: 41 }, // the corner of the L: where the cryptography happens
 		{ x: 39, y: 41 },
 		{ x: 81.5, y: 41 }
 	];
+	/** the web: requests come DOWN from it, answers climb back up and vanish */
+	const WEB = { x: 11, y: 23 };
 	let pktX = $state(STOP[0]);
 	let pktText = $state('');
 	let pktSealed = $state(false);
@@ -222,11 +224,18 @@
 	async function runRequest(d: any, gen: number) {
 		phase = 'req';
 		pktSealed = false;
-		pktX = STOP[0];
+		pktInstant = true;
+		pktX = WEB;
 		pktText = asked || promptText;
+		if (!(await step(60, gen))) return;
+		pktInstant = false;
 		pktShown = true;
-		caption = 'A question leaves your machine.';
-		if (!(await step(1200, gen))) return;
+		caption = 'A question comes down from the web…';
+		if (!(await step(1100, gen))) return;
+
+		// down the vertical of the L to the corner, where the cryptography lives
+		pktX = STOP[0];
+		if (!(await step(1500, gen))) return;
 
 		pktSealed = true;
 		sealing = 'encrypting';
@@ -328,11 +337,17 @@
 		pktSealed = false;
 		sealing = 'decrypting';
 		scrambleTo(clip(text));
-		caption = 'Only your machine holds the key that opens it.';
-		if (!(await step(1500, gen))) return;
+		caption = 'Decrypted at the corner — only your machine holds the key.';
+		if (!(await step(1600, gen))) return;
 		sealing = '';
-		// the opened answer STAYS parked at your machine through the proof --
-		// delivery is a state the storyboard keeps on screen, not a flash
+		if (!(await step(700, gen))) return;
+
+		// up the vertical, home to the web, and away
+		pktX = WEB;
+		if (!(await step(1500, gen))) return;
+		pktX = { x: 11, y: 4 };
+		pktShown = false;
+		if (!(await step(1200, gen))) return;
 		answer = text;
 		log(`OPEN   ${text}`);
 	}
