@@ -250,6 +250,17 @@
 }
 /* the processing bar: a gold segment chewing back and forth along the sealed
  * request while the model turns it into the response */
+
+/* A physical spring for things that MOVE: mild underdamping with a touch of
+ * overshoot, sampled from a mass-spring-damper and baked into linear().
+ * Unlayered on purpose, so it wins over Tailwind's ease-* utilities. */
+:root {
+	--spring: linear(0, 0.0306, 0.1074, 0.2113, 0.3278, 0.4462, 0.5591 17%, 0.6616, 0.7513, 0.8269, 0.8886, 0.9372, 0.974 33%, 1.0007, 1.019, 1.0303, 1.0364, 1.0384, 1.0376 50%, 1.0348, 1.031, 1.0265, 1.022, 1.0176, 1.0136 67%, 1.0101, 1.0071, 1.0046, 1.0027, 1.0012, 1.0001 83%, 0.9994, 0.9989, 0.9986, 0.9985, 0.9985, 1 100%);
+}
+.ilk-spring {
+	transition-timing-function: var(--spring);
+}
+
 .ilk-proc {
 	background: linear-gradient(90deg, transparent, var(--caution), transparent);
 	background-size: 45% 100%;

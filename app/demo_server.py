@@ -29,6 +29,7 @@ Run:  VerInf/venv/bin/python -u demo_server.py --port 8770
 import argparse
 import asyncio
 import hashlib
+import json
 import os
 import subprocess
 import time
@@ -100,6 +101,10 @@ class State:
         self.watchdog = None
         self.wire_ok = False      # set once the Pi reports a locked flywheel
         self.rewarm = None
+        # The hardware button panel toggles this; a panel PROMPT press runs
+        # whatever it says. Deliberately NOT touched by reset(): the workload
+        # choice is an operator setting, not part of a run.
+        self.workload = "honest"
 
     def reset(self):
         self.running, self.rid, self.t0 = False, None, None
@@ -285,7 +290,7 @@ async def connect(sid, environ):
 
 
 @sio.on("demo:run", namespace="/demo")
-async def demo_run(sid, data):
+async def demo_run(sid, data, tampered=False):
     if S.agent is None:
         await sio.emit("beat:error", {"error": "the Pi agent is not connected"},
                        namespace="/demo", to=sid)
@@ -303,7 +308,11 @@ async def demo_run(sid, data):
     S.reset()
     S.running, S.t0 = True, time.time()
     text = (data or {}).get("text") or PROMPT
-    await to_demo("beat:start", {"prompt": text, "mode": MODE_LABEL})
+    # beat:start carries whether THIS run was started tampered, so every open
+    # panel banners correctly no matter who pressed the button (web switch,
+    # hardware panel, rehearse) -- the client cannot know from its own switch.
+    await to_demo("beat:start",
+                  {"prompt": text, "mode": MODE_LABEL, "tampered": tampered})
     await sio.emit("cmd:prompt", {"text": text}, namespace="/agent", to=S.agent)
 
 
@@ -320,7 +329,7 @@ async def demo_tamper(sid, data=None):
     anything; at 1 token-layer of ~460 it usually would not."""
     open(TAMPER_FLAG, "w").close()
     await to_demo("beat:armed", {"what": "response tokens"})
-    await demo_run(sid, data)
+    await demo_run(sid, data, tampered=True)
 
 
 @sio.on("demo:reset", namespace="/demo")
@@ -451,6 +460,29 @@ def main():
 
     async def spa(scope, receive, send):
         if scope["type"] != "http":
+            return
+        # The hardware button panel (docs/BUTTON-PANEL.md): plain HTTP, so the
+        # Pi-side daemon needs nothing beyond the standard library and lgpio.
+        path = scope.get("path", "")
+        if path.startswith("/panel/"):
+            if scope.get("method") == "POST" and path == "/panel/workload":
+                S.workload = "tampered" if S.workload == "honest" else "honest"
+                print("[panel] workload -> %s" % S.workload, flush=True)
+                out = {"workload": S.workload}
+            elif scope.get("method") == "POST" and path == "/panel/prompt":
+                if S.workload == "tampered":
+                    await demo_tamper(None, {})
+                else:
+                    await demo_run(None, {})
+                out = {"started": S.running, "workload": S.workload}
+            else:
+                out = {"wire": bool(S.wire_ok and S.agent is not None),
+                       "running": S.running, "workload": S.workload}
+            body = json.dumps(out).encode()
+            await send({"type": "http.response.start", "status": 200,
+                        "headers": [(b"content-type", b"application/json"),
+                                    (b"cache-control", b"no-store")]})
+            await send({"type": "http.response.body", "body": body})
             return
         # Read per request rather than caching at startup: `pnpm build` in the
         # dashboard would otherwise keep serving the shell this process loaded

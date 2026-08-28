@@ -129,9 +129,15 @@
 	let generation = 0;
 	const queue = (fn: () => Promise<void>) => (chain = chain.then(fn).catch(console.error));
 
-	/** Sleep that resolves to false if a newer run started while we waited. */
+	/** the transport's pause: playback holds between beats while this is up */
+	let paused = $state(false);
+	/** Sleep that resolves to false if a newer run started while we waited.
+	 * While paused, it holds between beats instead of returning. */
 	async function step(ms: number, gen: number) {
 		await new Promise((r) => setTimeout(r, ms));
+		while (paused && gen === generation) {
+			await new Promise((r) => setTimeout(r, 120));
+		}
 		return gen === generation;
 	}
 
@@ -171,6 +177,22 @@
 						: (from[i] ?? HEXCHARS[(Math.random() * 16) | 0]);
 			}
 			pktText = k >= 1 ? target : out;
+			if (k < 1) scrRaf = requestAnimationFrame(tick);
+		};
+		scrRaf = requestAnimationFrame(tick);
+	}
+
+	/** the response arrives the way a model produces one: character by character */
+	function typeTo(target: string, ms = 3200) {
+		cancelAnimationFrame(scrRaf);
+		if (frozen()) {
+			pktText = target;
+			return;
+		}
+		const t0 = performance.now();
+		const tick = (now: number) => {
+			const k = Math.min(1, (now - t0) / ms);
+			pktText = target.slice(0, Math.round(k * target.length));
 			if (k < 1) scrRaf = requestAnimationFrame(tick);
 		};
 		scrRaf = requestAnimationFrame(tick);
@@ -272,7 +294,7 @@
 		// place, processing it into the answer
 	}
 
-	async function runResponse(d: any, text: string, gen: number) {
+	async function runGenerate(d: any, text: string, gen: number) {
 		// The answer exists in the clear HERE first: the cluster generates it,
 		// and only then does it get encrypted for the trip back. Showing that is
 		// honest -- the datacenter necessarily holds the plaintext it produced --
@@ -301,19 +323,21 @@
 		gqY = 32.5;
 		processing = true;
 		caption = '…the model runs on the decrypted request…';
-		if (!(await step(frozen() ? 30 : 2800, gen))) return;
-		processing = false;
+		if (!(await step(frozen() ? 30 : 1100, gen))) return;
 
-		// beat three: a NEW box -- the response -- is generated beneath it
+		// beat three: a NEW box -- the response -- GENERATED character by
+		// character, the way a model actually produces one. No word for it:
+		// the thing itself is the caption.
 		pktText = '';
 		pktRole = 'response';
 		pktX = { x: 81.5, y: 49.5 };
 		if (!(await step(60, gen))) return;
 		pktInstant = false;
 		pktShown = true;
-		scrambleTo(clip(text), 1400);
+		typeTo(clip(text), 3400);
 		caption = '…and a response is generated…';
-		if (!(await step(2400, gen))) return;
+		if (!(await step(4000, gen))) return;
+		processing = false;
 
 		// the request has served; the response takes the center
 		gqShown = false;
@@ -326,7 +350,9 @@
 		caption = '…and it is encrypted for the trip back.';
 		if (!(await step(1700, gen))) return;
 		sealing = '';
+	}
 
+	async function runReturn(d: any, text: string, gen: number) {
 		phase = 'rsp';
 		pktX = STOP[1];
 		hotSpark = false;
@@ -459,10 +485,11 @@
 			generation += 1; // orphans any in-flight animation from a previous run
 			chain = Promise.resolve();
 			clearRun();
-			// The server says beat:armed BEFORE beat:start, so the clear above just
-			// ate it. The switch state is this client's own request, so it is the
-			// truth about the run it just launched.
-			tampered = armed;
+			// The server stamps the run it started (a hardware-panel run may be
+			// tampered with this browser's switch off); the local switch is only
+			// the fallback for older servers.
+			tampered = d?.tampered ?? armed;
+			paused = false;
 			promptText = d?.prompt ?? '';
 			busy = true;
 		});
@@ -472,8 +499,10 @@
 			const gen = generation;
 			queue(async () => {
 				if (gen !== generation) return;
+				const text = d.ok ? d.text : 'could not open it';
 				await runRequest(pending, gen);
-				await runResponse(pending, d.ok ? d.text : 'could not open it', gen);
+				await runGenerate(pending, text, gen);
+				await runReturn(pending, text, gen);
 				// a run that failed to open has no proof coming: the server's
 				// beat:error follows, and 'proving' would wait on it forever
 				if (d.ok) await runProve(gen);
@@ -573,49 +602,142 @@
 		return out;
 	}
 
-	function simulate(tamper: boolean) {
-		generation += 1;
-		const gen = generation;
-		chain = Promise.resolve();
+	// ── the sim transport ──────────────────────────────────────────────────────
+	// The simulated run is SCRUBBABLE: five chapters, each with an entry
+	// snapshot (absolute state, applied instantly) and a play function. The
+	// transport seeks by snapping to a chapter and playing forward from there;
+	// pause holds `step()` between beats.
+	type SimCtx = { d: any; text: string; tamper: boolean };
+	let simCtx: SimCtx | null = null;
+	let simChapter = $state(0);
+
+	function snapCommon(ctx: SimCtx) {
 		clearRun();
 		busy = true;
 		simRun = true;
-		tampered = tamper;
+		tampered = ctx.tamper;
 		promptText = SIM_PROMPT;
+		pktInstant = true;
 		if (!modelFp) modelFp = fauxDigest('simulated-weights');
-
-		const nonce = `${Date.now()}:${Math.random()}`;
-		const d = {
-			n_tokens: 11,
-			ct_in: fauxDigest(`ct_in:${nonce}`) + fauxDigest(`ct_in2:${nonce}`),
-			ct_out: fauxDigest(`ct_out:${nonce}`) + fauxDigest(`ct_out2:${nonce}`),
-			request_digest: fauxDigest(`in:${SIM_PROMPT}:${nonce}`),
-			response_digest: fauxDigest(`out:${SIM_ANSWER}:${nonce}`),
-			request_audit: true,
-			response_audit: true
-		};
-
-		queue(async () => {
-			if (gen !== generation) return;
-			log('SIM    simulated board — nothing below was certified or proven');
-			await runRequest(d, gen);
-			await runResponse(d, SIM_ANSWER, gen);
+	}
+	const SNAPS: ((ctx: SimCtx) => void)[] = [
+		() => {},
+		(ctx) => {
+			// the sealed request sits in the cluster; the input film is racked
+			pktShown = true;
+			pktSealed = true;
+			pktRole = 'request';
+			pktX = STOP[2];
+			pktText = cipherOf(ctx.d.ct_in, clip(asked || promptText).length);
+			reqFp = ctx.d.request_digest;
+			chipA = 'held';
+			hotSpark = true;
+		},
+		(ctx) => {
+			SNAPS[1](ctx);
+			// the response is generated and sealed, ready for the trip back
+			pktRole = 'response';
+			pktText = cipherOf(ctx.d.ct_out, clip(ctx.text).length);
+		},
+		(ctx) => {
+			SNAPS[1](ctx);
+			// delivered: the open answer parks at the web, both films racked
+			hotSpark = false;
+			pktRole = 'response';
+			pktSealed = false;
+			pktX = WEB;
+			pktText = clip(ctx.text);
+			rspFp = ctx.d.response_digest;
+			chipB = 'held';
+		},
+		(ctx) => {
+			SNAPS[3](ctx);
+			// combined: commitment on file, films absorbed, the hunt running
+			chipA = 'gone';
+			chipB = 'gone';
+			modelShown = true;
+			phase = 'prove';
+			proving = true;
+			proveT0 = performance.now();
+		}
+	];
+	const PLAYS: ((ctx: SimCtx, gen: number) => Promise<void>)[] = [
+		(ctx, gen) => runRequest(ctx.d, gen),
+		(ctx, gen) => runGenerate(ctx.d, ctx.text, gen),
+		(ctx, gen) => runReturn(ctx.d, ctx.text, gen),
+		async (_ctx, gen) => {
 			await runProve(gen);
 			for (const line of SIM_STATUS) {
 				if (!(await step(1150, gen))) return;
 				log(`PROVE  ${line}`);
 			}
 			if (!(await step(900, gen))) return;
-			await runVerdict(
+		},
+		(ctx, gen) =>
+			runVerdict(
 				{
-					result: tamper
+					result: ctx.tamper
 						? { verdict: 'FAIL', U: '2^-40', verify: 'REJECT', keybind: 'MISMATCH' }
-						: { verdict: 'PASS', U: '2^-40', verify: 'ACCEPT', keybind: 'OK' },
-					secs: 24.6
+						: { verdict: 'PASS', U: '2^-40', verify: 'ACCEPT', keybind: 'OK' }
 				},
 				gen
-			);
+			)
+	];
+
+	function playFrom(i: number) {
+		if (!simCtx) return;
+		const ctx = simCtx;
+		generation += 1;
+		const gen = generation;
+		chain = Promise.resolve();
+		paused = false;
+		snapCommon(ctx);
+		SNAPS[i](ctx);
+		simChapter = i;
+		queue(async () => {
+			if (!(await step(80, gen))) return;
+			pktInstant = false;
+			for (let c = i; c < PLAYS.length; c++) {
+				if (gen !== generation) return;
+				simChapter = c;
+				await PLAYS[c](ctx, gen);
+			}
 		});
+	}
+
+	function simSeek(delta: number) {
+		if (!simCtx || !simRun) {
+			simulate(armed);
+			return;
+		}
+		playFrom(Math.max(0, Math.min(SNAPS.length - 1, simChapter + delta)));
+	}
+
+	function simPlayPause() {
+		if (!simCtx || !busy) {
+			simulate(armed);
+			return;
+		}
+		paused = !paused;
+	}
+
+	function simulate(tamper: boolean) {
+		const nonce = `${Date.now()}:${Math.random()}`;
+		simCtx = {
+			text: SIM_ANSWER,
+			tamper,
+			d: {
+				n_tokens: 11,
+				ct_in: fauxDigest(`ct_in:${nonce}`) + fauxDigest(`ct_in2:${nonce}`),
+				ct_out: fauxDigest(`ct_out:${nonce}`) + fauxDigest(`ct_out2:${nonce}`),
+				request_digest: fauxDigest(`in:${SIM_PROMPT}:${nonce}`),
+				response_digest: fauxDigest(`out:${SIM_ANSWER}:${nonce}`),
+				request_audit: true,
+				response_audit: true
+			}
+		};
+		log('SIM    simulated board — nothing below was certified or proven');
+		playFrom(0);
 	}
 
 	// ── power ──────────────────────────────────────────────────────────────────
@@ -839,12 +961,12 @@
 		class={cn(
 			'absolute z-20 -translate-x-1/2 -translate-y-1/2 transition-all duration-[1400ms] ease-in-out motion-reduce:transition-none',
 			state === 'hidden' && 'opacity-0 duration-[600ms]',
-			state === 'held' && 'opacity-100 duration-[600ms]',
+			state === 'held' && 'ilk-spring opacity-100 duration-[600ms]',
 			// the U, leg by leg: ease into the drop, run the trench flat-out,
 			// ease off rising into the cluster
 			state === 'drop' && 'opacity-100 duration-[550ms] ease-in',
 			state === 'run' && 'opacity-100 duration-[900ms] ease-linear',
-			state === 'docked' && 'opacity-100 duration-[650ms] ease-out',
+			state === 'docked' && 'ilk-spring opacity-100 duration-[650ms]',
 			state === 'gone' && 'opacity-0 duration-[0ms]'
 		)}
 		style="left:{at.x}%;top:{chipTop(at)};width:{FILMW}"
@@ -885,6 +1007,29 @@
 					// off is only offerable when there is a wire to fall back to
 					if (liveWire) simForce = !simForce;
 				})}
+				{#if simMode}
+					<!-- the transport: only a SIMULATED run can be scrubbed -->
+					<div class="flex items-center gap-1">
+						<button
+							class="t-tag border border-border px-2 py-1 font-mono text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
+							disabled={goingDown}
+							onclick={() => simSeek(-1)}
+							aria-label="back one chapter">◀◀</button
+						>
+						<button
+							class="t-tag border border-border px-2 py-1 font-mono text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
+							disabled={goingDown}
+							onclick={simPlayPause}
+							aria-label="play or pause">{busy && !paused ? '❚❚' : '▶'}</button
+						>
+						<button
+							class="t-tag border border-border px-2 py-1 font-mono text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
+							disabled={goingDown}
+							onclick={() => simSeek(1)}
+							aria-label="forward one chapter">▶▶</button
+						>
+					</div>
+				{/if}
 			</div>
 			<div class="flex flex-wrap items-center gap-x-4 gap-y-3">
 				<a
@@ -1118,7 +1263,7 @@
 			     character but never reshapes the envelope. -->
 			<div
 				class={cn(
-					'absolute z-10 flex w-[17cqw] -translate-x-1/2 -translate-y-1/2 items-start gap-[0.6cqw] border px-[0.9cqw] py-[0.45cqw] font-mono ease-in-out motion-reduce:transition-none',
+					'ilk-spring absolute z-10 flex w-[17cqw] -translate-x-1/2 -translate-y-1/2 items-start gap-[0.6cqw] border px-[0.9cqw] py-[0.45cqw] font-mono motion-reduce:transition-none',
 					pktInstant ? 'transition-none' : 'transition-all duration-[1400ms]',
 					pktSealed
 						? 'border-[#d9a13b] bg-muted text-muted-foreground'
@@ -1154,7 +1299,9 @@
 				<!-- ciphertext has no spaces to break on, so it breaks anywhere;
 				     plaintext keeps its words whole -->
 				<div class="min-w-0 flex-1">
-					<div class="mb-[0.1cqw] font-mono text-[0.7cqw] tracking-[0.18em] uppercase opacity-60">
+					<div
+						class="mb-[0.15cqw] font-mono text-[0.9cqw] font-semibold tracking-[0.2em] text-muted-foreground uppercase"
+					>
 						{pktRole}
 					</div>
 					<!-- a HARD two-line well: sealing, opening, and typing change the
@@ -1177,18 +1324,15 @@
 					'absolute z-10 flex w-[17cqw] -translate-x-1/2 -translate-y-1/2 items-start gap-[0.6cqw] border border-border bg-muted px-[0.9cqw] py-[0.45cqw] font-mono text-foreground',
 					gqShown ? 'opacity-100' : 'pointer-events-none opacity-0'
 				)}
-				style="left:81.5%;top:{gqY}%;transition:top 900ms ease-in-out, opacity {gqShown
+				style="left:81.5%;top:{gqY}%;transition:top 900ms var(--spring), opacity {gqShown
 					? '0ms'
 					: '900ms'} ease-in-out"
 			>
 				<div class="min-w-0 flex-1">
 					<div
-						class={cn(
-							'mb-[0.1cqw] font-mono text-[0.7cqw] tracking-[0.18em] uppercase',
-							processing ? 'text-[#d9a13b]' : 'opacity-60'
-						)}
+						class="mb-[0.15cqw] font-mono text-[0.9cqw] font-semibold tracking-[0.2em] text-muted-foreground uppercase"
 					>
-						{processing ? 'processing…' : 'request'}
+						request
 					</div>
 					<span class="block h-[2lh] overflow-hidden text-[1.25cqw] leading-snug break-words"
 						>{gqText}</span
