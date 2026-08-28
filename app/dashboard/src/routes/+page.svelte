@@ -397,17 +397,16 @@
 		caption = 'The cluster reveals the fingerprint of the model it promised to run.';
 		if (!(await step(frozen() ? 30 : 1700, gen))) return;
 
-		// beat two: the certifier releases both films and they ride the U --
-		// down through its floor, along the trench, up into the cluster from
-		// below. The proof that combines them runs on the Spark, so that is
-		// where they go. Output leads, input trails a beat behind, so the pair
-		// reads as a conveyor rather than a swap.
+		// beat two: the certifier releases both films -- the input straight out
+		// through its wall and up, the output down through its floor, along the
+		// trench, and up the same rise. The proof that combines them runs on
+		// the Spark, so that is where they go.
 		caption = 'The certifier sends its two fingerprints into the cluster.';
 		const t = (ms: number) => step(frozen() ? 30 : ms, gen);
-		// The two films share one trench, so the spacing is temporal, and the
-		// order is bottom-first: the INPUT film (lower rack, nearer the floor)
-		// leaves first, and the OUTPUT film drops through the slot it vacated --
-		// nothing ever passes through anything, in the rack or in transit.
+		// Two roads, one rise: the INPUT film exits right through the
+		// certifier's wall at rack height and waits over the trench mouth; the
+		// OUTPUT film takes the full U underneath it. Input rises first, output
+		// follows -- nothing ever passes through anything, in rack or transit.
 		chipA = 'drop';
 		if (!(await t(600))) return;
 		chipA = 'run';
@@ -848,21 +847,25 @@
 	const SLOT_FRESH = { x: 39, y: 59 };
 	const SLOT_PUSHED = { x: 39, y: 76.5 };
 	// Docks are the sheets' OWN rows in the stack: the stack pile is centered at
-	// stage {81.5, 43}, and each sheet's home center sits dy rows off the pile's
-	// center (input one row up, output one row down). The chip is anchored on
-	// its strip, drawn at the same width and cell size as the stack, so the
-	// landing is pixel-exact: nothing teleports at the handoff.
+	// stage {81.5, 36.35}, and each sheet's home center sits dy rows off the
+	// pile's center (input one row up, output one row down). The chip is
+	// anchored on its strip, drawn at the same width and cell size as the
+	// stack, so the landing is pixel-exact: nothing teleports at the handoff.
+	// The two films take two different roads to the same rise: the OUTPUT rides
+	// the full U -- down through the certifier's floor, along the trench, up --
+	// while the INPUT leaves straight through the certifier's wall at rack
+	// height and turns up under the cluster, one road above the other.
 	const CHIP_B = {
 		held: SLOT_FRESH,
 		drop: { x: 39, y: 92 },
 		run: { x: 81.5, y: 92 },
-		dock: { x: 81.5, y: 31.8, dy: 1 }
+		dock: { x: 81.5, y: 36.35, dy: 1 }
 	};
 	const CHIP_A = $derived({
 		held: chipB === 'hidden' ? SLOT_FRESH : SLOT_PUSHED,
-		drop: { x: 39, y: 92 },
-		run: { x: 81.5, y: 92 },
-		dock: { x: 81.5, y: 31.8, dy: -1 }
+		drop: { x: 81.5, y: 76.5 },
+		run: { x: 81.5, y: 76.5 },
+		dock: { x: 81.5, y: 36.35, dy: -1 }
 	});
 	/** a chip's top style: plain %, or % plus a whole number of stack rows */
 	const chipTop = (at: { y: number; dy?: number }) =>
@@ -1184,11 +1187,11 @@
 				<!-- the combine: the three films stacked at true registration, in place
 				     and at film size — landing IS combining, there is no handoff to a
 				     larger instrument. The pile is ANCHORED (center of the box's body,
-				     stage y 43) so the flying chips' docks are its own sheet rows.
-				     Beneath it, a legend keeps all three names on screen through the
+				     stage y 36.35) so the flying chips' docks are its own sheet rows.
+				     Above it, a legend keeps all three names on screen through the
 				     sliding, and calls the match when the verdict lands. -->
 				<div
-					class="absolute top-[47%] left-1/2 w-full -translate-x-1/2 -translate-y-1/2"
+					class="absolute top-[55%] left-1/2 w-full -translate-x-1/2 -translate-y-1/2"
 					style="max-width:min({FILMW},92%)"
 				>
 						<div
@@ -1234,7 +1237,9 @@
 							</svg>
 							{/each}
 						</div>
-						<div class="absolute inset-x-0 bottom-full mb-[0.7cqw] flex flex-col items-center gap-[0.05cqw] leading-tight">
+						<!-- clearance above the pile = the sheets' biggest upward throw
+						     while hunting, so the rake never runs into the legend -->
+						<div class="absolute inset-x-0 bottom-full mb-[2.6cqw] flex flex-col items-center gap-[0.05cqw] leading-tight">
 							{#if verdict && verdict.verdict !== 'PASS'}
 								<!-- the failed verdict collapses the ledger into its reading -->
 								<span

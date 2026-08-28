@@ -225,10 +225,10 @@
  * down against the model backing, out of phase with each other so the stack
  * visibly refuses to resolve. Dropping the class transitions them home. */
 .ilk-hunt-a {
-	animation: ilk-hunt-a 2.5s linear infinite;
+	animation: ilk-hunt-a 1.7s linear infinite;
 }
 .ilk-hunt-b {
-	animation: ilk-hunt-b 3.2s linear infinite;
+	animation: ilk-hunt-b 2.2s linear infinite;
 }
 /* The hunt is a pure sine, sampled densely onto LINEAR timing: velocity is
  * continuous through every reversal, so the raking reads as glass-smooth
@@ -239,61 +239,61 @@
 		transform: translateY(-0.00%);
 	}
 	5% {
-		transform: translateY(-5.87%);
+		transform: translateY(-9.27%);
 	}
 	10% {
-		transform: translateY(-11.17%);
+		transform: translateY(-17.63%);
 	}
 	15% {
-		transform: translateY(-15.37%);
+		transform: translateY(-24.27%);
 	}
 	20% {
-		transform: translateY(-18.07%);
+		transform: translateY(-28.53%);
 	}
 	25% {
-		transform: translateY(-19.00%);
+		transform: translateY(-30.00%);
 	}
 	30% {
-		transform: translateY(-18.07%);
+		transform: translateY(-28.53%);
 	}
 	35% {
-		transform: translateY(-15.37%);
+		transform: translateY(-24.27%);
 	}
 	40% {
-		transform: translateY(-11.17%);
+		transform: translateY(-17.63%);
 	}
 	45% {
-		transform: translateY(-5.87%);
+		transform: translateY(-9.27%);
 	}
 	50% {
 		transform: translateY(-0.00%);
 	}
 	55% {
-		transform: translateY(5.87%);
+		transform: translateY(9.27%);
 	}
 	60% {
-		transform: translateY(11.17%);
+		transform: translateY(17.63%);
 	}
 	65% {
-		transform: translateY(15.37%);
+		transform: translateY(24.27%);
 	}
 	70% {
-		transform: translateY(18.07%);
+		transform: translateY(28.53%);
 	}
 	75% {
-		transform: translateY(19.00%);
+		transform: translateY(30.00%);
 	}
 	80% {
-		transform: translateY(18.07%);
+		transform: translateY(28.53%);
 	}
 	85% {
-		transform: translateY(15.37%);
+		transform: translateY(24.27%);
 	}
 	90% {
-		transform: translateY(11.17%);
+		transform: translateY(17.63%);
 	}
 	95% {
-		transform: translateY(5.87%);
+		transform: translateY(9.27%);
 	}
 	100% {
 		transform: translateY(0.00%);
@@ -304,61 +304,61 @@
 		transform: translateY(0.00%);
 	}
 	5% {
-		transform: translateY(6.80%);
+		transform: translateY(10.82%);
 	}
 	10% {
-		transform: translateY(12.93%);
+		transform: translateY(20.57%);
 	}
 	15% {
-		transform: translateY(17.80%);
+		transform: translateY(28.32%);
 	}
 	20% {
-		transform: translateY(20.92%);
+		transform: translateY(33.29%);
 	}
 	25% {
-		transform: translateY(22.00%);
+		transform: translateY(35.00%);
 	}
 	30% {
-		transform: translateY(20.92%);
+		transform: translateY(33.29%);
 	}
 	35% {
-		transform: translateY(17.80%);
+		transform: translateY(28.32%);
 	}
 	40% {
-		transform: translateY(12.93%);
+		transform: translateY(20.57%);
 	}
 	45% {
-		transform: translateY(6.80%);
+		transform: translateY(10.82%);
 	}
 	50% {
 		transform: translateY(0.00%);
 	}
 	55% {
-		transform: translateY(-6.80%);
+		transform: translateY(-10.82%);
 	}
 	60% {
-		transform: translateY(-12.93%);
+		transform: translateY(-20.57%);
 	}
 	65% {
-		transform: translateY(-17.80%);
+		transform: translateY(-28.32%);
 	}
 	70% {
-		transform: translateY(-20.92%);
+		transform: translateY(-33.29%);
 	}
 	75% {
-		transform: translateY(-22.00%);
+		transform: translateY(-35.00%);
 	}
 	80% {
-		transform: translateY(-20.92%);
+		transform: translateY(-33.29%);
 	}
 	85% {
-		transform: translateY(-17.80%);
+		transform: translateY(-28.32%);
 	}
 	90% {
-		transform: translateY(-12.93%);
+		transform: translateY(-20.57%);
 	}
 	95% {
-		transform: translateY(-6.80%);
+		transform: translateY(-10.82%);
 	}
 	100% {
 		transform: translateY(-0.00%);
