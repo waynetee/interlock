@@ -395,28 +395,28 @@
 		// promised to run, fixed before anything was sent
 		modelShown = true;
 		caption = 'The cluster reveals the fingerprint of the model it promised to run.';
+		// while the cluster shows its hand, the input film settles down onto
+		// the U's bottom-left corner -- so when the road opens it is already
+		// at the bend, a length ahead of the output on the same road
+		chipA = 'drop';
 		if (!(await step(frozen() ? 30 : 1700, gen))) return;
 
-		// beat two: the certifier releases both films -- the input straight out
-		// through its wall and up, the output down through its floor, along the
-		// trench, and up the same rise. The proof that combines them runs on
-		// the Spark, so that is where they go.
+		// beat two: both films ride ONE road -- down through the certifier's
+		// floor, along the trench, and up into the cluster from below -- the
+		// input a leg ahead of the output the whole way. The proof that
+		// combines them runs on the Spark, so that is where they go.
+		// Leg durations are matched to one cruise speed (ease-in into the
+		// trench, linear along it, ease-out up the rise), so nothing slows
+		// down at the bends -- the corners turn, the speed carries through.
 		caption = 'The certifier sends its two fingerprints into the cluster.';
 		const t = (ms: number) => step(frozen() ? 30 : ms, gen);
-		// Two roads, one rise: the INPUT film exits right through the
-		// certifier's wall at rack height and waits over the trench mouth; the
-		// OUTPUT film takes the full U underneath it. Input rises first, output
-		// follows -- nothing ever passes through anything, in rack or transit.
-		chipA = 'drop';
-		if (!(await t(600))) return;
 		chipA = 'run';
-		if (!(await t(100))) return;
-		chipB = 'drop';
-		if (!(await t(600))) return;
-		chipB = 'run';
-		if (!(await t(300))) return;
+		if (!(await t(800))) return;
 		chipA = 'docked';
-		if (!(await t(650))) return;
+		chipB = 'drop';
+		if (!(await t(700))) return;
+		chipB = 'run';
+		if (!(await t(400))) return;
 		// the moment a film lands it is absorbed and the sliding is already
 		// running: travel and hunt are one continuous motion, with no pause
 		// between them. `proving` stays up until the verdict lands however long
@@ -425,9 +425,9 @@
 		proving = true;
 		proveT0 = performance.now();
 		caption = 'Now it has to prove all three came from the promised model.';
-		if (!(await t(100))) return;
+		if (!(await t(400))) return;
 		chipB = 'docked';
-		if (!(await t(650))) return;
+		if (!(await t(1100))) return;
 		chipB = 'gone';
 	}
 
@@ -851,10 +851,10 @@
 	// pile's center (input one row up, output one row down). The chip is
 	// anchored on its strip, drawn at the same width and cell size as the
 	// stack, so the landing is pixel-exact: nothing teleports at the handoff.
-	// The two films take two different roads to the same rise: the OUTPUT rides
-	// the full U -- down through the certifier's floor, along the trench, up --
-	// while the INPUT leaves straight through the certifier's wall at rack
-	// height and turns up under the cluster, one road above the other.
+	// Both films ride ONE road -- the U: down through the certifier's floor to
+	// the trench corner, along the trench, and up into the cluster. The input
+	// takes the corner during the model reveal, so when the road opens it is
+	// already a length ahead of the output on the same road.
 	const CHIP_B = {
 		held: SLOT_FRESH,
 		drop: { x: 39, y: 92 },
@@ -863,8 +863,8 @@
 	};
 	const CHIP_A = $derived({
 		held: chipB === 'hidden' ? SLOT_FRESH : SLOT_PUSHED,
-		drop: { x: 81.5, y: 76.5 },
-		run: { x: 81.5, y: 76.5 },
+		drop: { x: 39, y: 92 },
+		run: { x: 81.5, y: 92 },
 		dock: { x: 81.5, y: 36.35, dy: -1 }
 	});
 	/** a chip's top style: plain %, or % plus a whole number of stack rows */
@@ -970,11 +970,12 @@
 			'absolute z-20 -translate-x-1/2 -translate-y-1/2 transition-all duration-[1400ms] ease-in-out motion-reduce:transition-none',
 			state === 'hidden' && 'opacity-0 duration-[600ms]',
 			state === 'held' && 'ilk-spring opacity-100 duration-[600ms]',
-			// the U, leg by leg: ease into the drop, run the trench flat-out,
-			// ease off rising into the cluster
-			state === 'drop' && 'opacity-100 duration-[550ms] ease-in',
-			state === 'run' && 'opacity-100 duration-[900ms] ease-linear',
-			state === 'docked' && 'ilk-spring opacity-100 duration-[650ms]',
+			// the U, leg by leg, cut to ONE cruise speed: the ease-in drop ends
+			// at the speed the linear trench runs at, and the ease-out rise
+			// enters at it -- the corners turn but the speed carries through
+			state === 'drop' && 'opacity-100 duration-[700ms] ease-in',
+			state === 'run' && 'opacity-100 duration-[800ms] ease-linear',
+			state === 'docked' && 'opacity-100 duration-[1100ms] ease-out',
 			state === 'gone' && 'opacity-0 duration-[0ms]'
 		)}
 		style="left:{at.x}%;top:{chipTop(at)};width:{FILMW}"
