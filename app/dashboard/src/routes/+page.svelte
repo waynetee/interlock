@@ -499,7 +499,11 @@
 			const gen = generation;
 			queue(async () => {
 				if (gen !== generation) return;
-				const text = d.ok ? d.text : 'could not open it';
+				const text = !d.ok
+					? 'could not open it'
+					: tampered
+						? '<TAMPERED RESPONSE>'
+						: d.text;
 				await runRequest(pending, gen);
 				await runGenerate(pending, text, gen);
 				await runReturn(pending, text, gen);
@@ -724,7 +728,7 @@
 	function simulate(tamper: boolean) {
 		const nonce = `${Date.now()}:${Math.random()}`;
 		simCtx = {
-			text: SIM_ANSWER,
+			text: tamper ? '<TAMPERED RESPONSE>' : SIM_ANSWER,
 			tamper,
 			d: {
 				n_tokens: 11,
@@ -793,15 +797,7 @@
 	 * label rides as the stage tooltip for whoever is running the demo.
 	 */
 	const banner = $derived(
-		runFault
-			? { tag: 'Fault', tone: 'fault' as const, say: runFault }
-			: tampered
-				? {
-						tag: 'Tampered',
-						tone: 'fault' as const,
-						say: 'the cluster is claiming an answer the certifier never saw — this fails every time'
-					}
-				: null
+		runFault ? { tag: 'Fault', tone: 'fault' as const, say: runFault } : null
 	);
 
 	/**
@@ -873,17 +869,19 @@
 	/** one width for a film everywhere it appears, so landing IS combining --
 	 * nothing resizes between the flight and the stack */
 	const FILMW = '24cqw';
-	const failB = $derived(!!verdict && verdict.verdict !== 'PASS');
+	// A tampered run wears its color from the moment the output is minted --
+	// the red is the claim; the verdict only confirms it.
+	const badB = $derived(tampered || (!!verdict && verdict.verdict !== 'PASS'));
 	// The films' own cell patterns — the same strips the register is composing,
 	// derived from the same digests, so what flies is what lands.
 	const filmMask = stencil(DEFAULT_WORD, DEFAULT_FACE, DEFAULT_GRID);
-	const filmShares = $derived(build(reqFp ?? '', rspFp ?? '', modelFp ?? '', !failB, filmMask));
+	const filmShares = $derived(build(reqFp ?? '', rspFp ?? '', modelFp ?? '', !badB, filmMask));
 	const filmStrips = $derived(strips(filmShares, DEFAULT_GRID, 2, modelFp ?? '', 0.5));
 	const clusterStatus = $derived(
 		verdict
 			? verdict.verdict === 'PASS'
 				? 'verified via zero-knowledge proof'
-				: 'rejected'
+				: ''
 			: proving
 				? 'computing zero-knowledge proof…'
 				: phase === 'gen'
@@ -1192,7 +1190,7 @@
 						>
 							{#each [2, 0, 1] as i (i)}
 							{@const on = i === 2 ? !!regModel : i === 0 ? !!regReq : !!regRsp}
-							{@const ink = i === 2 ? HUEC : i === 0 ? HUEA : failB ? 'var(--fault)' : HUEB}
+							{@const ink = i === 2 ? HUEC : i === 0 ? HUEA : badB ? 'var(--fault)' : HUEB}
 							{@const home = i === 1 ? filmStrips.slack : 0}
 							<!-- Every sheet is drawn in the SAME pile-sized coordinate space,
 							     its cells already at their home rows: registration is exact by
@@ -1239,13 +1237,13 @@
 									)}
 									>{verdict.verdict === 'PASS'
 										? 'INPUT OUTPUT FINGERPRINTS MATCHES DECLARED MODEL FINGERPRINT'
-										: 'OUTPUT DOES NOT MATCH THE DECLARED MODEL FINGERPRINT'}</span
+										: 'OUTPUT FINGERPRINT INCONSISTENT WITH INPUT AND MODEL, TAMPERING DETECTED'}</span
 								>
 							{:else}
 								{#each [
 									['DECLARED MODEL FINGERPRINT', regModel, HUEC],
 									['INPUT FINGERPRINT', regReq, HUEA],
-									['OUTPUT FINGERPRINT', regRsp, failB ? 'var(--fault)' : HUEB]
+									['OUTPUT FINGERPRINT', regRsp, badB ? 'var(--fault)' : HUEB]
 								] as [role, hex, ink] (role)}
 									<span
 										class={cn(
@@ -1348,7 +1346,7 @@
 
 			<!-- the certifier's two stamps in flight: the strip patterns themselves -->
 			{@render filmchip(0, 'INPUT FINGERPRINT', reqFp, HUEA, chipA, CHIP_A, false)}
-			{@render filmchip(1, 'OUTPUT FINGERPRINT', rspFp, HUEB, chipB, CHIP_B, failB)}
+			{@render filmchip(1, 'OUTPUT FINGERPRINT', rspFp, HUEB, chipB, CHIP_B, badB)}
 			</section>
 		</div>
 	</main>
