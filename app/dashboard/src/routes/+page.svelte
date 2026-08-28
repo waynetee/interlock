@@ -69,9 +69,9 @@
 	// One y for the whole journey: the card rides the cable's height everywhere,
 	// including inside the cluster -- it moves left to right and never bobs.
 	const STOP = [
-		{ x: 11, y: 38 }, // the corner of the L: where the cryptography happens
-		{ x: 39, y: 38 },
-		{ x: 81.5, y: 38 }
+		{ x: 11, y: 33 }, // the corner of the L: where the cryptography happens
+		{ x: 39, y: 33 },
+		{ x: 81.5, y: 33 }
 	];
 	/** the web: requests come DOWN from it, answers climb back up and vanish */
 	const WEB = { x: 11, y: 23 };
@@ -120,7 +120,7 @@
 	/** the request's ghost: holds the decrypted question while the model runs */
 	let gqShown = $state(false);
 	let gqText = $state('');
-	let gqY = $state(38);
+	let gqY = $state(33);
 
 	const short = (h: string | null, n = 8) => (h ? h.slice(0, n).toUpperCase() : '—');
 	/** the run's narration, on the console rather than on the lid */
@@ -233,7 +233,7 @@
 		pktInstant = false;
 		gqShown = false;
 		gqText = '';
-		gqY = 38;
+		gqY = 33;
 		pktRole = 'request';
 		runFault = '';
 		promptText = '';
@@ -318,12 +318,12 @@
 		// beat two: the plaintext request hands off to its ghost (pixel-identical,
 		// so the swap is invisible), slides aside, and the model RUNS on it
 		gqText = pktText;
-		gqY = 38;
+		gqY = 33;
 		gqShown = true;
 		pktInstant = true;
 		pktShown = false;
 		if (!(await step(60, gen))) return;
-		gqY = 29;
+		gqY = 24;
 		processing = true;
 		caption = '…the model runs on the decrypted request…';
 		if (!(await step(frozen() ? 30 : 1100, gen))) return;
@@ -1114,9 +1114,9 @@
 			     across into the certifier's wall -- and a second run from the
 			     certifier's far wall into the cluster. Plain hairlines: the payload
 			     card itself is the traffic. -->
-			<div class="absolute top-[21%] left-[11%] h-[17%] w-px bg-border"></div>
-			<div class="absolute top-[38%] right-[70%] left-[11%] h-px bg-border"></div>
-			<div class="absolute top-[38%] right-[35%] left-[48%] h-px bg-border"></div>
+			<div class="absolute top-[21%] left-[11%] h-[12%] w-px bg-border"></div>
+			<div class="absolute top-[33%] right-[70%] left-[11%] h-px bg-border"></div>
+			<div class="absolute top-[33%] right-[35%] left-[48%] h-px bg-border"></div>
 
 			<!-- your machine: the globe at the top of the L -->
 			<div
