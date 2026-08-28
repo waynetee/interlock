@@ -113,6 +113,8 @@
 	let sealing = $state<'' | 'encrypting' | 'decrypting'>('');
 	/** kill the card's transition for one frame, for pixel-identical swaps */
 	let pktInstant = $state(false);
+	/** what the traveling card IS right now, printed on its eyebrow */
+	let pktRole = $state<'request' | 'response'>('request');
 	/** the request's ghost: holds the decrypted question while the model runs */
 	let gqShown = $state(false);
 	let gqText = $state('');
@@ -184,8 +186,8 @@
 		return '0x' + h.slice(0, k);
 	}
 
-	/** the card wraps now, so the ceiling is about keeping it a card, not a page */
-	const clip = (s: string, n = 120) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
+	/** everything shown on a card must fit its hard two-line well */
+	const clip = (s: string, n = 42) => (s.length > n ? s.slice(0, n - 1) + '…' : s);
 
 	/** Everything a run puts on the screen. The switches are not part of a run. */
 	function clearRun() {
@@ -207,6 +209,7 @@
 		gqShown = false;
 		gqText = '';
 		gqY = 41;
+		pktRole = 'request';
 		runFault = '';
 		promptText = '';
 		answer = '';
@@ -228,6 +231,7 @@
 	async function runRequest(d: any, gen: number) {
 		phase = 'req';
 		pktSealed = false;
+		pktRole = 'request';
 		pktInstant = true;
 		pktX = WEB;
 		pktText = asked || promptText;
@@ -302,6 +306,7 @@
 
 		// beat three: a NEW box -- the response -- is generated beneath it
 		pktText = '';
+		pktRole = 'response';
 		pktX = { x: 81.5, y: 49.5 };
 		if (!(await step(60, gen))) return;
 		pktInstant = false;
@@ -346,12 +351,10 @@
 		sealing = '';
 		if (!(await step(700, gen))) return;
 
-		// up the vertical, home to the web, and away
+		// up the vertical, home to the web -- and it STAYS: the delivered answer
+		// parks at the left edge of the story for the rest of the run
 		pktX = WEB;
 		if (!(await step(1500, gen))) return;
-		pktX = { x: 11, y: 4 };
-		pktShown = false;
-		if (!(await step(1200, gen))) return;
 		answer = text;
 		log(`OPEN   ${text}`);
 	}
@@ -1150,15 +1153,21 @@
 				{/if}
 				<!-- ciphertext has no spaces to break on, so it breaks anywhere;
 				     plaintext keeps its words whole -->
-				<!-- a constant two-line well: sealing, opening, and typing change the
-				     words, never the box -->
-				<span
-					class={cn(
-						'min-h-[2lh] min-w-0 flex-1 text-[1.25cqw] leading-snug',
-						pktSealed ? 'break-all' : 'break-words'
-					)}
-					>{pktText}</span
-				>
+				<div class="min-w-0 flex-1">
+					<div class="mb-[0.1cqw] font-mono text-[0.7cqw] tracking-[0.18em] uppercase opacity-60">
+						{pktRole}
+					</div>
+					<!-- a HARD two-line well: sealing, opening, and typing change the
+					     words, never the box -- a transient third line mid-scramble is
+					     clipped rather than allowed to grow the card -->
+					<span
+						class={cn(
+							'block h-[2lh] overflow-hidden text-[1.25cqw] leading-snug',
+							pktSealed ? 'break-all' : 'break-words'
+						)}
+						>{pktText}</span
+					>
+				</div>
 			</div>
 
 			<!-- the request's ghost: pixel-identical to the open payload card, it
@@ -1172,7 +1181,19 @@
 					? '0ms'
 					: '900ms'} ease-in-out"
 			>
-				<span class="min-h-[2lh] min-w-0 flex-1 text-[1.25cqw] leading-snug break-words">{gqText}</span>
+				<div class="min-w-0 flex-1">
+					<div
+						class={cn(
+							'mb-[0.1cqw] font-mono text-[0.7cqw] tracking-[0.18em] uppercase',
+							processing ? 'text-[#d9a13b]' : 'opacity-60'
+						)}
+					>
+						{processing ? 'processing…' : 'request'}
+					</div>
+					<span class="block h-[2lh] overflow-hidden text-[1.25cqw] leading-snug break-words"
+						>{gqText}</span
+					>
+				</div>
 				{#if processing}
 					<!-- the busy bar: the model is running on this request -->
 					<div class="ilk-proc pointer-events-none absolute inset-x-0 bottom-0 h-[0.25cqw]"></div>
