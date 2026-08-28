@@ -434,10 +434,10 @@
 		// second Prompt -- must not repaint the panel it is no longer about.
 		if (gen !== generation) return;
 		// the sliding is the drama: even when the prover has already ruled, the
-		// sheets get their ~3 seconds of hunting before the word is allowed to
-		// develop
+		// sheets get their five seconds of hunting before the word is allowed
+		// to develop
 		if (proving && proveT0 && !frozen()) {
-			const left = 3000 - (performance.now() - proveT0);
+			const left = 5000 - (performance.now() - proveT0);
 			if (left > 0 && !(await step(left, gen))) return;
 		}
 		verdict = d.result as Verdict;
@@ -882,7 +882,7 @@
 	const clusterStatus = $derived(
 		verdict
 			? verdict.verdict === 'PASS'
-				? 'verified'
+				? 'verified via zero-knowledge proof'
 				: 'rejected'
 			: proving
 				? 'computing zero-knowledge proof…'
