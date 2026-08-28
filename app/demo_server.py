@@ -484,6 +484,15 @@ def main():
                                     (b"cache-control", b"no-store")]})
             await send({"type": "http.response.body", "body": body})
             return
+        # Browsers probe /favicon.ico unprompted; letting it fall through to
+        # the SPA shell hands them HTML with a 200, and a browser that trusts
+        # that response caches a broken icon. Point the probe at the real one.
+        if path == "/favicon.ico":
+            await send({"type": "http.response.start", "status": 302,
+                        "headers": [(b"location", b"/favicon.svg"),
+                                    (b"cache-control", b"no-store")]})
+            await send({"type": "http.response.body", "body": b""})
+            return
         # Read per request rather than caching at startup: `pnpm build` in the
         # dashboard would otherwise keep serving the shell this process loaded
         # hours ago, and the fix ("restart demo_server after every rebuild")
