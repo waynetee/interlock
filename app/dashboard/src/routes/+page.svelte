@@ -69,9 +69,9 @@
 	// One y for the whole journey: the card rides the cable's height everywhere,
 	// including inside the cluster -- it moves left to right and never bobs.
 	const STOP = [
-		{ x: 11, y: 41 }, // the corner of the L: where the cryptography happens
-		{ x: 39, y: 41 },
-		{ x: 81.5, y: 41 }
+		{ x: 11, y: 38 }, // the corner of the L: where the cryptography happens
+		{ x: 39, y: 38 },
+		{ x: 81.5, y: 38 }
 	];
 	/** the web: requests come DOWN from it, answers climb back up and vanish */
 	const WEB = { x: 11, y: 23 };
@@ -107,6 +107,8 @@
 	let verdict = $state<Verdict | null>(null);
 	/** a run that died: the server's own words, shown until the next run starts */
 	let runFault = $state('');
+	/** the closing tableau: the pile departs and the sentence takes its place */
+	let finale = $state(false);
 	/** the cluster is chewing on the decrypted request: the ghost wears a busy bar */
 	let processing = $state(false);
 	/** the word on the card while a key operation runs */
@@ -118,7 +120,7 @@
 	/** the request's ghost: holds the decrypted question while the model runs */
 	let gqShown = $state(false);
 	let gqText = $state('');
-	let gqY = $state(41);
+	let gqY = $state(38);
 
 	const short = (h: string | null, n = 8) => (h ? h.slice(0, n).toUpperCase() : '—');
 	/** the run's narration, on the console rather than on the lid */
@@ -224,13 +226,14 @@
 		chipA = chipB = 'hidden';
 		modelShown = false;
 		proving = false;
+		finale = false;
 		proveT0 = 0;
 		processing = false;
 		sealing = '';
 		pktInstant = false;
 		gqShown = false;
 		gqText = '';
-		gqY = 41;
+		gqY = 38;
 		pktRole = 'request';
 		runFault = '';
 		promptText = '';
@@ -315,12 +318,12 @@
 		// beat two: the plaintext request hands off to its ghost (pixel-identical,
 		// so the swap is invisible), slides aside, and the model RUNS on it
 		gqText = pktText;
-		gqY = 41;
+		gqY = 38;
 		gqShown = true;
 		pktInstant = true;
 		pktShown = false;
 		if (!(await step(60, gen))) return;
-		gqY = 32.5;
+		gqY = 29;
 		processing = true;
 		caption = '…the model runs on the decrypted request…';
 		if (!(await step(frozen() ? 30 : 1100, gen))) return;
@@ -330,7 +333,7 @@
 		// the thing itself is the caption.
 		pktText = '';
 		pktRole = 'response';
-		pktX = { x: 81.5, y: 49.5 };
+		pktX = { x: 81.5, y: 47 };
 		if (!(await step(60, gen))) return;
 		pktInstant = false;
 		pktShown = true;
@@ -450,6 +453,12 @@
 			: 'It could not. That answer never went past the certifier.';
 		log(`PROOF  ${verdict?.verdict}  verify=${verdict?.verify}  binding=${verdict?.keybind}`);
 		busy = false;
+		// the finale, PASS only: let the developed word stand for a beat, then
+		// the pile bows out through the floor and the sentence takes the stage
+		if (ok) {
+			if (!(await step(frozen() ? 30 : 2000, gen))) return;
+			finale = true;
+		}
 	}
 
 	onMount(() => {
@@ -847,13 +856,13 @@
 		held: SLOT_FRESH,
 		drop: { x: 39, y: 92 },
 		run: { x: 81.5, y: 92 },
-		dock: { x: 81.5, y: 39.7, dy: 1 }
+		dock: { x: 81.5, y: 31.8, dy: 1 }
 	};
 	const CHIP_A = $derived({
 		held: chipB === 'hidden' ? SLOT_FRESH : SLOT_PUSHED,
 		drop: { x: 39, y: 92 },
 		run: { x: 81.5, y: 92 },
-		dock: { x: 81.5, y: 39.7, dy: -1 }
+		dock: { x: 81.5, y: 31.8, dy: -1 }
 	});
 	/** a chip's top style: plain %, or % plus a whole number of stack rows */
 	const chipTop = (at: { y: number; dy?: number }) =>
@@ -880,7 +889,7 @@
 	const clusterStatus = $derived(
 		verdict
 			? verdict.verdict === 'PASS'
-				? 'verified via zero-knowledge proof'
+				? 'workload verified via zero-knowledge proof'
 				: ''
 			: proving
 				? 'computing zero-knowledge proof…'
@@ -1103,9 +1112,9 @@
 			     across into the certifier's wall -- and a second run from the
 			     certifier's far wall into the cluster. Plain hairlines: the payload
 			     card itself is the traffic. -->
-			<div class="absolute top-[21%] left-[11%] h-[20%] w-px bg-border"></div>
-			<div class="absolute top-[41%] right-[70%] left-[11%] h-px bg-border"></div>
-			<div class="absolute top-[41%] right-[35%] left-[48%] h-px bg-border"></div>
+			<div class="absolute top-[21%] left-[11%] h-[17%] w-px bg-border"></div>
+			<div class="absolute top-[38%] right-[70%] left-[11%] h-px bg-border"></div>
+			<div class="absolute top-[38%] right-[35%] left-[48%] h-px bg-border"></div>
 
 			<!-- your machine: the globe at the top of the L -->
 			<div
@@ -1149,7 +1158,7 @@
 			     the films rise into this box from below. -->
 			<div
 				class={cn(
-					'absolute top-[5%] right-[1%] left-[64%] h-[62%] flex flex-col overflow-hidden border bg-background transition-all duration-500',
+					'absolute top-[5%] right-[1%] left-[64%] h-[57%] flex flex-col overflow-hidden border bg-background transition-all duration-500',
 					verdict
 						? verdict.verdict === 'PASS'
 							? 'border-verified'
@@ -1181,11 +1190,14 @@
 				     Beneath it, a legend keeps all three names on screen through the
 				     sliding, and calls the match when the verdict lands. -->
 				<div
-					class="absolute top-[56%] left-1/2 w-full -translate-x-1/2 -translate-y-1/2"
+					class="absolute top-[47%] left-1/2 w-full -translate-x-1/2 -translate-y-1/2"
 					style="max-width:min({FILMW},92%)"
 				>
 						<div
-							class="relative w-full"
+							class={cn(
+								'relative w-full transition-[transform,opacity] duration-[1300ms] ease-in',
+								finale && 'translate-y-[28cqw] opacity-0'
+							)}
 							style="aspect-ratio:{DEFAULT_GRID.cols}/{filmStrips.pile}"
 						>
 							{#each [2, 0, 1] as i (i)}
@@ -1227,19 +1239,23 @@
 							</svg>
 							{/each}
 						</div>
-						<div class="absolute inset-x-0 top-full mt-[3cqw] flex flex-col items-center gap-[0.35cqw]">
-							{#if verdict}
-								<!-- the verdict collapses the ledger into its one-line reading -->
+						{#if finale}
+							<!-- the closing line, standing where the pile stood: calm, not neon -->
+							<div class="absolute inset-x-0 top-[30%] flex justify-center">
 								<span
-									class={cn(
-										'text-center font-mono text-[1.1cqw] font-semibold uppercase leading-snug',
-										verdict.verdict === 'PASS' ? 'text-verified' : 'text-fault'
-									)}
-									>{verdict.verdict === 'PASS'
-										? 'INPUT OUTPUT FINGERPRINTS MATCHES DECLARED MODEL FINGERPRINT'
-										: 'OUTPUT FINGERPRINT INCONSISTENT WITH INPUT AND MODEL, TAMPERING DETECTED'}</span
+									class="ilk-flyin px-[1cqw] text-center font-mono text-[1.35cqw] font-semibold uppercase leading-snug text-[#9cc78e]"
+									>INPUT OUTPUT FINGERPRINTS MATCHES DECLARED MODEL FINGERPRINT</span
 								>
-							{:else}
+							</div>
+						{/if}
+						<div class="absolute inset-x-0 bottom-full mb-[2.6cqw] flex flex-col items-center gap-[0.35cqw]">
+							{#if verdict && verdict.verdict !== 'PASS'}
+								<!-- the failed verdict collapses the ledger into its reading -->
+								<span
+									class="text-center font-mono text-[1.1cqw] font-semibold uppercase leading-snug text-fault"
+									>OUTPUT FINGERPRINT INCONSISTENT WITH INPUT AND MODEL, TAMPERING DETECTED</span
+								>
+							{:else if !finale}
 								{#each [
 									['DECLARED MODEL FINGERPRINT', regModel, HUEC],
 									['INPUT FINGERPRINT', regReq, HUEA],

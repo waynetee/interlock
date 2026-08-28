@@ -225,38 +225,160 @@
  * down against the model backing, out of phase with each other so the stack
  * visibly refuses to resolve. Dropping the class transitions them home. */
 .ilk-hunt-a {
-	animation: ilk-hunt-a 1.05s ease-in-out infinite;
+	animation: ilk-hunt-a 2.5s linear infinite;
 }
 .ilk-hunt-b {
-	animation: ilk-hunt-b 1.35s ease-in-out infinite;
+	animation: ilk-hunt-b 3.2s linear infinite;
 }
-/* Cycles begin and end AT REST, so switching the hunt on eases the sheet into
- * motion instead of snapping it to full displacement -- and the sheets carry a
- * transform transition, so switching it off glides the residue home. */
+/* The hunt is a pure sine, sampled densely onto LINEAR timing: velocity is
+ * continuous through every reversal, so the raking reads as glass-smooth
+ * sliding rather than steps. Cycles begin and end at rest; the sheets carry
+ * a transform transition so the residue glides home when the hunt stops. */
 @keyframes ilk-hunt-a {
-	0%,
-	100% {
-		transform: translateY(0);
+	0% {
+		transform: translateY(-0.00%);
+	}
+	5% {
+		transform: translateY(-5.87%);
+	}
+	10% {
+		transform: translateY(-11.17%);
+	}
+	15% {
+		transform: translateY(-15.37%);
+	}
+	20% {
+		transform: translateY(-18.07%);
+	}
+	25% {
+		transform: translateY(-19.00%);
 	}
 	30% {
-		transform: translateY(-24%);
+		transform: translateY(-18.07%);
 	}
-	72% {
-		transform: translateY(20%);
+	35% {
+		transform: translateY(-15.37%);
+	}
+	40% {
+		transform: translateY(-11.17%);
+	}
+	45% {
+		transform: translateY(-5.87%);
+	}
+	50% {
+		transform: translateY(-0.00%);
+	}
+	55% {
+		transform: translateY(5.87%);
+	}
+	60% {
+		transform: translateY(11.17%);
+	}
+	65% {
+		transform: translateY(15.37%);
+	}
+	70% {
+		transform: translateY(18.07%);
+	}
+	75% {
+		transform: translateY(19.00%);
+	}
+	80% {
+		transform: translateY(18.07%);
+	}
+	85% {
+		transform: translateY(15.37%);
+	}
+	90% {
+		transform: translateY(11.17%);
+	}
+	95% {
+		transform: translateY(5.87%);
+	}
+	100% {
+		transform: translateY(0.00%);
 	}
 }
 @keyframes ilk-hunt-b {
-	0%,
+	0% {
+		transform: translateY(0.00%);
+	}
+	5% {
+		transform: translateY(6.80%);
+	}
+	10% {
+		transform: translateY(12.93%);
+	}
+	15% {
+		transform: translateY(17.80%);
+	}
+	20% {
+		transform: translateY(20.92%);
+	}
+	25% {
+		transform: translateY(22.00%);
+	}
+	30% {
+		transform: translateY(20.92%);
+	}
+	35% {
+		transform: translateY(17.80%);
+	}
+	40% {
+		transform: translateY(12.93%);
+	}
+	45% {
+		transform: translateY(6.80%);
+	}
+	50% {
+		transform: translateY(0.00%);
+	}
+	55% {
+		transform: translateY(-6.80%);
+	}
+	60% {
+		transform: translateY(-12.93%);
+	}
+	65% {
+		transform: translateY(-17.80%);
+	}
+	70% {
+		transform: translateY(-20.92%);
+	}
+	75% {
+		transform: translateY(-22.00%);
+	}
+	80% {
+		transform: translateY(-20.92%);
+	}
+	85% {
+		transform: translateY(-17.80%);
+	}
+	90% {
+		transform: translateY(-12.93%);
+	}
+	95% {
+		transform: translateY(-6.80%);
+	}
 	100% {
-		transform: translateY(0);
-	}
-	34% {
-		transform: translateY(26%);
-	}
-	76% {
-		transform: translateY(-19%);
+		transform: translateY(-0.00%);
 	}
 }
+/* the verdict sentence flies in as the pile departs */
+.ilk-flyin {
+	animation: ilk-flyin 900ms 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+@keyframes ilk-flyin {
+	from {
+		opacity: 0;
+		transform: translateY(3cqw);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
 /* the processing bar: a gold segment chewing back and forth along the sealed
  * request while the model turns it into the response */
 
@@ -304,6 +426,10 @@
 	.ilk-hunt-b,
 	.ilk-proc {
 		animation: none;
+	}
+	.ilk-flyin {
+		animation: none;
+		opacity: 1;
 	}
 	.ilk-sweep {
 		display: none;
