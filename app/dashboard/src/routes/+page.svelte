@@ -895,9 +895,7 @@
 				? 'computing zero-knowledge proof…'
 				: phase === 'gen'
 					? 'running the model'
-					: modelShown
-						? 'model commitment on file'
-						: ''
+					: ''
 	);
 </script>
 
@@ -1194,10 +1192,7 @@
 					style="max-width:min({FILMW},92%)"
 				>
 						<div
-							class={cn(
-								'relative w-full transition-[transform,opacity] duration-[1300ms] ease-in',
-								finale && 'translate-y-[28cqw] opacity-0'
-							)}
+							class="relative w-full"
 							style="aspect-ratio:{DEFAULT_GRID.cols}/{filmStrips.pile}"
 						>
 							{#each [2, 0, 1] as i (i)}
@@ -1239,23 +1234,21 @@
 							</svg>
 							{/each}
 						</div>
-						{#if finale}
-							<!-- the closing line, standing where the pile stood: calm, not neon -->
-							<div class="absolute inset-x-0 top-[30%] flex justify-center">
-								<span
-									class="ilk-flyin px-[1cqw] text-center font-mono text-[1.35cqw] font-semibold uppercase leading-snug text-[#9cc78e]"
-									>INPUT OUTPUT FINGERPRINTS MATCHES DECLARED MODEL FINGERPRINT</span
-								>
-							</div>
-						{/if}
-						<div class="absolute inset-x-0 bottom-full mb-[2.6cqw] flex flex-col items-center gap-[0.35cqw]">
+						<div class="absolute inset-x-0 bottom-full mb-[0.7cqw] flex flex-col items-center gap-[0.05cqw] leading-tight">
 							{#if verdict && verdict.verdict !== 'PASS'}
 								<!-- the failed verdict collapses the ledger into its reading -->
 								<span
 									class="text-center font-mono text-[1.1cqw] font-semibold uppercase leading-snug text-fault"
 									>OUTPUT FINGERPRINT INCONSISTENT WITH INPUT AND MODEL, TAMPERING DETECTED</span
 								>
-							{:else if !finale}
+							{:else if finale}
+								<!-- the closing line, standing over the still-stacked pile -->
+								<span
+									class="ilk-flyin px-[1cqw] text-center font-mono text-[1.2cqw] font-semibold uppercase leading-snug"
+									style="color:{HUEA}"
+									>FINGERPRINTS VERIFIED, OUTPUT MATCHES DECLARED MODEL</span
+								>
+							{:else}
 								{#each [
 									['DECLARED MODEL FINGERPRINT', regModel, HUEC],
 									['INPUT FINGERPRINT', regReq, HUEA],
