@@ -241,13 +241,16 @@
 {/snippet}
 
 {#snippet msgFront(label: string, big: string)}
+	<!-- plaintext face: WHITE on black, the panel's own language on paper.
+	     The white is a knockout -- the printer lays black everywhere except
+	     the letters, and the stock shows through. -->
 	<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}">
-		{@render paper('#fbf4e6', 'stock-paper', 'rgba(24,24,24,0.055)')}
+		{@render paper('#0d0e11', 'stock-black', 'rgba(255,255,255,0.05)')}
 		{@render outline()}
-		<text x="6" y="12" class="t-eyebrow">{label}</text>
-		<line x1="6" y1="15.5" x2={CW - 6} y2="15.5" stroke="#000" stroke-width="0.3" />
+		<text x="6" y="12" class="t-eyebrow" fill="#f4f1e8">{label}</text>
+		<line x1="6" y1="15.5" x2={CW - 6} y2="15.5" stroke="#f4f1e8" stroke-width="0.3" />
 		{#each wrap(big, 20) as line, i (i)}
-			<text x="6" y={30 + i * 10} class="t-big">{line}</text>
+			<text x="6" y={30 + i * 10} class="t-big" fill="#f4f1e8">{line}</text>
 		{/each}
 	</svg>
 {/snippet}
@@ -256,24 +259,27 @@
 	<!-- no dashed outline here on purpose: the cut follows the FACE side's
 	     lines, and a cut line on a duplexed back would only advertise the
 	     printer's offset. The bleed absorbs it instead. -->
+	<!-- sealed face: GOLD on black, matching the gold seal on screen. Print
+	     gold is an ochre -- there is no metallic in CMYK -- but on the black
+	     ground it reads unmistakably as gold. -->
 	<svg class="card" width="{CW}mm" height="{CH}mm" viewBox="0 0 {CW} {CH}"
 		style="overflow:visible">
-		{@render paper('#fbf4e6', 'stock-paper', 'rgba(24,24,24,0.055)', 3)}
-		<text x="6" y="12" class="t-eyebrow">{label} · ENCRYPTED</text>
+		{@render paper('#0d0e11', 'stock-black-b', 'rgba(255,255,255,0.05)', 3)}
+		<text x="6" y="12" class="t-eyebrow" fill="#c9a227">{label} · ENCRYPTED</text>
 		<!-- closed padlock: modest, clear of the rule -->
 		<g
 			transform="translate({CW - 13},6)"
 			fill="none"
-			stroke="#000"
+			stroke="#c9a227"
 			stroke-width="0.75"
 			stroke-linecap="round"
 		>
 			<rect x="0" y="3.6" width="7" height="5" rx="0.8" />
 			<path d="M 1.6 3.6 V 2.2 a 1.9 1.9 0 0 1 3.8 0 v 1.4" />
 		</g>
-		<line x1="6" y1="15.5" x2={CW - 17} y2="15.5" stroke="#000" stroke-width="0.3" />
+		<line x1="6" y1="15.5" x2={CW - 17} y2="15.5" stroke="#c9a227" stroke-width="0.3" />
 		{#each hexBig(hex, plainLen) as row, i (i)}
-			<text x="6" y={30 + i * 10} class="t-ct">{row}</text>
+			<text x="6" y={30 + i * 10} class="t-ct" fill="#c9a227">{row}</text>
 		{/each}
 	</svg>
 {/snippet}

@@ -1236,7 +1236,7 @@
 										verdict.verdict === 'PASS' ? 'text-verified' : 'text-fault'
 									)}
 									>{verdict.verdict === 'PASS'
-										? 'INPUT - OUTPUT MATCHES DECLARED MODEL'
+										? 'OUTPUT MATCHES INPUT AND DECLARED MODEL'
 										: 'OUTPUT DOES NOT MATCH THE DECLARED MODEL'}</span
 								>
 							{:else}
@@ -1266,8 +1266,8 @@
 					'ilk-spring absolute z-10 flex w-[17cqw] -translate-x-1/2 -translate-y-1/2 items-start gap-[0.6cqw] border px-[0.9cqw] py-[0.45cqw] font-mono motion-reduce:transition-none',
 					pktInstant ? 'transition-none' : 'transition-all duration-[1400ms]',
 					pktSealed
-						? 'border-[#d9a13b] bg-[#05070c] text-[#e3c05e]'
-						: 'border-border bg-[#05070c] text-foreground',
+						? 'border-[#d9a13b] bg-muted text-muted-foreground'
+						: 'border-border bg-muted text-foreground',
 					pktShown ? 'opacity-100' : 'opacity-0'
 				)}
 				style="left:{pktX.x}%;top:{pktX.y}%"
@@ -1321,7 +1321,7 @@
 			     holds the decrypted question while the model runs on it -->
 			<div
 				class={cn(
-					'absolute z-10 flex w-[17cqw] -translate-x-1/2 -translate-y-1/2 items-start gap-[0.6cqw] border border-border bg-[#05070c] px-[0.9cqw] py-[0.45cqw] font-mono text-foreground',
+					'absolute z-10 flex w-[17cqw] -translate-x-1/2 -translate-y-1/2 items-start gap-[0.6cqw] border border-border bg-muted px-[0.9cqw] py-[0.45cqw] font-mono text-foreground',
 					gqShown ? 'opacity-100' : 'pointer-events-none opacity-0'
 				)}
 				style="left:81.5%;top:{gqY}%;transition:top 900ms var(--spring), opacity {gqShown
