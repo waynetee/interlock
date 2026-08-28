@@ -230,21 +230,30 @@
 .ilk-hunt-b {
 	animation: ilk-hunt-b 1.35s ease-in-out infinite;
 }
+/* Cycles begin and end AT REST, so switching the hunt on eases the sheet into
+ * motion instead of snapping it to full displacement -- and the sheets carry a
+ * transform transition, so switching it off glides the residue home. */
 @keyframes ilk-hunt-a {
 	0%,
 	100% {
+		transform: translateY(0);
+	}
+	30% {
 		transform: translateY(-24%);
 	}
-	50% {
+	72% {
 		transform: translateY(20%);
 	}
 }
 @keyframes ilk-hunt-b {
 	0%,
 	100% {
+		transform: translateY(0);
+	}
+	34% {
 		transform: translateY(26%);
 	}
-	55% {
+	76% {
 		transform: translateY(-19%);
 	}
 }

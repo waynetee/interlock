@@ -334,9 +334,9 @@
 		if (!(await step(60, gen))) return;
 		pktInstant = false;
 		pktShown = true;
-		typeTo(clip(text), 3400);
+		typeTo(clip(text), 2600);
 		caption = '…and a response is generated…';
-		if (!(await step(4000, gen))) return;
+		if (!(await step(3100, gen))) return;
 		processing = false;
 
 		// the request has served; the response takes the center
@@ -885,7 +885,7 @@
 				? 'verified'
 				: 'rejected'
 			: proving
-				? 'aligning the fingerprints…'
+				? 'computing zero-knowledge proof…'
 				: phase === 'gen'
 					? 'running the model'
 					: modelShown
@@ -1206,7 +1206,9 @@
 								shape-rendering="crispEdges"
 								class={cn(
 									'absolute inset-0 h-full w-full',
-									i === 2 && 'transition-[opacity,transform] duration-[700ms]',
+									i === 2
+										? 'transition-[opacity,transform] duration-[700ms]'
+										: 'ilk-spring transition-transform duration-[700ms]',
 									on
 										? 'translate-y-0 opacity-100'
 										: i === 2
@@ -1266,7 +1268,7 @@
 					'ilk-spring absolute z-10 flex w-[17cqw] -translate-x-1/2 -translate-y-1/2 items-start gap-[0.6cqw] border px-[0.9cqw] py-[0.45cqw] font-mono motion-reduce:transition-none',
 					pktInstant ? 'transition-none' : 'transition-all duration-[1400ms]',
 					pktSealed
-						? 'border-[#d9a13b] bg-muted text-muted-foreground'
+						? 'border-[#d9a13b] bg-muted text-foreground'
 						: 'border-border bg-muted text-foreground',
 					pktShown ? 'opacity-100' : 'opacity-0'
 				)}
