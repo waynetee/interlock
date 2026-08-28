@@ -337,9 +337,9 @@
 		if (!(await step(60, gen))) return;
 		pktInstant = false;
 		pktShown = true;
-		typeTo(clip(text), 2600);
+		typeTo(clip(text), 1400);
 		caption = '…and a response is generated…';
-		if (!(await step(3100, gen))) return;
+		if (!(await step(1900, gen))) return;
 		processing = false;
 
 		// the request has served; the response takes the center
@@ -406,13 +406,18 @@
 		// ease-out up the rise), so nothing slows down at the bend.
 		caption = 'The certifier sends its two fingerprints into the cluster.';
 		const t = (ms: number) => step(frozen() ? 30 : ms, gen);
+		// the two films move TOGETHER, a conveyor with a fixed gap: the output
+		// starts advancing while the input is still clearing the lane, and is
+		// running the lane while the input rises -- nobody waits for anybody,
+		// and the spacing keeps them from ever touching.
 		chipA = 'run';
-		if (!(await t(800))) return;
-		chipA = 'docked';
+		if (!(await t(350))) return;
 		chipB = 'drop';
 		if (!(await t(350))) return;
 		chipB = 'run';
 		if (!(await t(100))) return;
+		chipA = 'docked';
+		if (!(await t(450))) return;
 		// the moment a film lands it is absorbed and the sliding is already
 		// running: travel and hunt are one continuous motion, with no pause
 		// between them. `proving` stays up until the verdict lands however long
@@ -421,7 +426,7 @@
 		proving = true;
 		proveT0 = performance.now();
 		caption = 'Now it has to prove all three came from the promised model.';
-		if (!(await t(700))) return;
+		if (!(await t(250))) return;
 		chipB = 'docked';
 		if (!(await t(450))) return;
 		chipB = 'gone';
@@ -1215,7 +1220,7 @@
 									'absolute inset-0 h-full w-full',
 									i === 2
 										? 'transition-[opacity,transform] duration-[700ms]'
-										: 'ilk-spring transition-transform duration-[700ms]',
+										: 'transition-transform duration-[1200ms] ease-out',
 									on
 										? 'translate-y-0 opacity-100'
 										: i === 2
