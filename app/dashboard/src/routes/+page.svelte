@@ -1236,7 +1236,7 @@
 										verdict.verdict === 'PASS' ? 'text-verified' : 'text-fault'
 									)}
 									>{verdict.verdict === 'PASS'
-										? 'INPUT - OUTPUT - DECLARED MODEL MATCH'
+										? 'INPUT - OUTPUT MATCHES DECLARED MODEL'
 										: 'OUTPUT DOES NOT MATCH THE DECLARED MODEL'}</span
 								>
 							{:else}
