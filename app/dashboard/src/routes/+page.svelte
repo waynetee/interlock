@@ -973,7 +973,7 @@
 	>
 		<span
 			class={cn(
-				'absolute bottom-full left-1/2 mb-[0.4cqw] -translate-x-1/2 font-mono text-[1cqw] whitespace-nowrap uppercase transition-opacity duration-300',
+				'absolute bottom-full left-1/2 mb-[0.4cqw] -translate-x-1/2 font-mono text-[1.15cqw] font-semibold whitespace-nowrap uppercase transition-opacity duration-300',
 				(state === 'docked' || state === 'gone') && 'opacity-0'
 			)}
 			style="color:{ink}">{role} · {hex ? '0x' + short(hex, 8) : '—'}</span
@@ -1232,12 +1232,12 @@
 								<!-- the verdict collapses the ledger into its one-line reading -->
 								<span
 									class={cn(
-										'font-mono text-[1cqw] whitespace-nowrap uppercase',
+										'text-center font-mono text-[1.1cqw] font-semibold uppercase leading-snug',
 										verdict.verdict === 'PASS' ? 'text-verified' : 'text-fault'
 									)}
 									>{verdict.verdict === 'PASS'
-										? 'OUTPUT MATCHES INPUT AND DECLARED MODEL'
-										: 'OUTPUT DOES NOT MATCH THE DECLARED MODEL'}</span
+										? 'INPUT OUTPUT FINGERPRINTS MATCHES DECLARED MODEL FINGERPRINT'
+										: 'OUTPUT DOES NOT MATCH THE DECLARED MODEL FINGERPRINT'}</span
 								>
 							{:else}
 								{#each [
@@ -1247,7 +1247,7 @@
 								] as [role, hex, ink] (role)}
 									<span
 										class={cn(
-											'font-mono text-[0.9cqw] whitespace-nowrap uppercase transition-opacity duration-500',
+											'font-mono text-[1.05cqw] font-semibold whitespace-nowrap uppercase transition-opacity duration-500',
 											hex ? 'opacity-100' : 'opacity-0'
 										)}
 										style="color:{ink}">{role} · {hex ? '0x' + short(hex, 6) : '—'}</span
@@ -1276,7 +1276,7 @@
 					<!-- the key operation, named while it runs -- the lock rides beside
 					     the word, closed while sealing, open while opening -->
 					<span
-						class="absolute bottom-full left-0 mb-[0.35cqw] flex items-center gap-[0.4cqw] font-mono text-[0.85cqw] tracking-[0.14em] uppercase text-[#d9a13b]"
+						class="absolute bottom-full left-0 mb-[0.35cqw] flex items-center gap-[0.4cqw] font-mono text-[1.05cqw] font-semibold tracking-[0.14em] uppercase text-[#d9a13b]"
 					>
 						<svg
 							viewBox="0 0 24 24"
