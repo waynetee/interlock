@@ -10,8 +10,7 @@ Raspberry Pi OS) -- nothing to install, nothing that needs the internet.
 
 LED language:
   green PROMPT LED    solid = wire ready, press me
-                      blink = run in progress
-                      off   = wire down (the web panel simulates instead)
+                      off   = run in progress, or wire down
   bicolor WORK LED    green = honest workload
                       red   = tampered workload
 
@@ -82,14 +81,12 @@ class Panel:
         self.lock = threading.Lock()
 
     # ── LEDs ────────────────────────────────────────────────────────────────
-    def leds(self, blink_phase):
+    def leds(self):
         with self.lock:
             wire, running, workload = self.wire, self.running, self.workload
-        if running:
-            prompt = blink_phase           # blinking: a run is in flight
-        else:
-            prompt = 1 if wire else 0      # solid: ready; dark: wire down
-        lgpio.gpio_write(self.h, LED_PROMPT, prompt)
+        # steady states only, no blinking: lit means "ready, press me", dark
+        # means "not now" (a run in flight, or the wire is down)
+        lgpio.gpio_write(self.h, LED_PROMPT, 1 if wire and not running else 0)
         lgpio.gpio_write(self.h, LED_WORK_G, 1 if workload == "honest" else 0)
         lgpio.gpio_write(self.h, LED_WORK_R, 0 if workload == "honest" else 1)
 
@@ -125,7 +122,6 @@ class Panel:
         down = {BTN_PROMPT: 0, BTN_WORK: 0}
         fired = {BTN_PROMPT: False, BTN_WORK: False}
         act = {BTN_PROMPT: self.press_prompt, BTN_WORK: self.press_work}
-        t0 = time.monotonic()
         while True:
             for pin in (BTN_PROMPT, BTN_WORK):
                 if lgpio.gpio_read(self.h, pin) == 0:      # pressed (to GND)
@@ -136,7 +132,7 @@ class Panel:
                 else:
                     down[pin] = 0
                     fired[pin] = False
-            self.leds(1 if int((time.monotonic() - t0) / 0.3) % 2 else 0)
+            self.leds()
             time.sleep(POLL_S)
 
 
