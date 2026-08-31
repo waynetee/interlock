@@ -100,6 +100,14 @@
 	let modelShown = $state(false);
 	/** the proof is in flight: the register hunts for the seat until this clears */
 	let proving = $state(false);
+	/** the two sheets' hunt animations, releasable one at a time: each is let
+	 * go at the peak of its own swing, where its velocity is already zero, so
+	 * the glide home starts from rest instead of yanking a moving sheet */
+	let huntA = $state(false);
+	let huntB = $state(false);
+	/** the hunt periods -- MUST match ilk-hunt-a / ilk-hunt-b in layout.css */
+	const HUNT_TA = 1700;
+	const HUNT_TB = 2200;
 	/** when the hunt began: the verdict must let it run ~3s before settling */
 	let proveT0 = 0;
 	let promptText = $state('');
@@ -226,6 +234,7 @@
 		chipA = chipB = 'hidden';
 		modelShown = false;
 		proving = false;
+		huntA = huntB = false;
 		finale = false;
 		proveT0 = 0;
 		processing = false;
@@ -424,6 +433,7 @@
 		// that takes -- the animation is paced by the prover, not a timer.
 		chipA = 'gone';
 		proving = true;
+		huntA = huntB = true;
 		proveT0 = performance.now();
 		caption = 'Now it has to prove all three came from the promised model.';
 		if (!(await t(250))) return;
@@ -442,10 +452,30 @@
 		if (proving && proveT0 && !frozen()) {
 			const left = 5000 - (performance.now() - proveT0);
 			if (left > 0 && !(await step(left, gen))) return;
+			// the wind-down: each sheet finishes the swing it is on and is
+			// released at the PEAK of that swing, where its velocity is already
+			// zero -- so the ease-in-out glide home starts from rest and lands
+			// at rest, and the sliding ends without a single kink. The two
+			// sheets stop on their own beats; the word develops as the second
+			// one settles, and only then does the verdict paint.
+			const toPeak = (T: number) => {
+				const half = T / 2;
+				return (T / 4 - ((performance.now() - proveT0) % half) + half) % half;
+			};
+			const wa = toPeak(HUNT_TA);
+			const wb = toPeak(HUNT_TB);
+			if (!(await step(Math.min(wa, wb), gen))) return;
+			if (wa <= wb) huntA = false;
+			else huntB = false;
+			if (!(await step(Math.abs(wb - wa), gen))) return;
+			huntA = huntB = false;
+			// the glide home (1000ms, ease-in-out on the sheets) lands
+			if (!(await step(1000, gen))) return;
 		}
 		verdict = d.result as Verdict;
 		phase = 'done';
 		proving = false;
+		huntA = huntB = false;
 		hotSpark = false;
 		const ok = verdict?.verdict === 'PASS';
 		caption = ok
@@ -539,6 +569,7 @@
 			runFault = d.error ?? 'something went wrong on the wire — press PROMPT to try again';
 			log(`ERROR  ${d.error ?? ''}`);
 			proving = false;
+			huntA = huntB = false;
 			busy = false;
 			// A halt that did not take leaves the machine up, so the panel comes back
 			// rather than sitting behind a "powering off" curtain that will never lift.
@@ -671,6 +702,7 @@
 			modelShown = true;
 			phase = 'prove';
 			proving = true;
+			huntA = huntB = true;
 			proveT0 = performance.now();
 		}
 	];
@@ -1220,14 +1252,14 @@
 									'absolute inset-0 h-full w-full',
 									i === 2
 										? 'transition-[opacity,transform] duration-[700ms]'
-										: 'transition-transform duration-[1200ms] ease-out',
+										: 'transition-transform duration-[1000ms] ease-in-out',
 									on
 										? 'translate-y-0 opacity-100'
 										: i === 2
 											? '-translate-y-[16%] opacity-0'
 											: 'opacity-0',
-									proving && i === 0 && 'ilk-hunt-a',
-									proving && i === 1 && 'ilk-hunt-b'
+									huntA && i === 0 && 'ilk-hunt-a',
+									huntB && i === 1 && 'ilk-hunt-b'
 								)}
 								aria-hidden="true"
 							>
