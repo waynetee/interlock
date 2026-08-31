@@ -145,6 +145,8 @@
 	const log = (s: string) => console.debug('[interlock]', s);
 
 	let pending: Record<string, any> = {};
+	/** the run's answer beat, held for the choreography to await */
+	let answerD: any = null;
 	let chain: Promise<unknown> = Promise.resolve();
 	let generation = 0;
 	const queue = (fn: () => Promise<void>) => (chain = chain.then(fn).catch(console.error));
@@ -166,6 +168,27 @@
 
 	const frozen = () =>
 		typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+	/** Wait for a wire fact that may not have arrived yet. The choreography
+	 * starts at beat:start, while the real round trip is still in flight, and
+	 * HOLDS at the natural beat until the fact lands -- a sim run passes a
+	 * complete `d` and never waits. Returns null when the run is over or
+	 * faulted, and reads the live `pending` because the socket handlers
+	 * replace that object as facts arrive. */
+	async function waitFact(d: any, key: string, gen: number) {
+		while (gen === generation && !runFault && d[key] == null && pending[key] == null) {
+			if (!(await step(120, gen))) return null;
+		}
+		if (gen !== generation || runFault) return null;
+		return d[key] ?? pending[key];
+	}
+	/** and the response itself, which only exists once the wire delivers it */
+	async function waitAnswer(gen: number) {
+		while (gen === generation && !runFault && !answerD) {
+			if (!(await step(150, gen))) return null;
+		}
+		return gen === generation && !runFault ? answerD : null;
+	}
 
 	// ── the seal/open animation ────────────────────────────────────────────────
 	/**
@@ -266,6 +289,8 @@
 		tampered = false;
 		simRun = false;
 		busy = false;
+		pending = {};
+		answerD = null;
 	}
 
 	/** the Reset button: the run, the switches, and anything armed on the server */
@@ -294,23 +319,28 @@
 		pktX = STOP[0];
 		if (!(await step(1900, gen))) return;
 
-		pktSealed = true;
 		sealing = 'encrypting';
-		scrambleTo(cipherOf(d.ct_in, pktText.length), 1800);
 		caption = 'It is encrypted before it touches the cable.';
-		log(`SEAL   ${d.n_tokens} tok → ${(d.ct_in ?? '').length / 2}B`);
+		// the real ciphertext may still be in flight: hold at the corner,
+		// encrypting, until the wire hands it over
+		const ctIn = await waitFact(d, 'ct_in', gen);
+		if (ctIn == null) return;
+		pktSealed = true;
+		scrambleTo(cipherOf(ctIn, pktText.length), 1800);
+		log(`SEAL   ${d.n_tokens ?? pending.n_tokens} tok → ${ctIn.length / 2}B`);
 		if (!(await step(2600, gen))) return;
 		sealing = '';
 
 		pktX = STOP[1];
 		hotFpga = true;
 		if (!(await step(1900, gen))) return;
-		reqFp = d.request_digest ?? null;
+		reqFp = await waitFact(d, 'request_digest', gen);
+		if (reqFp == null) return;
 		// the film drops into the certifier's lower slot and STAYS there: traffic
 		// moves on, the evidence does not
 		chipA = 'held';
 		caption = 'The certifier stamps a fingerprint off the sealed bytes and keeps it.';
-		log(`CERT   inbound  ${short(reqFp, 16)} audit=${d.request_audit ? 'PASS' : 'FAIL'}`);
+		log(`CERT   inbound  ${short(reqFp, 16)} audit=${(d.request_audit ?? pending.request_audit) ? 'PASS' : 'FAIL'}`);
 		if (!(await step(frozen() ? 30 : 2400, gen))) return;
 
 		pktX = STOP[2];
@@ -372,8 +402,10 @@
 		if (!(await step(1300, gen))) return;
 
 		sealing = 'encrypting';
+		const ctOut = await waitFact(d, 'ct_out', gen);
+		if (ctOut == null) return;
 		pktSealed = true;
-		scrambleTo(cipherOf(d.ct_out, clip(text).length), 1800);
+		scrambleTo(cipherOf(ctOut, clip(text).length), 1800);
 		caption = '…and it is encrypted for the trip back.';
 		if (!(await step(2800, gen))) return;
 		sealing = '';
@@ -386,11 +418,12 @@
 		hotFpga = true;
 		if (!(await step(1900, gen))) return;
 
-		rspFp = d.response_digest ?? null;
+		rspFp = await waitFact(d, 'response_digest', gen);
+		if (rspFp == null) return;
 		// second film racks above the first: the certifier now holds both
 		chipB = 'held';
 		caption = 'The answer is fingerprinted on the way out — the certifier holds both.';
-		log(`CERT   outbound ${short(rspFp, 16)} audit=${d.response_audit ? 'PASS' : 'FAIL'}`);
+		log(`CERT   outbound ${short(rspFp, 16)} audit=${(d.response_audit ?? pending.response_audit) ? 'PASS' : 'FAIL'}`);
 		if (!(await step(frozen() ? 30 : 2400, gen))) return;
 
 		pktX = STOP[0];
@@ -572,25 +605,34 @@
 			paused = false;
 			promptText = d?.prompt ?? '';
 			busy = true;
+			// The choreography starts NOW, so the press answers instantly. The
+			// prompt text is already known; every beat that needs a wire fact
+			// (ciphertext, digest, the answer itself) holds at its natural
+			// place until the fact lands -- the opening beats occupy the same
+			// seconds the real round trip is using, so nothing is faked and
+			// nothing sits blank.
+			const gen = generation;
+			queue(async () => {
+				await runRequest(pending, gen);
+				const a = await waitAnswer(gen);
+				if (!a) return;
+				const text = !a.ok
+					? 'could not open it'
+					: tampered
+						? '<TAMPERED RESPONSE>'
+						: a.text;
+				await runGenerate(pending, text, gen);
+				await runReturn(pending, text, gen);
+				if (a.ok) await runProve(gen);
+			});
 		});
 		socket.on('beat:tokenized', (d: any) => (pending = { ...pending, ...d }));
 		socket.on('beat:certified', (d: any) => (pending = { ...pending, ...d }));
 		socket.on('beat:answer', (d: any) => {
-			const gen = generation;
-			queue(async () => {
-				if (gen !== generation) return;
-				const text = !d.ok
-					? 'could not open it'
-					: tampered
-						? '<TAMPERED RESPONSE>'
-						: d.text;
-				await runRequest(pending, gen);
-				await runGenerate(pending, text, gen);
-				await runReturn(pending, text, gen);
-				// a run that failed to open has no proof coming: the server's
-				// beat:error follows, and 'proving' would wait on it forever
-				if (d.ok) await runProve(gen);
-			});
+			// the choreography launched at beat:start is already waiting on this
+			// (a run that failed to open has no proof coming: the server's
+			// beat:error follows, and the pipeline aborts on the fault)
+			answerD = d;
 		});
 		socket.on('beat:verdict', (d: any) => {
 			if (d.model_fp) modelFp = d.model_fp;
