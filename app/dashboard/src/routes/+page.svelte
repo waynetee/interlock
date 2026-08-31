@@ -148,6 +148,9 @@
 
 	/** the transport's pause: playback holds between beats while this is up */
 	let paused = $state(false);
+	/** the control bar hides behind an invisible latch in the top-left corner:
+	 * the stage is the screen, and the operator knows where the door is */
+	let menuOpen = $state(false);
 	/** Sleep that resolves to false if a newer run started while we waited.
 	 * While paused, it holds between beats instead of returning. */
 	async function step(ms: number, gen: number) {
@@ -413,9 +416,9 @@
 		// run, fixed before anything was sent -- and the reveal gets a full
 		// second to be seen before anything else moves
 		caption = 'The cluster reveals the fingerprint of the model it promised to run.';
-		if (!(await step(frozen() ? 30 : 800, gen))) return;
+		if (!(await step(frozen() ? 30 : 2300, gen))) return;
 		modelShown = true;
-		if (!(await step(frozen() ? 30 : 1700, gen))) return;
+		if (!(await step(frozen() ? 30 : 3200, gen))) return;
 
 		// beat two: both films ride ONE road -- an L, right out of the
 		// certifier's wall at the lower rack's height, then up into the
@@ -1073,9 +1076,20 @@
 {/snippet}
 
 <div class="flex h-svh flex-col overflow-hidden bg-background text-foreground">
-	<main class="flex min-h-0 flex-1 flex-col gap-[clamp(0.5rem,1.4vh,1.1rem)] px-6 py-[1.2vh]">
-		<!-- controls only: everything else on this screen is a live value -->
-		<div class="flex shrink-0 flex-wrap items-center justify-between gap-x-8 gap-y-3">
+	<main class="relative flex min-h-0 flex-1">
+		<!-- the invisible latch: a silent corner the operator knows about. It sits
+		     above everything, including the open bar, so it also closes it. -->
+		<button
+			type="button"
+			class="absolute top-0 left-0 z-50 h-14 w-14 opacity-0"
+			aria-label="toggle control bar"
+			onclick={() => (menuOpen = !menuOpen)}
+		></button>
+		{#if menuOpen}
+			<!-- controls only: everything else on this screen is a live value -->
+			<div
+				class="absolute inset-x-0 top-0 z-40 flex flex-wrap items-center justify-between gap-x-8 gap-y-3 border-b border-border bg-background/95 py-3 pr-6 pl-16 backdrop-blur"
+			>
 			<div class="flex flex-wrap items-center gap-x-6 gap-y-3">
 				{@render toggle(armed, 'Tamper', 'fault', () => (armed = !armed))}
 				{@render toggle(simForce || !liveWire, 'Simulate', 'caution', () => {
@@ -1138,13 +1152,14 @@
 					onclick={start}>Prompt</button
 				>
 			</div>
-		</div>
+			</div>
+		{/if}
 
 		<!-- only exists while there is something to disclaim -->
 		{#if banner}
 			<div
 				class={cn(
-					't-body flex shrink-0 flex-wrap items-baseline gap-x-3 border-l-4 bg-card/60 px-4 py-2 font-mono',
+					't-body absolute inset-x-0 bottom-0 z-30 flex flex-wrap items-baseline gap-x-3 border-l-4 bg-card/90 px-4 py-2 font-mono backdrop-blur',
 					TONE[banner.tone].bar
 				)}
 			>
@@ -1163,13 +1178,14 @@
 			model commitment is revealed and the films slide in to combine — the
 			proof runs in there.
 		-->
-		<div class="flex min-h-0 flex-1 items-center justify-center">
+		<div class="flex h-full min-h-0 w-full flex-1 items-center justify-center">
 			<!-- the stage is its own measure: everything inside is sized in cqw,
 			     fractions of THIS box's width, so a small screen gets the same
-			     picture smaller rather than a big picture cropped -->
+			     picture smaller rather than a big picture cropped. It owns the
+			     whole screen, letterboxed only by its 16:9 ratio. -->
 			<section
-				class="relative aspect-video max-h-full w-full overflow-hidden border border-border bg-card"
-				style="max-width:min(100%, calc((100vh - 100px) * 16 / 9));container-type:inline-size"
+				class="relative aspect-video max-h-full w-full overflow-hidden bg-card"
+				style="max-width:min(100%, calc(100vh * 16 / 9));container-type:inline-size"
 			>
 			<div
 				class="pointer-events-none absolute inset-0 opacity-50"
