@@ -96,6 +96,21 @@ curl -s http://10.42.0.1/panel/state
 Watch the daemon: `journalctl -u interlock-buttons -f` on the Pi. Restart it
 after wiring changes: `sudo systemctl restart interlock-buttons`.
 
+## If the LEDs take a minute to light after boot
+
+The panel daemon (and the agent) start after `network-online.target`. The
+FPGA wire port (`eth0`) carries raw frames, not IP -- NetworkManager will
+wait its full 60 s timeout trying to DHCP it, and everything downstream
+starts a minute late. Tell it the port has no IP to configure:
+
+```sh
+sudo nmcli connection modify "Wired connection 1" ipv4.method disabled ipv6.method disabled
+```
+
+NM then reports the port connected immediately (and stops broadcasting
+DHCP onto the certified wire), `network-online` completes as soon as the
+hotspot wifi is up, and the LEDs light within seconds of boot.
+
 ## Behavior notes
 
 - A PROMPT press while the wire is down gets a fault banner on the web panel
