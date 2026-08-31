@@ -418,7 +418,7 @@
 		caption = 'The cluster reveals the fingerprint of the model it promised to run.';
 		if (!(await step(frozen() ? 30 : 2300, gen))) return;
 		modelShown = true;
-		if (!(await step(frozen() ? 30 : 3200, gen))) return;
+		if (!(await step(frozen() ? 30 : 5200, gen))) return;
 
 		// beat two: both films ride ONE road -- an L, right out of the
 		// certifier's wall at the lower rack's height, then up into the
@@ -503,6 +503,12 @@
 			}
 			// the second sheet's landing glide (1100ms) touches down
 			if (!(await step(1100, gen))) return;
+			// shed the finished landing animations: a lingering fill-both
+			// transform keeps a sheet on the composited raster path while the
+			// model sheet renders untransformed, and the half-pixel
+			// disagreement between the two paths reads as misregistration.
+			// With the animations gone all three sheets rasterize identically.
+			landA = landB = null;
 		}
 		verdict = d.result as Verdict;
 		phase = 'done';
