@@ -364,6 +364,23 @@
 		transform: translateY(-0.00%);
 	}
 }
+/* The landing: a one-shot glide from the peak a sheet was released at down
+ * to true register. The release happens exactly at a swing peak (velocity
+ * zero), and --land-from is set to that same peak, so the handoff from the
+ * infinite hunt to this landing is continuous by construction -- no reliance
+ * on the browser transitioning away from a removed animation. */
+.ilk-land {
+	animation: ilk-land 1100ms cubic-bezier(0.45, 0, 0.25, 1) both;
+}
+@keyframes ilk-land {
+	from {
+		transform: translateY(var(--land-from, 0%));
+	}
+	to {
+		transform: translateY(0%);
+	}
+}
+
 /* the verdict sentence flies in as the pile departs */
 .ilk-flyin {
 	animation: ilk-flyin 900ms 500ms cubic-bezier(0.16, 1, 0.3, 1) both;
@@ -424,6 +441,7 @@
 	.ilk-breathe,
 	.ilk-hunt-a,
 	.ilk-hunt-b,
+	.ilk-land,
 	.ilk-proc {
 		animation: none;
 	}

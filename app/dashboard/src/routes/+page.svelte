@@ -105,9 +105,16 @@
 	 * the glide home starts from rest instead of yanking a moving sheet */
 	let huntA = $state(false);
 	let huntB = $state(false);
-	/** the hunt periods -- MUST match ilk-hunt-a / ilk-hunt-b in layout.css */
+	/** the landing glide's start offset per sheet (the peak it was released
+	 * at), or null when not landing -- feeds --land-from on the sheet */
+	let landA = $state<string | null>(null);
+	let landB = $state<string | null>(null);
+	/** the hunt periods and amplitudes -- MUST match ilk-hunt-a / ilk-hunt-b
+	 * in layout.css */
 	const HUNT_TA = 1700;
 	const HUNT_TB = 2200;
+	const HUNT_AMPA = 30;
+	const HUNT_AMPB = 35;
 	/** when the hunt began: the verdict must let it run ~3s before settling */
 	let proveT0 = 0;
 	let promptText = $state('');
@@ -235,6 +242,7 @@
 		modelShown = false;
 		proving = false;
 		huntA = huntB = false;
+		landA = landB = null;
 		finale = false;
 		proveT0 = 0;
 		processing = false;
@@ -277,31 +285,31 @@
 
 		// down the vertical of the L to the corner, where the cryptography lives
 		pktX = STOP[0];
-		if (!(await step(1500, gen))) return;
+		if (!(await step(1900, gen))) return;
 
 		pktSealed = true;
 		sealing = 'encrypting';
 		scrambleTo(cipherOf(d.ct_in, pktText.length));
 		caption = 'It is encrypted before it touches the cable.';
 		log(`SEAL   ${d.n_tokens} tok → ${(d.ct_in ?? '').length / 2}B`);
-		if (!(await step(1500, gen))) return;
+		if (!(await step(1800, gen))) return;
 		sealing = '';
 
 		pktX = STOP[1];
 		hotFpga = true;
-		if (!(await step(1500, gen))) return;
+		if (!(await step(1900, gen))) return;
 		reqFp = d.request_digest ?? null;
 		// the film drops into the certifier's lower slot and STAYS there: traffic
 		// moves on, the evidence does not
 		chipA = 'held';
 		caption = 'The certifier stamps a fingerprint off the sealed bytes and keeps it.';
 		log(`CERT   inbound  ${short(reqFp, 16)} audit=${d.request_audit ? 'PASS' : 'FAIL'}`);
-		if (!(await step(frozen() ? 30 : 1600, gen))) return;
+		if (!(await step(frozen() ? 30 : 1900, gen))) return;
 
 		pktX = STOP[2];
 		hotFpga = false;
 		hotSpark = true;
-		if (!(await step(1500, gen))) return;
+		if (!(await step(2000, gen))) return;
 		// the sealed request STAYS in the cluster: the next beat works on it in
 		// place, processing it into the answer
 	}
@@ -321,7 +329,7 @@
 		pktSealed = false;
 		scrambleTo(clip(asked || promptText), 1200);
 		caption = 'Inside the cluster the request is decrypted…';
-		if (!(await step(2100, gen))) return;
+		if (!(await step(2500, gen))) return;
 		sealing = '';
 
 		// beat two: the plaintext request hands off to its ghost (pixel-identical,
@@ -335,7 +343,7 @@
 		gqY = 24;
 		processing = true;
 		caption = '…the model runs on the decrypted request…';
-		if (!(await step(frozen() ? 30 : 1100, gen))) return;
+		if (!(await step(frozen() ? 30 : 1400, gen))) return;
 
 		// beat three: a NEW box -- the response -- GENERATED character by
 		// character, the way a model actually produces one. No word for it:
@@ -348,19 +356,19 @@
 		pktShown = true;
 		typeTo(clip(text), 1400);
 		caption = '…and a response is generated…';
-		if (!(await step(1900, gen))) return;
+		if (!(await step(2200, gen))) return;
 		processing = false;
 
 		// the request has served; the response takes the center
 		gqShown = false;
 		pktX = STOP[2];
-		if (!(await step(1000, gen))) return;
+		if (!(await step(1300, gen))) return;
 
 		sealing = 'encrypting';
 		pktSealed = true;
 		scrambleTo(cipherOf(d.ct_out, clip(text).length));
 		caption = '…and it is encrypted for the trip back.';
-		if (!(await step(1700, gen))) return;
+		if (!(await step(2000, gen))) return;
 		sealing = '';
 	}
 
@@ -369,30 +377,30 @@
 		pktX = STOP[1];
 		hotSpark = false;
 		hotFpga = true;
-		if (!(await step(1500, gen))) return;
+		if (!(await step(1900, gen))) return;
 
 		rspFp = d.response_digest ?? null;
 		// second film racks above the first: the certifier now holds both
 		chipB = 'held';
 		caption = 'The answer is fingerprinted on the way out — the certifier holds both.';
 		log(`CERT   outbound ${short(rspFp, 16)} audit=${d.response_audit ? 'PASS' : 'FAIL'}`);
-		if (!(await step(frozen() ? 30 : 1600, gen))) return;
+		if (!(await step(frozen() ? 30 : 1900, gen))) return;
 
 		pktX = STOP[0];
 		hotFpga = false;
-		if (!(await step(1500, gen))) return;
+		if (!(await step(1900, gen))) return;
 		pktSealed = false;
 		sealing = 'decrypting';
 		scrambleTo(clip(text));
 		caption = 'Decrypted at the corner — only your machine holds the key.';
 		if (!(await step(1600, gen))) return;
 		sealing = '';
-		if (!(await step(700, gen))) return;
+		if (!(await step(900, gen))) return;
 
 		// up the vertical, home to the web -- and it STAYS: the delivered answer
 		// parks at the left edge of the story for the rest of the run
 		pktX = WEB;
-		if (!(await step(1500, gen))) return;
+		if (!(await step(1900, gen))) return;
 		answer = text;
 		log(`OPEN   ${text}`);
 	}
@@ -400,10 +408,13 @@
 	async function runProve(gen: number) {
 		phase = 'prove';
 		hotSpark = true;
-		// beat one: the cluster shows its hand -- the commitment to the model it
-		// promised to run, fixed before anything was sent
-		modelShown = true;
+		// beat one: a breath first (the response has just parked), then the
+		// cluster shows its hand -- the commitment to the model it promised to
+		// run, fixed before anything was sent -- and the reveal gets a full
+		// second to be seen before anything else moves
 		caption = 'The cluster reveals the fingerprint of the model it promised to run.';
+		if (!(await step(frozen() ? 30 : 800, gen))) return;
+		modelShown = true;
 		if (!(await step(frozen() ? 30 : 1700, gen))) return;
 
 		// beat two: both films ride ONE road -- an L, right out of the
@@ -420,13 +431,13 @@
 		// running the lane while the input rises -- nobody waits for anybody,
 		// and the spacing keeps them from ever touching.
 		chipA = 'run';
-		if (!(await t(350))) return;
+		if (!(await t(400))) return;
 		chipB = 'drop';
-		if (!(await t(350))) return;
+		if (!(await t(400))) return;
 		chipB = 'run';
 		if (!(await t(100))) return;
 		chipA = 'docked';
-		if (!(await t(450))) return;
+		if (!(await t(550))) return;
 		// the moment a film lands it is absorbed and the sliding is already
 		// running: travel and hunt are one continuous motion, with no pause
 		// between them. `proving` stays up until the verdict lands however long
@@ -434,11 +445,12 @@
 		chipA = 'gone';
 		proving = true;
 		huntA = huntB = true;
+		landA = landB = null;
 		proveT0 = performance.now();
 		caption = 'Now it has to prove all three came from the promised model.';
 		if (!(await t(250))) return;
 		chipB = 'docked';
-		if (!(await t(450))) return;
+		if (!(await t(550))) return;
 		chipB = 'gone';
 	}
 
@@ -454,23 +466,40 @@
 			if (left > 0 && !(await step(left, gen))) return;
 			// the wind-down: each sheet finishes the swing it is on and is
 			// released at the PEAK of that swing, where its velocity is already
-			// zero -- so the ease-in-out glide home starts from rest and lands
-			// at rest, and the sliding ends without a single kink. The two
-			// sheets stop on their own beats; the word develops as the second
-			// one settles, and only then does the verdict paint.
-			const toPeak = (T: number) => {
+			// zero. It is handed a one-shot LANDING animation whose start value
+			// is that exact peak (--land-from), so the sheet visibly SLIDES
+			// from where it was into true register -- continuity by
+			// construction, never a snap. The two sheets stop on their own
+			// beats; the word develops as the second one lands, and only then
+			// does the verdict paint.
+			const release = (T: number, amp: number, firstNeg: boolean) => {
+				const el = performance.now() - proveT0;
 				const half = T / 2;
-				return (T / 4 - ((performance.now() - proveT0) % half) + half) % half;
+				const wait = (T / 4 - (el % half) + half) % half;
+				const firstHalf = (el + wait) % T < half;
+				return { wait, from: `${(firstHalf === firstNeg ? -1 : 1) * amp}%` };
 			};
-			const wa = toPeak(HUNT_TA);
-			const wb = toPeak(HUNT_TB);
-			if (!(await step(Math.min(wa, wb), gen))) return;
-			if (wa <= wb) huntA = false;
-			else huntB = false;
-			if (!(await step(Math.abs(wb - wa), gen))) return;
-			huntA = huntB = false;
-			// the glide home (1000ms, ease-in-out on the sheets) lands
-			if (!(await step(1000, gen))) return;
+			const ra = release(HUNT_TA, HUNT_AMPA, true);
+			const rb = release(HUNT_TB, HUNT_AMPB, false);
+			const aFirst = ra.wait <= rb.wait;
+			if (!(await step(Math.min(ra.wait, rb.wait), gen))) return;
+			if (aFirst) {
+				huntA = false;
+				landA = ra.from;
+			} else {
+				huntB = false;
+				landB = rb.from;
+			}
+			if (!(await step(Math.abs(rb.wait - ra.wait), gen))) return;
+			if (aFirst) {
+				huntB = false;
+				landB = rb.from;
+			} else {
+				huntA = false;
+				landA = ra.from;
+			}
+			// the second sheet's landing glide (1100ms) touches down
+			if (!(await step(1100, gen))) return;
 		}
 		verdict = d.result as Verdict;
 		phase = 'done';
@@ -570,6 +599,7 @@
 			log(`ERROR  ${d.error ?? ''}`);
 			proving = false;
 			huntA = huntB = false;
+			landA = landB = null;
 			busy = false;
 			// A halt that did not take leaves the machine up, so the panel comes back
 			// rather than sitting behind a "powering off" curtain that will never lift.
@@ -703,6 +733,7 @@
 			phase = 'prove';
 			proving = true;
 			huntA = huntB = true;
+			landA = landB = null;
 			proveT0 = performance.now();
 		}
 	];
@@ -1008,9 +1039,9 @@
 			// accelerate-turn-decelerate arc -- the ease-in lane ends at the
 			// speed the ease-out rise enters at, so the bend turns without
 			// the film slowing down
-			state === 'drop' && 'opacity-100 duration-[350ms] ease-in-out',
-			state === 'run' && 'opacity-100 duration-[800ms] ease-in',
-			state === 'docked' && 'opacity-100 duration-[450ms] ease-out',
+			state === 'drop' && 'opacity-100 duration-[400ms] ease-in-out',
+			state === 'run' && 'opacity-100 duration-[900ms] ease-in',
+			state === 'docked' && 'opacity-100 duration-[550ms] ease-out',
 			state === 'gone' && 'opacity-0 duration-[0ms]'
 		)}
 		style="left:{at.x}%;top:{chipTop(at)};width:{FILMW}"
@@ -1259,8 +1290,15 @@
 											? '-translate-y-[16%] opacity-0'
 											: 'opacity-0',
 									huntA && i === 0 && 'ilk-hunt-a',
-									huntB && i === 1 && 'ilk-hunt-b'
+									huntB && i === 1 && 'ilk-hunt-b',
+									i === 0 && landA && 'ilk-land',
+									i === 1 && landB && 'ilk-land'
 								)}
+								style={i === 0 && landA
+									? `--land-from:${landA}`
+									: i === 1 && landB
+										? `--land-from:${landB}`
+										: ''}
 								aria-hidden="true"
 							>
 								{#each { length: filmStrips.heights[i] } as _r, r (r)}
@@ -1314,7 +1352,7 @@
 			<div
 				class={cn(
 					'ilk-spring absolute z-10 flex w-[17cqw] -translate-x-1/2 -translate-y-1/2 items-start gap-[0.6cqw] border px-[0.9cqw] py-[0.45cqw] font-mono motion-reduce:transition-none',
-					pktInstant ? 'transition-none' : 'transition-all duration-[1400ms]',
+					pktInstant ? 'transition-none' : 'transition-all duration-[1600ms]',
 					pktSealed
 						? 'border-[#d9a13b] bg-muted text-foreground'
 						: 'border-border bg-muted text-foreground',
