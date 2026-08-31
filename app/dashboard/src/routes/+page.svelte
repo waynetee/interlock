@@ -109,6 +109,9 @@
 	 * at), or null when not landing -- feeds --land-from on the sheet */
 	let landA = $state<string | null>(null);
 	let landB = $state<string | null>(null);
+	/** the stack has touched down: crossfade the three sheets into ONE
+	 * composite svg -- a single raster pass cannot disagree with itself */
+	let settled = $state(false);
 	/** the hunt periods and amplitudes -- MUST match ilk-hunt-a / ilk-hunt-b
 	 * in layout.css */
 	const HUNT_TA = 1700;
@@ -246,6 +249,7 @@
 		proving = false;
 		huntA = huntB = false;
 		landA = landB = null;
+		settled = false;
 		finale = false;
 		proveT0 = 0;
 		processing = false;
@@ -292,10 +296,10 @@
 
 		pktSealed = true;
 		sealing = 'encrypting';
-		scrambleTo(cipherOf(d.ct_in, pktText.length));
+		scrambleTo(cipherOf(d.ct_in, pktText.length), 1800);
 		caption = 'It is encrypted before it touches the cable.';
 		log(`SEAL   ${d.n_tokens} tok → ${(d.ct_in ?? '').length / 2}B`);
-		if (!(await step(1800, gen))) return;
+		if (!(await step(2600, gen))) return;
 		sealing = '';
 
 		pktX = STOP[1];
@@ -307,7 +311,7 @@
 		chipA = 'held';
 		caption = 'The certifier stamps a fingerprint off the sealed bytes and keeps it.';
 		log(`CERT   inbound  ${short(reqFp, 16)} audit=${d.request_audit ? 'PASS' : 'FAIL'}`);
-		if (!(await step(frozen() ? 30 : 1900, gen))) return;
+		if (!(await step(frozen() ? 30 : 2400, gen))) return;
 
 		pktX = STOP[2];
 		hotFpga = false;
@@ -330,9 +334,9 @@
 		// ciphertext, and only the datacenter holds this session's key
 		sealing = 'decrypting';
 		pktSealed = false;
-		scrambleTo(clip(asked || promptText), 1200);
+		scrambleTo(clip(asked || promptText), 2200);
 		caption = 'Inside the cluster the request is decrypted…';
-		if (!(await step(2500, gen))) return;
+		if (!(await step(3200, gen))) return;
 		sealing = '';
 
 		// beat two: the plaintext request hands off to its ghost (pixel-identical,
@@ -369,9 +373,9 @@
 
 		sealing = 'encrypting';
 		pktSealed = true;
-		scrambleTo(cipherOf(d.ct_out, clip(text).length));
+		scrambleTo(cipherOf(d.ct_out, clip(text).length), 1800);
 		caption = '…and it is encrypted for the trip back.';
-		if (!(await step(2000, gen))) return;
+		if (!(await step(2800, gen))) return;
 		sealing = '';
 	}
 
@@ -387,16 +391,16 @@
 		chipB = 'held';
 		caption = 'The answer is fingerprinted on the way out — the certifier holds both.';
 		log(`CERT   outbound ${short(rspFp, 16)} audit=${d.response_audit ? 'PASS' : 'FAIL'}`);
-		if (!(await step(frozen() ? 30 : 1900, gen))) return;
+		if (!(await step(frozen() ? 30 : 2400, gen))) return;
 
 		pktX = STOP[0];
 		hotFpga = false;
 		if (!(await step(1900, gen))) return;
 		pktSealed = false;
 		sealing = 'decrypting';
-		scrambleTo(clip(text));
+		scrambleTo(clip(text), 1800);
 		caption = 'Decrypted at the corner — only your machine holds the key.';
-		if (!(await step(1600, gen))) return;
+		if (!(await step(2600, gen))) return;
 		sealing = '';
 		if (!(await step(900, gen))) return;
 
@@ -418,7 +422,7 @@
 		caption = 'The cluster reveals the fingerprint of the model it promised to run.';
 		if (!(await step(frozen() ? 30 : 2300, gen))) return;
 		modelShown = true;
-		if (!(await step(frozen() ? 30 : 5200, gen))) return;
+		if (!(await step(frozen() ? 30 : 7200, gen))) return;
 
 		// beat two: both films ride ONE road -- an L, right out of the
 		// certifier's wall at the lower rack's height, then up into the
@@ -449,6 +453,7 @@
 		proving = true;
 		huntA = huntB = true;
 		landA = landB = null;
+		settled = false;
 		proveT0 = performance.now();
 		caption = 'Now it has to prove all three came from the promised model.';
 		if (!(await t(250))) return;
@@ -503,13 +508,11 @@
 			}
 			// the second sheet's landing glide (1100ms) touches down
 			if (!(await step(1100, gen))) return;
-			// shed the finished landing animations: a lingering fill-both
-			// transform keeps a sheet on the composited raster path while the
-			// model sheet renders untransformed, and the half-pixel
-			// disagreement between the two paths reads as misregistration.
-			// With the animations gone all three sheets rasterize identically.
-			landA = landB = null;
 		}
+		// touchdown: crossfade the three landed sheets into one composite
+		// drawing of the same picture. One svg, one raster pass, perfect
+		// registration -- the fade reads as the stack clicking into focus.
+		settled = true;
 		verdict = d.result as Verdict;
 		phase = 'done';
 		proving = false;
@@ -609,6 +612,7 @@
 			proving = false;
 			huntA = huntB = false;
 			landA = landB = null;
+			settled = false;
 			busy = false;
 			// A halt that did not take leaves the machine up, so the panel comes back
 			// rather than sitting behind a "powering off" curtain that will never lift.
@@ -743,6 +747,7 @@
 			proving = true;
 			huntA = huntB = true;
 			landA = landB = null;
+			settled = false;
 			proveT0 = performance.now();
 		}
 	];
@@ -1043,7 +1048,7 @@
 		class={cn(
 			'absolute z-20 -translate-x-1/2 -translate-y-1/2 transition-all duration-[1400ms] ease-in-out motion-reduce:transition-none',
 			state === 'hidden' && 'opacity-0 duration-[600ms]',
-			state === 'held' && 'ilk-spring opacity-100 duration-[600ms]',
+			state === 'held' && 'ilk-spring opacity-100 duration-[1100ms]',
 			// the L, leg by leg: a small settling rack-advance, then one
 			// accelerate-turn-decelerate arc -- the ease-in lane ends at the
 			// speed the ease-out rise enters at, so the bend turns without
@@ -1314,7 +1319,8 @@
 									huntA && i === 0 && 'ilk-hunt-a',
 									huntB && i === 1 && 'ilk-hunt-b',
 									i === 0 && landA && 'ilk-land',
-									i === 1 && landB && 'ilk-land'
+									i === 1 && landB && 'ilk-land',
+									settled && (i === 2 ? 'opacity-0' : 'transition-opacity duration-[600ms] opacity-0')
 								)}
 								style={i === 0 && landA
 									? `--land-from:${landA}`
@@ -1332,6 +1338,34 @@
 								{/each}
 							</svg>
 							{/each}
+							{#if settled}
+								<!-- the settled register, redrawn as ONE svg and faded in over
+								     the three sheets as they fade out: a crossfade between two
+								     images of the same picture, ending on the one that cannot
+								     be out of register with itself -->
+								<svg
+									viewBox="0 0 {DEFAULT_GRID.cols} {filmStrips.pile}"
+									preserveAspectRatio="none"
+									shape-rendering="crispEdges"
+									class="ilk-fadein absolute inset-0 h-full w-full"
+									aria-hidden="true"
+								>
+									{#each [2, 0, 1] as i (i)}
+										{@const von = i === 2 ? !!regModel : i === 0 ? !!regReq : !!regRsp}
+										{@const vink = i === 2 ? HUEC : i === 0 ? HUEA : badB ? 'var(--fault)' : HUEB}
+										{@const vhome = i === 1 ? filmStrips.slack : 0}
+										{#if von}
+											{#each { length: filmStrips.heights[i] } as _r, r (r)}
+												{#each { length: DEFAULT_GRID.cols } as _c, c (c)}
+													{#if filmStrips.cells[i][r * DEFAULT_GRID.cols + c] > 0}
+														<rect x={c} y={vhome + r} width="1" height="1" fill={vink} />
+													{/if}
+												{/each}
+											{/each}
+										{/if}
+									{/each}
+								</svg>
+							{/if}
 						</div>
 						<!-- clearance above the pile = the sheets' biggest upward throw
 						     while hunting, so the rake never runs into the legend -->
