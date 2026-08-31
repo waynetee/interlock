@@ -1088,9 +1088,9 @@
 		{#if menuOpen}
 			<!-- controls only: everything else on this screen is a live value -->
 			<div
-				class="absolute inset-x-0 top-0 z-40 flex flex-wrap items-center justify-between gap-x-8 gap-y-3 border-b border-border bg-background/95 py-3 pr-6 pl-16 backdrop-blur"
+				class="absolute top-0 left-0 z-40 flex w-64 flex-col items-stretch gap-4 border-r border-b border-border bg-background/95 px-4 pt-16 pb-5 backdrop-blur"
 			>
-			<div class="flex flex-wrap items-center gap-x-6 gap-y-3">
+			<div class="flex flex-col items-stretch gap-3">
 				{@render toggle(armed, 'Tamper', 'fault', () => (armed = !armed))}
 				{@render toggle(simForce || !liveWire, 'Simulate', 'caution', () => {
 					// off is only offerable when there is a wire to fall back to
@@ -1120,7 +1120,7 @@
 					</div>
 				{/if}
 			</div>
-			<div class="flex flex-wrap items-center gap-x-4 gap-y-3">
+			<div class="flex flex-col items-stretch gap-3 border-t border-border pt-4">
 				<a
 					href={resolve('/lab')}
 					class="font-mono text-[10px] tracking-[0.16em] text-muted-foreground/40 uppercase hover:text-foreground"
