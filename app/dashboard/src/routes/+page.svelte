@@ -1134,14 +1134,14 @@
 		     above everything, including the open bar, so it also closes it. -->
 		<button
 			type="button"
-			class="absolute top-0 left-0 z-50 h-14 w-14 opacity-0"
+			class="absolute bottom-0 left-0 z-50 h-14 w-14 opacity-0"
 			aria-label="toggle control bar"
 			onclick={() => (menuOpen = !menuOpen)}
 		></button>
 		{#if menuOpen}
 			<!-- controls only: everything else on this screen is a live value -->
 			<div
-				class="absolute top-0 left-0 z-40 flex w-64 flex-col items-stretch gap-4 border-r border-b border-border bg-background/95 px-4 pt-16 pb-5 backdrop-blur"
+				class="absolute bottom-0 left-0 z-40 flex w-64 flex-col items-stretch gap-4 border-t border-r border-border bg-background/95 px-4 pt-5 pb-16 backdrop-blur"
 			>
 			<div class="flex flex-col items-stretch gap-3">
 				{@render toggle(armed, 'Tamper', 'fault', () => (armed = !armed))}
@@ -1194,15 +1194,18 @@
 				<button
 					class="t-tag border border-border px-4 py-2 font-mono text-muted-foreground uppercase transition-colors hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
 					disabled={goingDown}
-					onclick={resetAll}>Reset</button
+					onclick={() => {
+						menuOpen = false;
+						resetAll();
+					}}>Reset</button
 				>
 				<button
-					class={cn(
-						't-lead border border-signal bg-signal/10 px-8 py-2 font-mono tracking-[0.14em] text-signal uppercase transition-colors hover:bg-signal/20 disabled:pointer-events-none disabled:opacity-35',
-						!busy && !goingDown && phase !== 'done' && 'ilk-breathe'
-					)}
+					class="t-lead border border-signal bg-signal/25 px-8 py-2 font-mono tracking-[0.14em] text-signal uppercase transition-colors hover:bg-signal/35 disabled:pointer-events-none disabled:opacity-35"
 					disabled={busy || goingDown}
-					onclick={start}>Prompt</button
+					onclick={() => {
+						menuOpen = false;
+						start();
+					}}>Prompt</button
 				>
 			</div>
 			</div>
