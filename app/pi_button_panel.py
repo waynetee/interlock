@@ -9,8 +9,7 @@ Raspberry Pi OS) -- nothing to install, nothing that needs the internet.
   WORKLOAD button  -> POST /panel/workload  toggles honest <-> tampered
 
 LED language:
-  green PROMPT LED    solid = wire ready, press me
-                      off   = run in progress, or wire down
+  green PROMPT LED    always lit -- it marks the button, not the wire
   bicolor WORK LED    green = honest workload
                       red   = tampered workload
 
@@ -83,10 +82,11 @@ class Panel:
     # ── LEDs ────────────────────────────────────────────────────────────────
     def leds(self):
         with self.lock:
-            wire, running, workload = self.wire, self.running, self.workload
-        # steady states only, no blinking: lit means "ready, press me", dark
-        # means "not now" (a run in flight, or the wire is down)
-        lgpio.gpio_write(self.h, LED_PROMPT, 1 if wire and not running else 0)
+            workload = self.workload
+        # steady states only, no blinking. The green LED is a lamp on the
+        # button itself -- always lit, so the panel is findable in a dark
+        # room regardless of what the wire is doing.
+        lgpio.gpio_write(self.h, LED_PROMPT, 1)
         lgpio.gpio_write(self.h, LED_WORK_G, 1 if workload == "honest" else 0)
         lgpio.gpio_write(self.h, LED_WORK_R, 0 if workload == "honest" else 1)
 

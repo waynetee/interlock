@@ -1200,7 +1200,10 @@
 					}}>Reset</button
 				>
 				<button
-					class="t-lead border border-signal bg-signal/25 px-8 py-2 font-mono tracking-[0.14em] text-signal uppercase transition-colors hover:bg-signal/35 disabled:pointer-events-none disabled:opacity-35"
+					class={cn(
+						't-lead border border-signal bg-signal/10 px-8 py-2 font-mono tracking-[0.14em] text-signal uppercase transition-colors hover:bg-signal/20 disabled:pointer-events-none disabled:opacity-35',
+						!busy && !goingDown && phase !== 'done' && 'ilk-breathe'
+					)}
 					disabled={busy || goingDown}
 					onclick={() => {
 						menuOpen = false;

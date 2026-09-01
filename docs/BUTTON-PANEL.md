@@ -4,9 +4,9 @@ Two momentary buttons and two LEDs on the Raspberry Pi 5's 40-pin header give
 the demo a physical control surface:
 
 - **PROMPT** — a momentary button with a **green LED**. Press it to run a
-  prompt. The LED is solid when the wire is ready and dark otherwise — during
-  a run, or when the board's sync is down (the web panel falls back to
-  simulation; the hardware button does nothing until the wire is back).
+  prompt. The LED is always lit — it marks the button, not the wire's state
+  (when the board's sync is down the web panel falls back to simulation; the
+  hardware button does nothing until the wire is back).
 - **WORKLOAD** — a momentary button with a **red/green bicolor LED**. Each
   press toggles the workload between **honest (green)** and **tampered
   (red)**. The next PROMPT press runs whatever the LED shows. The state lives
@@ -113,10 +113,9 @@ hotspot wifi is up, and the LEDs light within seconds of boot.
 
 ## Behavior notes
 
-- A PROMPT press while the wire is down gets a fault banner on the web panel
-  (and the green LED is dark to warn you first). The hardware path never
-  falls back to simulation — only the browser can simulate.
-- A PROMPT press mid-run is refused by the server's single-flight guard; the
-  LED going dark tells you to wait.
+- A PROMPT press while the wire is down gets a fault banner on the web panel.
+  The hardware path never falls back to simulation — only the browser can
+  simulate.
+- A PROMPT press mid-run is refused by the server's single-flight guard.
 - The WORKLOAD toggle is an operator setting, not part of a run: it persists
   until pressed again, including across runs and Pi reboots.
