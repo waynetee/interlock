@@ -42,8 +42,6 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 # Tailwind v4 + shadcn-svelte, adapter-static in SPA mode), served straight out of
 # its own build directory -- no second copy to keep in sync. Build it with
 #     cd dashboard && pnpm install && pnpm build
-# `ui` is the dependency-free fallback page: if the bundle ever breaks five minutes
-# before a demo, UI=ui gets a working screen back with no toolchain involved.
 UI_DIR = os.path.join(HERE, os.environ.get("UI", "dashboard/build"))
 
 MODEL_DIR = os.environ.get(
@@ -503,8 +501,7 @@ def main():
             status = 200
         except OSError as e:
             body = ("dashboard build missing at %s (%s). Build it with "
-                    "`cd dashboard && pnpm build`, or fall back with "
-                    "`UI=ui ./demo_up.sh start`." % (index, e)).encode()
+                    "`cd dashboard && pnpm build`." % (index, e)).encode()
             status = 503
         await send({"type": "http.response.start", "status": status,
                     "headers": [(b"content-type", b"text/html; charset=utf-8"),

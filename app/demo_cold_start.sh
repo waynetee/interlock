@@ -166,7 +166,6 @@ if [ "$ok" = 1 ]; then
     echo "    demo      http://10.42.0.1:$DP/        (from the Pi's network)"
     [ -n "$IP" ] && echo "    or        http://${IP%%/*}:$DP/"
     echo "    headless  $PY -u demo_probe.py"
-    echo "    fallback  UI=ui ./demo_up.sh start      (no-JS-bundle page)"
 else
     echo "  NOT READY -- fix the lines above and re-run."
 fi

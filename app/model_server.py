@@ -22,7 +22,7 @@ back-pressure). Inference answers one at a time; control replies are spaced by C
   │ MODEL AGENT  -> replace generate().                                           │
   │ ZKP AGENT    -> replace the marked block in handle_challenge() (steps e,f,g). │
   │   Everything else (transport, framing, spacing, cert verify (a)+(b), token    │
-  │   extraction (d), the packet store) is done and tested — see HANDOFF-ZKP.md.  │
+  │   extraction (d), the packet store) is done and tested.                       │
   └─────────────────────────────────────────────────────────────────────────────┘
 
 run (needs CAP_NET_RAW + CAP_NET_ADMIN for promiscuous mode):
@@ -183,7 +183,7 @@ def handle_challenge(send_raw, header, body, store, key=KEY):
 
     Steps (a) cert HMAC, (b) bind certs to retained packets, and (d) extract plaintext
     are DONE below. The ZKP AGENT fills (e) plaintext match, (f) proof verify, (g)
-    binding — see HANDOFF-ZKP.md and spec §6."""
+    binding — see spec §6."""
     if len(body) < 8 + 2 * CERT_DATA_LEN:
         send_raw(T_STATUS, b"bring-up: body carries no certs (%dB)" % len(body))
         send_raw(T_RESULT, b"INCOMPLETE: send request_id||req_cert||rsp_cert to run the chain")
